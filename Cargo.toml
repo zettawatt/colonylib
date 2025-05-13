@@ -1,0 +1,24 @@
+[package]
+name = "colonylib"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "colonylib"
+crate-type = ["rlib"]
+
+[profile.dev]
+opt-level = 0
+incremental = true
+
+[dependencies]
+autonomi = "0.4.6"
+bip39 = { version = "2.1.0", features = ["rand"] }
+borsh = {version = "1.5.7", features = ["derive", "borsh-derive"]}
+cocoon = "0.4.3"
+hex = "0.4.3"
+ruint = "1.14.0"
+serde = "1.0.219"
+sn_bls_ckd = "0.2.1"
+sn_curv = { version = "0.10.1", default-features = false, features = ["num-bigint"] }
+tokio = "1.44.2"
