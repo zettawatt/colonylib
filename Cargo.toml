@@ -12,6 +12,7 @@ opt-level = 0
 incremental = true
 
 [dependencies]
+ant-networking = "0.3.12"
 autonomi = "0.4.6"
 bip39 = { version = "2.1.0", features = ["rand"] }
 borsh = {version = "1.5.7", features = ["derive", "borsh-derive"]}
