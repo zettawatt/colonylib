@@ -12,7 +12,6 @@ opt-level = 0
 incremental = true
 
 [dependencies]
-ant-networking = "0.3.12"
 autonomi = "0.4.6"
 bip39 = { version = "2.1.0", features = ["rand"] }
 borsh = {version = "1.5.7", features = ["derive", "borsh-derive"]}
@@ -23,3 +22,4 @@ serde = "1.0.219"
 sn_bls_ckd = "0.2.1"
 sn_curv = { version = "0.10.1", default-features = false, features = ["num-bigint"] }
 tokio = "1.44.2"
+tracing = "0.1.41"

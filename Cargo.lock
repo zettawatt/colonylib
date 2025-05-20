@@ -1839,16 +1839,19 @@ name = "colonylib"
 version = "0.1.0"
 dependencies = [
  "ant-networking",
+ "ant-protocol",
  "autonomi",
  "bip39",
  "borsh",
  "cocoon",
  "hex 0.4.3",
+ "libp2p",
  "ruint",
  "serde",
  "sn_bls_ckd",
  "sn_curv",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

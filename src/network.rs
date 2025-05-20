@@ -94,7 +94,7 @@ impl Network {
     }
 
     // Add a new pod
-    pub async fn add_pod(&mut self, key_store: &mut KeyStore) -> Result<(String, String), String> {
+    pub async fn add_pod(&mut self, data: &str, key_store: &mut KeyStore) -> Result<(String, String), String> {
         // Derive a new key for the pod scratchpad
         let scratchpad_key: SecretKey = self.create_scratchpad_key(key_store).await.map_err(|e| {
             println!("Error creating scratchpad key: {e}");
@@ -106,12 +106,12 @@ impl Network {
         let scratchpad: Scratchpad = Scratchpad::new_with_signature(
             scratchpad_key.clone().public_key(),
             0,
-            Bytes::from("It works!"),
+            Bytes::from(data.to_owned()),
             0,
             scratchpad_key.sign(Scratchpad::bytes_for_signature(
                 scratchpad_address.clone(),
                 0,
-                &Bytes::from("It works!"),
+                &Bytes::from(data.to_owned()),
                 0,
             )),
         );
@@ -148,18 +148,65 @@ impl Network {
         Ok((pointer_address.to_string(), scratchpad_address.to_string()))
     }
 
+    // Get pod data
+    pub async fn get_pod_data(&mut self, address: String, key_store: &mut KeyStore) -> Result<String, String> {
+        // get pointer
+        let pointer_address = PointerAddress::from_hex(address.as_str()).unwrap();
+        let pointer = self.client.pointer_get(&pointer_address).await.unwrap();
+        let pointer_target = pointer.target();
+        let pointer_target_string = pointer_target.to_hex();
+        println!("Pointer target address: {}", pointer_target_string);
+
+        // get scratchpad
+        let scratchpad_address = ScratchpadAddress::from_hex(pointer_target_string.as_str()).unwrap();        // Lookup the key for the pod pointer from the key store
+        let scratchpad = self.client.scratchpad_get(&scratchpad_address).await.unwrap();
+        let scratchpad_data: String = String::from_utf8(scratchpad.encrypted_data().to_vec()).unwrap();
+        println!("Scratchpad data: {}", scratchpad_data);
+        Ok(scratchpad_data)
+    }
+
     // Update pod
-    pub async fn update_pod(&mut self, address: String, key_store: KeyStore) -> Result<(), String> {
-        // Lookup the key for the pod pointer from the key store
-        let pointer_key = key_store.get_pod_key(address.clone());
+    pub async fn update_pod_data(&mut self, address: String, data: &str, key_store: &mut KeyStore) -> Result<(), String> {
+        // get pointer
+        let pointer_address = PointerAddress::from_hex(address.as_str()).unwrap();
+        let pointer = self.client.pointer_get(&pointer_address).await.unwrap();
+        let pointer_target = pointer.target();
+        let pointer_target_string = pointer_target.to_hex();
+        println!("Pointer target address: {}", pointer_target_string);
 
-        // Get the pointer value to get the scratchpad address
+        // get scratchpad
+        let scratchpad_address = ScratchpadAddress::from_hex(pointer_target_string.as_str()).unwrap();        // Lookup the key for the pod pointer from the key store
+        let scratchpad = self.client.scratchpad_get(&scratchpad_address).await.unwrap();
 
-        // Lookup the scratchpad key from the returned pointer value
+        // Update the scratchpad contents and its counter
+        let scratchpad_key = SecretKey::from_hex(key_store.get_pod_key(scratchpad_address.to_hex()).as_str()).unwrap();
+        let scratchpad = Scratchpad::new_with_signature(
+            scratchpad_key.clone().public_key(),
+            0,
+            Bytes::from(data.to_owned()),
+            scratchpad.counter() + 1,
+            scratchpad_key.sign(Scratchpad::bytes_for_signature(
+                scratchpad_address.clone(),
+                0,
+                &Bytes::from(data.to_owned()),
+                scratchpad.counter() + 1,
+            )),
+        );
 
-        
+        // Put the new scratchpad on the network
+        let payment_option = PaymentOption::from(&self.wallet);
+        let (scratchpad_cost, scratchpad_address) = self.client.scratchpad_put(scratchpad, payment_option.clone()).await.map_err(|e| {
+            println!("Error putting scratchpad on network: {e}");
+            format!("Error putting scratchpad on network: {e}")
+        })?;
+        println!("Scratchpad update cost: {scratchpad_cost:?}");
 
-        // Pay and update the pod on the network
+        // Update the pointer counter
+        let pointer_key = SecretKey::from_hex(key_store.get_pod_key(pointer_address.to_hex()).as_str()).unwrap();
+        self.client.pointer_update(&pointer_key, pointer_target.to_owned()).await.map_err(|e| {
+            println!("Error updating pointer on network: {e}");
+            format!("Error updating pointer on network: {e}")
+        })?;
 
         Ok(()) //FIXME: need a return value for a success??
     }
@@ -177,7 +224,6 @@ impl Network {
         Ok(()) //FIXME: need a return value for a success??
     }
 
-
 }
 
 async fn init_client(environment: String) -> Result<Client, String> {
@@ -191,3 +237,4 @@ async fn init_client(environment: String) -> Result<Client, String> {
         format!("Error initializing client: {e}")
     })
 }
+

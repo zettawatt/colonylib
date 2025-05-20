@@ -8,3 +8,6 @@ pub use network::Network;
 
 // Re-exports of the bls types
 pub use autonomi::{PublicKey, SecretKey, Signature};
+
+#[macro_use]
+extern crate tracing;
