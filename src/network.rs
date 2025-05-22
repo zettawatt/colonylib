@@ -1,11 +1,70 @@
-use autonomi::{Bytes, Client, PublicKey, SecretKey, Signature, Wallet};
+use autonomi::{Bytes, Client, SecretKey, Wallet, AddressParseError};
 use autonomi::client::pointer::{Pointer, PointerTarget, PointerError, PointerAddress};
+use autonomi::client::ConnectError;
 use autonomi::client::scratchpad::{Scratchpad, ScratchpadError, ScratchpadAddress};
 use autonomi::client::payment::PaymentOption;
+use autonomi;
 use ruint::Uint;
-use hex;
+use thiserror;
+use tracing::{debug, error, info, warn, instrument};
+use std::fmt;
+use serde;
+use blsttc::Error as BlsttcError;
+use alloc::string::FromUtf8Error;
 
 use crate::KeyStore;
+use crate::key::Error as KeyStoreError;
+
+// Error handling
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+  #[error(transparent)]
+  Connect(#[from] ConnectError),
+  #[error(transparent)]
+  Pointer(#[from] PointerError),
+  #[error(transparent)]
+  Scratchpad(#[from] ScratchpadError),
+  #[error(transparent)]
+  Blsttc(#[from] BlsttcError),
+  #[error(transparent)]
+  Address(#[from] AddressParseError),
+  #[error(transparent)]
+  FromUtf8(#[from] FromUtf8Error),
+  #[error(transparent)]
+  KeyStore(#[from] KeyStoreError),
+}
+
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", content = "message")]
+#[serde(rename_all = "camelCase")]
+pub enum ErrorKind {
+    Connect(String),
+    Pointer(String),
+    Scratchpad(String),
+    Blsttc(String),
+    Address(String),
+    FromUtf8(String),
+    KeyStore(String),
+}
+
+impl serde::Serialize for Error {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+      S: serde::ser::Serializer,
+    {
+      let error_message = self.to_string();
+      let error_kind = match self {
+        Self::Connect(_) => ErrorKind::Connect(error_message),
+        Self::Pointer(_) => ErrorKind::Pointer(error_message),
+        Self::Scratchpad(_) => ErrorKind::Scratchpad(error_message),
+        Self::Blsttc(_) => ErrorKind::Blsttc(error_message),
+        Self::Address(_) => ErrorKind::Address(error_message),
+        Self::FromUtf8(_) => ErrorKind::FromUtf8(error_message),
+        Self::KeyStore(_) => ErrorKind::KeyStore(error_message),
+      };
+      error_kind.serialize(serializer)
+    }
+  }
 
 #[derive(Clone)]
 pub struct Network {
@@ -13,29 +72,37 @@ pub struct Network {
     pub wallet: Wallet,
 }
 
+impl fmt::Debug for Network {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Network")
+            .field("client", &"Client(Debug not implemented)")
+            .field("wallet", &self.wallet.address().to_string())
+            .finish()
+    }
+}
+
 impl Network {
 
     /// Initialize the client and wallet
-    pub async fn initialize(mut wallet_key: String, environment: String) -> Result<Self, String> {
-        println!("Initializing client with environment: {environment:?}");
+    #[instrument]
+    pub async fn initialize(wallet_key: String, environment: String) -> Result<Self, Error> {
+        info!("Initializing client with environment: {environment:?}");
 
         let client = init_client(environment).await?;
-        println!("Client initialized");
+        info!("Client initialized");
 
         let evm_network = client.evm_network();
-        println!("EVM network: {evm_network:?}");
+        debug!("EVM network: {evm_network:?}");
 
-        let wallet =
-            Wallet::new_from_private_key(evm_network.clone(), wallet_key.as_str()).map_err(|e| {
-                println!("Error loading wallet: {e}");
-                format!("Error loading wallet: {e}")
-            })?;
-        println!("Wallet loaded");
+        //FIXME: need to grap the wallet error and remove this unwrap()
+        let wallet = Wallet::new_from_private_key(evm_network.clone(), wallet_key.as_str()).unwrap();
+        debug!("Wallet loaded");
 
         Ok(Self { wallet, client })
     }
 
     // Get balance of gas tokens in wallet
+    #[instrument]
     pub async fn get_balance_of_gas_tokens (&self) -> Result<f64, String> {
         let balance: Uint<256, 4> = self.wallet.balance_of_gas_tokens().await.map_err(|e| {
                 println!("Error getting balance of gas tokens: {e}");
@@ -47,6 +114,7 @@ impl Network {
     }
 
     // Get balance of ANT tokens in wallet
+    #[instrument]
     pub async fn get_balance_of_tokens (&self) -> Result<f64, String> {
         let balance: Uint<256, 4> = self.wallet.balance_of_tokens().await.map_err(|e| {
                 println!("Error getting balance of gas tokens: {e}");
@@ -58,16 +126,17 @@ impl Network {
     }
 
     // Create a new pointer key, make sure it is empty, and add it to the key store
-    async fn create_pointer_key(&mut self, key_store: &mut KeyStore) -> Result<SecretKey, PointerError> {
+    #[instrument]
+    async fn create_pointer_key(&mut self, key_store: &mut KeyStore) -> Result<SecretKey, Error> {
         loop {
             // Derive a new key
-            let key_string = key_store.add_derived_key();
-            let derived_key: SecretKey = SecretKey::from_hex(key_string.as_str()).unwrap();
+            let key_string = key_store.add_derived_key()?;
+            let derived_key: SecretKey = SecretKey::from_hex(key_string.as_str())?;
             // Check if the key is empty
             let address = PointerAddress::new(derived_key.clone().public_key());
             let already_exists = self.client.pointer_check_existance(&address).await?;
             if already_exists {
-                println!("Pointer key already exists, generating a new one");
+                warn!("Pointer key already exists, generating a new one");
                 continue;
             } else {
                 return Ok(derived_key);
@@ -76,16 +145,17 @@ impl Network {
     }
 
     // Create a new pointer key, make sure it is empty, and add it to the key store
-    async fn create_scratchpad_key(&mut self, key_store: &mut KeyStore) -> Result<SecretKey, ScratchpadError> {
+    #[instrument]
+    async fn create_scratchpad_key(&mut self, key_store: &mut KeyStore) -> Result<SecretKey, Error> {
         loop {
             // Derive a new key
-            let key_string = key_store.add_derived_key();
-            let derived_key: SecretKey = SecretKey::from_hex(key_string.as_str()).unwrap();
+            let key_string = key_store.add_derived_key()?;
+            let derived_key: SecretKey = SecretKey::from_hex(key_string.as_str())?;
             // Check if the key is empty
             let address = ScratchpadAddress::new(derived_key.clone().public_key());
             let already_exists = self.client.scratchpad_check_existance(&address).await?;
             if already_exists {
-                println!("Scratchpad key already exists, generating a new one");
+                warn!("Scratchpad key already exists, generating a new one");
                 continue;
             } else {
                 return Ok(derived_key);
@@ -94,12 +164,10 @@ impl Network {
     }
 
     // Add a new pod
-    pub async fn add_pod(&mut self, data: &str, key_store: &mut KeyStore) -> Result<(String, String), String> {
+    #[instrument]
+    pub async fn add_pod(&mut self, data: &str, key_store: &mut KeyStore) -> Result<(String, String), Error> {
         // Derive a new key for the pod scratchpad
-        let scratchpad_key: SecretKey = self.create_scratchpad_key(key_store).await.map_err(|e| {
-            println!("Error creating scratchpad key: {e}");
-            format!("Error creating scratchpad key: {e}")
-        })?;
+        let scratchpad_key: SecretKey = self.create_scratchpad_key(key_store).await?;
         
         // Create new publicly readable scratchpad
         let scratchpad_address: ScratchpadAddress = ScratchpadAddress::new(scratchpad_key.clone().public_key());
@@ -117,10 +185,7 @@ impl Network {
         );
 
         // Derive a new key for the pod pointer
-        let pointer_key: SecretKey = self.create_pointer_key(key_store).await.map_err(|e| {
-            println!("Error creating pointer key: {e}");
-            format!("Error creating pointer key: {e}")
-        })?;
+        let pointer_key: SecretKey = self.create_pointer_key(key_store).await?;
 
         // Create new pointer that points to the scratchpad
         let pointer = Pointer::new(
@@ -132,54 +197,50 @@ impl Network {
         //FIXME: batch the pod scratchpad and pointer put operations
         // Put the scratchpad on the network
         let payment_option = PaymentOption::from(&self.wallet);
-        let (scratchpad_cost, scratchpad_address) = self.client.scratchpad_put(scratchpad, payment_option.clone()).await.map_err(|e| {
-            println!("Error putting scratchpad on network: {e}");
-            format!("Error putting scratchpad on network: {e}")
-        })?;
-        let (pointer_cost, pointer_address) = self.client.pointer_put(pointer, payment_option).await.map_err(|e| {
-            println!("Error putting pointer on network: {e}");
-            format!("Error putting pointer on network: {e}")
-        })?;
-        println!("Scratchpad address: {scratchpad_address:?}");
-        println!("Scratchpad cost: {scratchpad_cost:?}");
-        println!("Pointer address: {pointer_address:?}");
-        println!("Pointer cost: {pointer_cost:?}");
+        let (scratchpad_cost, scratchpad_address) = self.client.scratchpad_put(scratchpad, payment_option.clone()).await?;
+        let (pointer_cost, pointer_address) = self.client.pointer_put(pointer, payment_option).await?;
+        debug!("Scratchpad address: {scratchpad_address:?}");
+        debug!("Scratchpad cost: {scratchpad_cost:?}");
+        debug!("Pointer address: {pointer_address:?}");
+        debug!("Pointer cost: {pointer_cost:?}");
 
         Ok((pointer_address.to_string(), scratchpad_address.to_string()))
     }
 
     // Get pod data
-    pub async fn get_pod_data(&mut self, address: String, key_store: &mut KeyStore) -> Result<String, String> {
+    #[instrument]
+    pub async fn get_pod_data(&mut self, address: String, key_store: &mut KeyStore) -> Result<String, Error> {
         // get pointer
-        let pointer_address = PointerAddress::from_hex(address.as_str()).unwrap();
-        let pointer = self.client.pointer_get(&pointer_address).await.unwrap();
+        let pointer_address = PointerAddress::from_hex(address.as_str())?;
+        let pointer = self.client.pointer_get(&pointer_address).await?;
         let pointer_target = pointer.target();
         let pointer_target_string = pointer_target.to_hex();
-        println!("Pointer target address: {}", pointer_target_string);
+        debug!("Pointer target address: {}", pointer_target_string);
 
         // get scratchpad
-        let scratchpad_address = ScratchpadAddress::from_hex(pointer_target_string.as_str()).unwrap();        // Lookup the key for the pod pointer from the key store
-        let scratchpad = self.client.scratchpad_get(&scratchpad_address).await.unwrap();
-        let scratchpad_data: String = String::from_utf8(scratchpad.encrypted_data().to_vec()).unwrap();
-        println!("Scratchpad data: {}", scratchpad_data);
+        let scratchpad_address = ScratchpadAddress::from_hex(pointer_target_string.as_str())?;        // Lookup the key for the pod pointer from the key store
+        let scratchpad = self.client.scratchpad_get(&scratchpad_address).await?;
+        let scratchpad_data: String = String::from_utf8(scratchpad.encrypted_data().to_vec())?;
+        debug!("Scratchpad data: {}", scratchpad_data);
         Ok(scratchpad_data)
     }
 
     // Update pod
-    pub async fn update_pod_data(&mut self, address: String, data: &str, key_store: &mut KeyStore) -> Result<(), String> {
+    #[instrument]
+    pub async fn update_pod_data(&mut self, address: String, data: &str, key_store: &mut KeyStore) -> Result<(), Error> {
         // get pointer
-        let pointer_address = PointerAddress::from_hex(address.as_str()).unwrap();
-        let pointer = self.client.pointer_get(&pointer_address).await.unwrap();
+        let pointer_address = PointerAddress::from_hex(address.as_str())?;
+        let pointer = self.client.pointer_get(&pointer_address).await?;
         let pointer_target = pointer.target();
         let pointer_target_string = pointer_target.to_hex();
         println!("Pointer target address: {}", pointer_target_string);
 
         // get scratchpad
-        let scratchpad_address = ScratchpadAddress::from_hex(pointer_target_string.as_str()).unwrap();        // Lookup the key for the pod pointer from the key store
-        let scratchpad = self.client.scratchpad_get(&scratchpad_address).await.unwrap();
+        let scratchpad_address = ScratchpadAddress::from_hex(pointer_target_string.as_str())?;        // Lookup the key for the pod pointer from the key store
+        let scratchpad = self.client.scratchpad_get(&scratchpad_address).await?;
 
         // Update the scratchpad contents and its counter
-        let scratchpad_key = SecretKey::from_hex(key_store.get_pod_key(scratchpad_address.to_hex()).as_str()).unwrap();
+        let scratchpad_key = SecretKey::from_hex(key_store.get_pod_key(scratchpad_address.to_hex())?.as_str())?;
         let scratchpad = Scratchpad::new_with_signature(
             scratchpad_key.clone().public_key(),
             0,
@@ -195,23 +256,18 @@ impl Network {
 
         // Put the new scratchpad on the network
         let payment_option = PaymentOption::from(&self.wallet);
-        let (scratchpad_cost, scratchpad_address) = self.client.scratchpad_put(scratchpad, payment_option.clone()).await.map_err(|e| {
-            println!("Error putting scratchpad on network: {e}");
-            format!("Error putting scratchpad on network: {e}")
-        })?;
+        let (scratchpad_cost, _scratchpad_address) = self.client.scratchpad_put(scratchpad, payment_option.clone()).await?;
         println!("Scratchpad update cost: {scratchpad_cost:?}");
 
         // Update the pointer counter
-        let pointer_key = SecretKey::from_hex(key_store.get_pod_key(pointer_address.to_hex()).as_str()).unwrap();
-        self.client.pointer_update(&pointer_key, pointer_target.to_owned()).await.map_err(|e| {
-            println!("Error updating pointer on network: {e}");
-            format!("Error updating pointer on network: {e}")
-        })?;
+        let pointer_key = SecretKey::from_hex(key_store.get_pod_key(pointer_address.to_hex())?.as_str())?;
+        self.client.pointer_update(&pointer_key, pointer_target.to_owned()).await?;
 
         Ok(()) //FIXME: need a return value for a success??
     }
 
     // Refresh pod cache
+    #[instrument]
     pub async fn refresh_pod_cache(self, key_store: KeyStore) -> Result<(), String> {
         // Get the list of pods from the key store
 
@@ -226,15 +282,11 @@ impl Network {
 
 }
 
-async fn init_client(environment: String) -> Result<Client, String> {
-    let res = match environment.as_str() {
-        "local" => Client::init_local().await,
-        "alpha" => Client::init_alpha().await,
-        _ => Client::init().await, // "autonomi"
-    };
-    res.map_err(|e| {
-        println!("Error initializing client: {e}");
-        format!("Error initializing client: {e}")
-    })
+async fn init_client(environment: String) -> Result<Client, Error> {
+    match environment.as_str() {
+        "local" => Client::init_local().await.map_err(Error::Connect),
+        "alpha" => Client::init_alpha().await.map_err(Error::Connect),
+        _ => Client::init().await.map_err(Error::Connect), // "autonomi"
+    }
 }
 

@@ -1,15 +1,67 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use bip39::{Mnemonic, Language};
+use bip39::Error as Bip39Error;
 use autonomi::client::key_derivation::{DerivationIndex, MainSecretKey};
 use autonomi::{SecretKey, PublicKey};
 use cocoon::Cocoon;
+use cocoon::Error as CocoonError;
 use std::collections::HashMap;
-use std::io::Error;
+use std::io::Error as IoError;
+use blsttc::Error as BlsttcError;
 use sn_bls_ckd::derive_master_sk;
 use sn_curv::elliptic::curves::ECScalar;
 use hex;
+use tracing::{debug, error, info, warn, instrument};
+use thiserror;
+use serde;
 
-#[derive(BorshDeserialize, BorshSerialize, Clone)] // Ensure BorshSerialize is derived
+// Error handling
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("{0:?}")]
+    Cocoon(CocoonError),
+    #[error(transparent)]
+    Io(#[from] IoError),
+    #[error(transparent)]
+    Bip39(#[from] Bip39Error),
+    #[error(transparent)]
+    Blsttc(#[from] BlsttcError),
+    #[error(transparent)]
+    Hex(#[from] hex::FromHexError),
+}
+
+// Removed manual Display implementation to avoid conflict with thiserror::Error
+
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", content = "message")]
+#[serde(rename_all = "camelCase")]
+pub enum ErrorKind {
+    Cocoon(String),
+    Io(String),
+    Bip39(String),
+    Blsttc(String),
+    Hex(String),
+}
+
+impl serde::Serialize for Error {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+      S: serde::ser::Serializer,
+    {
+      let error_message = self.to_string();
+      let error_kind = match self {
+        Self::Cocoon(_) => ErrorKind::Cocoon(error_message),
+        Self::Io(_) => ErrorKind::Io(error_message),
+        Self::Bip39(_) => ErrorKind::Bip39(error_message),
+        Self::Blsttc(_) => ErrorKind::Blsttc(error_message),
+        Self::Hex(_) => ErrorKind::Hex(error_message),
+      };
+      error_kind.serialize(serializer)
+    }
+  }
+
+
+#[derive(BorshDeserialize, BorshSerialize, Clone, Debug)] // Ensure BorshSerialize is derived
 pub struct KeyStore {
     wallet_key: Vec<u8>,
     mnemonic: String,
@@ -18,22 +70,32 @@ pub struct KeyStore {
 }
 
 impl KeyStore {
-    pub fn from_file<R: std::io::Read>(file: &mut R, password: &str) -> Result<Self, cocoon::Error> {
+    #[instrument]
+    pub fn from_file<R: std::io::Read + std::fmt::Debug>(file: &mut R, password: &str) -> Result<Self, Error> {
         let cocoon = Cocoon::new(&password.as_bytes());
-        let encoded = cocoon.parse(file)?;
-        let key_store = KeyStore::try_from_slice(&encoded).unwrap();
+        let encoded = cocoon.parse(file).map_err(Error::Cocoon)?;
+        debug!("Read from file: {:?}", file);
+        let key_store = KeyStore::try_from_slice(&encoded)?;
+        debug!("Parsed key store: {:?}", key_store);
+        info!("Key store loaded successfully");
         Ok(key_store)
     }
-    pub fn to_file<W: std::io::Write>(&self, file: &mut W, password: &str) -> Result<(), cocoon::Error> {
+
+    #[instrument]
+    pub fn to_file<W: std::io::Write + std::fmt::Debug>(&self, file: &mut W, password: &str) -> Result<(), Error> {
         let mut cocoon = Cocoon::new(&password.as_bytes());
-        let encoded = borsh::to_vec(&self).unwrap();
-        cocoon.dump(encoded, file)?;
+        let encoded = borsh::to_vec(&self)?;
+        cocoon.dump(encoded, file).map_err(Error::Cocoon)?;
+        debug!("Wrote to file: {:?}", file);
+        info!("Key store saved successfully");
         Ok(())
     }
+
+    #[instrument]
     pub fn from_mnemonic(mnemonic: String) -> Result<Self, Error> {
 
         // Generate a new mnemonic from the given phrase
-        let mnemonic = Mnemonic::parse_in_normalized(Language::English, mnemonic.as_str()).unwrap();
+        let mnemonic = Mnemonic::parse_in_normalized(Language::English, mnemonic.as_str())?;
         let seed = mnemonic.to_seed_normalized("");
 
         // Derive BLS12-381 master secret key from seed using EIP-2333 standard.
@@ -44,10 +106,7 @@ impl KeyStore {
             .into(); // Convert GenericArray<u8, 32> to [u8; 32]
 
         // Create a SecretKey from the 32-byte array
-        let secret_key = SecretKey::from_bytes(key_bytes).unwrap_or_else(|error| {
-                panic!("Problem creating the secret key. Try running initialize again: {:?}", error);
-            }
-        );
+        let secret_key = SecretKey::from_bytes(key_bytes)?;
 
         // Generate a new main keys from the mnemonic
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
@@ -67,43 +126,58 @@ impl KeyStore {
         })
     }
 
+    #[instrument]
     pub fn get_seed_phrase(&self) -> String {
+        debug!("Seed phrase: {}", self.mnemonic);
         self.mnemonic.clone()
     }
 
-    pub fn set_wallet_key(&mut self, wallet_key: String) {
+    #[instrument]
+    pub fn set_wallet_key(&mut self, wallet_key: String) -> Result<(), Error> {
         let wallet_key = remove_0x_prefix(wallet_key.as_str());
-        self.wallet_key = hex::decode(wallet_key).unwrap();
+        self.wallet_key = hex::decode(wallet_key)?;
+        debug!("Wallet key set: {}", hex::encode(self.wallet_key.clone()));
+        Ok(())
     }
 
+    #[instrument]
     pub fn get_wallet_key(&self) -> String {
+        debug!("Wallet key: {}", hex::encode(self.wallet_key.clone()));
         hex::encode(self.wallet_key.clone())
     }
 
-    pub fn get_pod_key(&self, pod_pubkey: String) -> String {
-        let decoded_key = hex::decode(pod_pubkey.as_str()).unwrap();
+    #[instrument]
+    pub fn get_pod_key(&self, pod_pubkey: String) -> Result<String, Error> {
+        let decoded_key = hex::decode(pod_pubkey.as_str())?;
         match self.pods.get(&decoded_key) {
-            Some(value) => hex::encode(value),
-            None => String::from("Key not found"),
+            Some(value) => {
+                debug!("Pod key: {}", hex::encode(value));
+                Ok(hex::encode(value))
+            },
+            None => Err(Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Key not found"))),
         }
     }
 
-    pub fn add_derived_key(&mut self) -> String {
+    #[instrument]
+    pub fn add_derived_key(&mut self) -> Result<String, Error> {
         let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
-        let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array).unwrap();
+        let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
         let pod_key: SecretKey = main_sk.derive_key(&index(self.get_num_derived_keys())).into();
         let pod_pubkey: PublicKey = pod_key.clone().public_key();
         self.pods.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
-        pod_key.to_hex().to_string()
+        Ok(pod_key.to_hex().to_string())
     }
 
+    #[instrument]
     pub fn get_num_derived_keys(&self) -> u64 {
+        debug!("Number of derived keys: {}", self.pods.len());
         self.pods.len() as u64
     }
 
 }
 
+#[instrument]
 fn index(i: u64) -> DerivationIndex {
     let mut bytes = [0u8; 32];
     bytes[..8].copy_from_slice(&i.to_ne_bytes());
