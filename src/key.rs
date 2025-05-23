@@ -61,7 +61,7 @@ impl serde::Serialize for Error {
   }
 
 
-#[derive(BorshDeserialize, BorshSerialize, Clone, Debug)] // Ensure BorshSerialize is derived
+#[derive(BorshDeserialize, BorshSerialize, Clone, Debug)]
 pub struct KeyStore {
     wallet_key: Vec<u8>,
     mnemonic: String,
@@ -108,19 +108,29 @@ impl KeyStore {
         // Create a SecretKey from the 32-byte array
         let secret_key = SecretKey::from_bytes(key_bytes)?;
 
+        let hex_key = hex::encode(secret_key.to_bytes());
+
+        Ok(Self::from_hex(hex_key)?)
+    }
+
+    #[instrument]
+    pub fn from_hex(key: String) -> Result<Self, Error> {
+
+        let secret_key = SecretKey::from_hex(key.as_str())?;
+
         // Generate a new main keys from the mnemonic
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
         //let main_pk: MainPubkey = main_sk.public_key();
 
-        // Create a new pods hashmap and add the first pod
-        let mut pods: HashMap<PublicKey, SecretKey> = HashMap::new();
-        let pod_key: SecretKey = main_sk.derive_key(&index(0)).into();
-        let pod_pubkey: PublicKey = pod_key.public_key();
-        pods.insert(pod_pubkey, pod_key.clone());
+        // Create a new pods hashmap
+        let pods: HashMap<PublicKey, SecretKey> = HashMap::new();
+        //let pod_key: SecretKey = main_sk.derive_key(&index(0)).into();
+        //let pod_pubkey: PublicKey = pod_key.public_key();
+        //pods.insert(pod_pubkey, pod_key.clone());
 
         Ok(KeyStore {
             wallet_key: SecretKey::default().to_bytes().to_vec(),
-            mnemonic: mnemonic.to_string(),
+            mnemonic: "Unknown, initialized with key".to_string(),
             main_sk: main_sk.to_bytes(),
             pods: pods.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect()
         })

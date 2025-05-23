@@ -14,6 +14,9 @@ use alloc::string::FromUtf8Error;
 
 use crate::KeyStore;
 use crate::key::Error as KeyStoreError;
+use crate::DataStore;
+use crate::data::Error as DataStoreError;
+
 
 // Error handling
 #[derive(Debug, thiserror::Error)]
@@ -32,6 +35,8 @@ pub enum Error {
   FromUtf8(#[from] FromUtf8Error),
   #[error(transparent)]
   KeyStore(#[from] KeyStoreError),
+  #[error(transparent)]
+  DataStore(#[from] DataStoreError),
 }
 
 #[derive(serde::Serialize)]
@@ -45,6 +50,7 @@ pub enum ErrorKind {
     Address(String),
     FromUtf8(String),
     KeyStore(String),
+    DataStore(String),
 }
 
 impl serde::Serialize for Error {
@@ -61,18 +67,19 @@ impl serde::Serialize for Error {
         Self::Address(_) => ErrorKind::Address(error_message),
         Self::FromUtf8(_) => ErrorKind::FromUtf8(error_message),
         Self::KeyStore(_) => ErrorKind::KeyStore(error_message),
+        Self::DataStore(_) => ErrorKind::DataStore(error_message),
       };
       error_kind.serialize(serializer)
     }
   }
 
 #[derive(Clone)]
-pub struct Network {
+pub struct PodManager {
     pub client: Client,
     pub wallet: Wallet,
 }
 
-impl fmt::Debug for Network {
+impl fmt::Debug for PodManager {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Network")
             .field("client", &"Client(Debug not implemented)")
@@ -81,11 +88,11 @@ impl fmt::Debug for Network {
     }
 }
 
-impl Network {
+impl PodManager {
 
     /// Initialize the client and wallet
     #[instrument]
-    pub async fn initialize(wallet_key: String, environment: String) -> Result<Self, Error> {
+    pub async fn new(wallet_key: String, environment: String) -> Result<Self, Error> {
         info!("Initializing client with environment: {environment:?}");
 
         let client = init_client(environment).await?;
@@ -209,7 +216,7 @@ impl Network {
 
     // Get pod data
     #[instrument]
-    pub async fn get_pod_data(&mut self, address: String, key_store: &mut KeyStore) -> Result<String, Error> {
+    pub async fn download_pod(&mut self, address: String, key_store: &mut KeyStore) -> Result<String, Error> {
         // get pointer
         let pointer_address = PointerAddress::from_hex(address.as_str())?;
         let pointer = self.client.pointer_get(&pointer_address).await?;
@@ -227,7 +234,7 @@ impl Network {
 
     // Update pod
     #[instrument]
-    pub async fn update_pod_data(&mut self, address: String, data: &str, key_store: &mut KeyStore) -> Result<(), Error> {
+    pub async fn upload_pod(&mut self, address: String, data: &str, key_store: &mut KeyStore) -> Result<(), Error> {
         // get pointer
         let pointer_address = PointerAddress::from_hex(address.as_str())?;
         let pointer = self.client.pointer_get(&pointer_address).await?;

@@ -1,10 +1,11 @@
 
-pub mod network;
+pub mod pod;
 pub mod key;
 pub mod data;
 
 pub use key::KeyStore;
-pub use network::Network;
+pub use pod::PodManager;
+pub use data::DataStore;
 
 // Re-exports of the bls types
 pub use autonomi::{PublicKey, SecretKey, Signature};
