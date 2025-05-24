@@ -1888,7 +1888,6 @@ dependencies = [
  "dirs",
  "hex 0.4.3",
  "oxigraph",
- "ruint",
  "serde",
  "sn_bls_ckd",
  "sn_curv",

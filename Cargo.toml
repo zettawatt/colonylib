@@ -20,7 +20,6 @@ cocoon = "0.4.3"
 dirs = "6.0.0"
 hex = "0.4.3"
 oxigraph = "0.4.11"
-ruint = "1.14.0"
 serde = "1.0.219"
 sn_bls_ckd = "0.2.1"
 sn_curv = { version = "0.10.1", default-features = false, features = ["num-bigint"] }
