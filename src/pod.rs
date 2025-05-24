@@ -170,9 +170,35 @@ impl PodManager {
         }
     }
 
-    // Add a new pod
+    ///////////////////////////////////////////
+    // Local data operations
+    ///////////////////////////////////////////
+
+    // Add a new pod to the local data store
     #[instrument]
-    pub async fn add_pod(&mut self, data: &str, key_store: &mut KeyStore) -> Result<(String, String), Error> {
+    pub fn add(&mut self, data_store: &DataStore, pod_id: &str) -> Result<(), Error> {
+        Ok(())
+    }
+
+    // Update a pod in the local data store
+    #[instrument]
+    pub fn update(&mut self, data_store: &DataStore, pod_id: &str) -> Result<(), Error> {
+        Ok(())
+    }
+
+    // Get a pod from the local data store
+    #[instrument]
+    pub fn get(&mut self, data_store: &DataStore, pod_id: &str) -> Result<String, Error> {
+        let pod_data = data_store.read(pod_id)?;
+        Ok(pod_data)
+    }
+
+    ///////////////////////////////////////////
+    // Autonomi network operations
+    ///////////////////////////////////////////
+    // Create a new pod on the network
+    #[instrument]
+    pub async fn create(&mut self, data: &str, key_store: &mut KeyStore) -> Result<(String, String), Error> {
         // Derive a new key for the pod scratchpad
         let scratchpad_key: SecretKey = self.create_scratchpad_key(key_store).await?;
         
@@ -214,9 +240,9 @@ impl PodManager {
         Ok((pointer_address.to_string(), scratchpad_address.to_string()))
     }
 
-    // Get pod data
+    // Get pod data from the network
     #[instrument]
-    pub async fn download_pod(&mut self, address: String, key_store: &mut KeyStore) -> Result<String, Error> {
+    pub async fn download(&mut self, address: String, key_store: &mut KeyStore) -> Result<String, Error> {
         // get pointer
         let pointer_address = PointerAddress::from_hex(address.as_str())?;
         let pointer = self.client.pointer_get(&pointer_address).await?;
@@ -232,9 +258,9 @@ impl PodManager {
         Ok(scratchpad_data)
     }
 
-    // Update pod
+    // Update pod data on the network
     #[instrument]
-    pub async fn upload_pod(&mut self, address: String, data: &str, key_store: &mut KeyStore) -> Result<(), Error> {
+    pub async fn upload(&mut self, address: String, data: &str, key_store: &mut KeyStore) -> Result<(), Error> {
         // get pointer
         let pointer_address = PointerAddress::from_hex(address.as_str())?;
         let pointer = self.client.pointer_get(&pointer_address).await?;
@@ -273,9 +299,9 @@ impl PodManager {
         Ok(()) //FIXME: need a return value for a success??
     }
 
-    // Refresh pod cache
+    // Refresh pod cache from the network
     #[instrument]
-    pub async fn refresh_pod_cache(self, key_store: KeyStore) -> Result<(), String> {
+    pub async fn refresh(self, key_store: KeyStore) -> Result<(), String> {
         // Get the list of pods from the key store
 
         // Go through each pointer and check if there is an update vs the cache
@@ -284,7 +310,7 @@ impl PodManager {
 
         // Recurse through each of the pods listed in the scratchpad and perform the same operation, increasing the depth attribute
 
-        Ok(()) //FIXME: need a return value for a success??
+        Ok(())
     }
 
 }
