@@ -2,7 +2,7 @@ use std::fs::{File, create_dir_all, read_to_string, write, OpenOptions};
 use std::path::PathBuf;
 use dirs;
 use std::io::Error as IoError;
-use tracing::{debug, error, info, warn, instrument};
+use tracing::{error, info};
 use std::io::Write;
 use thiserror;
 use serde;
@@ -68,6 +68,18 @@ impl DataStore {
             create_dir_all(&pods_dir)?;
             info!("Created pods directory: {:?}", pods_dir);
         }
+        let mut scratchpads_dir = pods_dir.clone();
+        scratchpads_dir.push("scratchpads");
+        if !scratchpads_dir.exists() {
+            create_dir_all(&scratchpads_dir)?;
+            info!("Created scratchpads directory: {:?}", scratchpads_dir);
+        }
+        let mut pointers_dir = pods_dir.clone();
+        pointers_dir.push("pointers");
+        if !pointers_dir.exists() {
+            create_dir_all(&pointers_dir)?;
+            info!("Created pointers directory: {:?}", pointers_dir);
+        }
         if !pod_refs_dir.exists() {
             create_dir_all(&pod_refs_dir)?;
             info!("Created pod reference directory: {:?}", pod_refs_dir);
@@ -85,6 +97,22 @@ impl DataStore {
         pod_path
     }
 
+    pub fn get_pods_dir(&self) -> PathBuf {
+        self.pods_dir.clone()
+    }
+
+    pub fn get_pointers_dir(&self) -> PathBuf {
+        let mut pointers_dir = self.pods_dir.clone();
+        pointers_dir.push("pointers");
+        pointers_dir
+    }
+
+    pub fn get_scratchpads_dir(&self) -> PathBuf {
+        let mut scratchpads_dir = self.pods_dir.clone();
+        scratchpads_dir.push("scratchpads");
+        scratchpads_dir
+    }
+
     pub fn get_pod_ref_path(&self, address: &str) -> PathBuf {
         let mut pod_ref_path = self.pod_refs_dir.clone();
         pod_ref_path.push(address);
@@ -97,18 +125,6 @@ impl DataStore {
 
     pub fn get_data_path(&self) -> PathBuf {
         self.data_dir.clone()
-    }
-
-    pub fn write_pod(&self, address: &str, data: &str) -> Result<(), Error> {
-        let pod_path = self.get_pod_path(address);
-        write(pod_path, data.as_bytes())?;
-        Ok(())
-    }
-
-    pub fn read_pod(&self, address: &str) -> Result<String, Error> {
-        let pod_path = self.get_pod_path(address);
-        let data = read_to_string(pod_path)?;
-        Ok(data)
     }
 
     pub fn get_update_list_path(&self) -> PathBuf {
@@ -135,34 +151,80 @@ impl DataStore {
         Ok(())
     }
 
-    pub fn address_is_scratchpad(&self, address: &str) -> Result<bool, Error> {
-        let pod_path = self.pods_dir.clone(); // Get the base pod directory
-        if pod_path.exists() && pod_path.is_dir() {
-            for entry in std::fs::read_dir(pod_path)? {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        let mut file_path = path.clone();
-                        file_path.push(address);
-                        if file_path.exists() && file_path.is_file() {
-                            return Ok(true); // Address is a scratchpad file
-                        }
-                    }
-                }
-            }
+    pub fn update_pointer_target(&self, pointer_address: &str, scratchpad_address: &str) -> Result<(), Error> {
+        // Add the scratchpad address to the pointer file
+        let mut pointer_path = self.get_pointers_dir();
+        pointer_path.push(pointer_address);
+        let mut pointer_file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&pointer_path)?;
+        writeln!(pointer_file, "{}", scratchpad_address)?;
+        Ok(())        
+    }
+
+    pub fn get_pointer_target(&self, pointer_address: &str) -> Result<String, Error> {
+        let mut pointer_path = self.get_pointers_dir();
+        pointer_path.push(pointer_address);
+        let data = read_to_string(pointer_path)?;
+        Ok(data)
+    }
+
+    pub fn get_scratchpad_data(&self, address: &str) -> Result<String, Error> {
+        let mut scratchpad_path = self.get_scratchpads_dir();
+        scratchpad_path.push(address);
+        let data = read_to_string(scratchpad_path)?;
+        Ok(data)
+    }
+
+    pub fn update_scratchpad_data(&self, address: &str, data: &str) -> Result<(), Error> {
+        let mut scratchpad_path = self.get_scratchpads_dir();
+        scratchpad_path.push(address);
+        write(scratchpad_path, data.as_bytes())?;
+        Ok(())
+    }
+
+    pub fn create_pointer_file(&self, address: &str) -> Result<(), Error> {
+        let mut pointer_path = self.get_pointers_dir();
+        pointer_path.push(address);
+        if !pointer_path.exists() {
+            File::create(&pointer_path)?;
+            info!("Created pointer file: {:?}", pointer_path);
         }
-        Ok(false) // Address is not a scratchpad file
+        Ok(())
+    }
+
+    pub fn create_scratchpad_file(&self, address: &str) -> Result<(), Error> {
+        let mut scratchpad_path = self.get_scratchpads_dir();
+        scratchpad_path.push(address);
+        if !scratchpad_path.exists() {
+            File::create(&scratchpad_path)?;
+            info!("Created scratchpad file: {:?}", scratchpad_path);
+        }
+        Ok(())
     }
 
     pub fn address_is_pointer(&self, address: &str) -> Result<bool, Error> {
-        let mut pod_path = self.pods_dir.clone(); // Get the base pod directory
-        pod_path.push(address); // Append the address to the base directory path
+        let mut pod_path = self.get_pointers_dir();
+        pod_path.push(address);
     
-        if pod_path.exists() && pod_path.is_dir() {
-            return Ok(true); // Address is a directory (pointer)
+        if pod_path.exists() && pod_path.is_file() {
+            return Ok(true);
         }
     
         Ok(false) // Address is not a directory (pointer)
     }
+
+    pub fn address_is_scratchpad(&self, address: &str) -> Result<bool, Error> {
+        let mut pod_path = self.get_scratchpads_dir();
+        pod_path.push(address); // Append the address to the base directory path
+    
+        if pod_path.exists() && pod_path.is_file() {
+            return Ok(true);
+        }
+    
+        Ok(false)
+    }
+
 }
 
