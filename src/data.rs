@@ -91,12 +91,6 @@ impl DataStore {
         Ok(DataStore { data_dir, pods_dir, pod_refs_dir, downloads_dir })
     }
 
-    pub fn get_pod_path(&self, address: &str) -> PathBuf {
-        let mut pod_path = self.pods_dir.clone();
-        pod_path.push(address);
-        pod_path
-    }
-
     pub fn get_pods_dir(&self) -> PathBuf {
         self.pods_dir.clone()
     }
@@ -125,6 +119,12 @@ impl DataStore {
 
     pub fn get_data_path(&self) -> PathBuf {
         self.data_dir.clone()
+    }
+
+    pub fn get_keystore_path(&self) -> PathBuf {
+        let mut keystore_path = self.get_data_path();
+        keystore_path.push("keystore.db");
+        keystore_path
     }
 
     pub fn get_update_list_path(&self) -> PathBuf {

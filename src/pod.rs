@@ -383,119 +383,33 @@ impl<'a> PodManager<'a> {
         Ok(())
     }
 
-    // Create a new pod on the network
     #[instrument]
-    pub async fn create(&mut self, data: &str) -> Result<(String, String), Error> {
-        // Derive a new key for the pod scratchpad
-        let scratchpad_key: SecretKey = self.create_key().await?;
-        
-        // Create new publicly readable scratchpad
-        let scratchpad_address: ScratchpadAddress = ScratchpadAddress::new(scratchpad_key.clone().public_key());
-        let scratchpad: Scratchpad = Scratchpad::new_with_signature(
-            scratchpad_key.clone().public_key(),
-            0,
-            Bytes::from(data.to_owned()),
-            0,
-            scratchpad_key.sign(Scratchpad::bytes_for_signature(
-                scratchpad_address.clone(),
-                0,
-                &Bytes::from(data.to_owned()),
-                0,
-            )),
-        );
+    pub async fn refresh_local(&mut self) -> Result<(), String> {
+        // Get the list of local pods from the key store
 
-        // Derive a new key for the pod pointer
-        let pointer_key: SecretKey = self.create_key().await?;
+        // Download each pointer and check if there is an update vs the cache
 
-        // Create new pointer that points to the scratchpad
-        let pointer = Pointer::new(
-            &pointer_key,
-            0,
-            PointerTarget::ScratchpadAddress(scratchpad_address),
-        );
+        // If the pointer is newer, download and update the associated scratchpad
 
-        //FIXME: batch the pod scratchpad and pointer put operations
-        // Put the scratchpad on the network
-        let payment_option = PaymentOption::from(self.wallet);
-        let (scratchpad_cost, scratchpad_address) = self.client.scratchpad_put(scratchpad, payment_option.clone()).await?;
-        let (pointer_cost, pointer_address) = self.client.pointer_put(pointer, payment_option).await?;
-        debug!("Scratchpad address: {scratchpad_address:?}");
-        debug!("Scratchpad cost: {scratchpad_cost:?}");
-        debug!("Pointer address: {pointer_address:?}");
-        debug!("Pointer cost: {pointer_cost:?}");
+        // Then set the cache pointer value to the newer value
 
-        Ok((pointer_address.to_string(), scratchpad_address.to_string()))
+        // Increment past the num derived keys 3 steps and make sure keys weren't skipped
+
+        Ok(())
     }
-
-    // Get pod data from the network
-    #[instrument]
-    pub async fn download(&mut self, address: String) -> Result<String, Error> {
-        // get pointer
-        let pointer_address = PointerAddress::from_hex(address.trim())?;
-        let pointer = self.client.pointer_get(&pointer_address).await?;
-        let pointer_target = pointer.target();
-        let pointer_target_string = pointer_target.to_hex();
-        debug!("Pointer target address: {}", pointer_target_string);
-
-        // get scratchpad
-        let scratchpad_address = ScratchpadAddress::from_hex(pointer_target_string.trim())?;        // Lookup the key for the pod pointer from the key store
-        let scratchpad = self.client.scratchpad_get(&scratchpad_address).await?;
-        let scratchpad_data: String = String::from_utf8(scratchpad.encrypted_data().to_vec())?;
-        debug!("Scratchpad data: {}", scratchpad_data);
-        Ok(scratchpad_data)
-    }
-
-    // Update pod data on the network
-    #[instrument]
-    pub async fn upload(&mut self, address: String, data: &str) -> Result<(), Error> {
-        // get pointer
-        let pointer_address = PointerAddress::from_hex(address.trim())?;
-        let pointer = self.client.pointer_get(&pointer_address).await?;
-        let pointer_target = pointer.target();
-        let pointer_target_string = pointer_target.to_hex();
-        println!("Pointer target address: {}", pointer_target_string);
-
-        // get scratchpad
-        let scratchpad_address = ScratchpadAddress::from_hex(pointer_target_string.trim())?;        // Lookup the key for the pod pointer from the key store
-        let scratchpad = self.client.scratchpad_get(&scratchpad_address).await?;
-
-        // Update the scratchpad contents and its counter
-        let scratchpad_key = SecretKey::from_hex(self.key_store.get_pod_key(scratchpad_address.to_hex())?.trim())?;
-        let scratchpad = Scratchpad::new_with_signature(
-            scratchpad_key.clone().public_key(),
-            0,
-            Bytes::from(data.to_owned()),
-            scratchpad.counter() + 1,
-            scratchpad_key.sign(Scratchpad::bytes_for_signature(
-                scratchpad_address.clone(),
-                0,
-                &Bytes::from(data.to_owned()),
-                scratchpad.counter() + 1,
-            )),
-        );
-
-        // Put the new scratchpad on the network
-        let payment_option = PaymentOption::from(self.wallet);
-        let (scratchpad_cost, _scratchpad_address) = self.client.scratchpad_put(scratchpad, payment_option.clone()).await?;
-        println!("Scratchpad update cost: {scratchpad_cost:?}");
-
-        // Update the pointer counter
-        let pointer_key = SecretKey::from_hex(self.key_store.get_pod_key(pointer_address.to_hex())?.trim())?;
-        self.client.pointer_update(&pointer_key, pointer_target.to_owned()).await?;
-
-        Ok(()) //FIXME: need a return value for a success??
-    }
-
+ 
     // Refresh pod cache from the network
     #[instrument]
-    pub async fn refresh(&mut self) -> Result<(), String> {
-        // Get the list of pods from the key store
+    pub async fn refresh_all(&mut self, depth: u64) -> Result<(), String> {
+        let _ = self.refresh_local().await?;
 
-        // Go through each pointer and check if there is an update vs the cache
+        // Walk through each scratchpad and check if it references other pods
 
-        // If the pointer is newer, download and update the associated scratchpad and set the depth attribute
+        // Recurse through each of the external pods, check to see if there is an update vs the cache,
+        // if so, download the scratchpad, and perform the same operation,
+        // putting each pod into the respective depth directory
 
-        // Recurse through each of the pods listed in the scratchpad and perform the same operation, increasing the depth attribute
+        // Once all pods are downloaded, populate the oxigraph database starting with the deepest pods
 
         Ok(())
     }
