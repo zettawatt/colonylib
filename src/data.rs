@@ -1,8 +1,9 @@
-use std::fs::{File, create_dir_all, read_to_string, write};
+use std::fs::{File, create_dir_all, read_to_string, write, OpenOptions};
 use std::path::PathBuf;
 use dirs;
 use std::io::Error as IoError;
 use tracing::{debug, error, info, warn, instrument};
+use std::io::Write;
 use thiserror;
 use serde;
 
@@ -53,7 +54,7 @@ impl DataStore {
         pods_dir.push("pods");
   
         let mut pod_refs_dir = data_dir.clone();
-        pod_refs_dir.push("pods");
+        pod_refs_dir.push("pod_refs");
   
         Ok(Self::from_paths(data_dir, pods_dir, pod_refs_dir, downloads_dir)?)
     }
@@ -78,22 +79,90 @@ impl DataStore {
         Ok(DataStore { data_dir, pods_dir, pod_refs_dir, downloads_dir })
     }
 
-    pub fn get_path(&self, pod_id: &str) -> PathBuf {
+    pub fn get_pod_path(&self, address: &str) -> PathBuf {
         let mut pod_path = self.pods_dir.clone();
-        pod_path.push(pod_id);
+        pod_path.push(address);
         pod_path
     }
 
-    pub fn write(&self, pod_id: &str, data: &str) -> Result<(), Error> {
-        let pod_path = self.get_path(pod_id);
+    pub fn get_pod_ref_path(&self, address: &str) -> PathBuf {
+        let mut pod_ref_path = self.pod_refs_dir.clone();
+        pod_ref_path.push(address);
+        pod_ref_path
+    }
+
+    pub fn get_downloads_path(&self) -> PathBuf {
+        self.downloads_dir.clone()
+    }
+
+    pub fn get_data_path(&self) -> PathBuf {
+        self.data_dir.clone()
+    }
+
+    pub fn write_pod(&self, address: &str, data: &str) -> Result<(), Error> {
+        let pod_path = self.get_pod_path(address);
         write(pod_path, data.as_bytes())?;
         Ok(())
     }
 
-    pub fn read(&self, pod_id: &str) -> Result<String, Error> {
-        let pod_path = self.get_path(pod_id);
+    pub fn read_pod(&self, address: &str) -> Result<String, Error> {
+        let pod_path = self.get_pod_path(address);
         let data = read_to_string(pod_path)?;
         Ok(data)
+    }
+
+    pub fn get_update_list_path(&self) -> PathBuf {
+        let mut update_list_path = self.get_data_path();
+        update_list_path.push("update_list.txt");
+        update_list_path
+    }
+
+    pub fn append_update_list(&self, address: &str) -> Result<(), Error> {
+        let update_list_path = self.get_update_list_path();
+        let mut update_list = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&update_list_path)?;
+
+        // Check if the file has a line that matches the address
+        let contents = read_to_string(&update_list_path)?;
+        if contents.lines().any(|line| line == address) {
+            info!("Address {} already exists in update list", address);
+            return Ok(());
+        }
+        // If not, append the address to the file
+        writeln!(update_list, "{}", address)?;
+        Ok(())
+    }
+
+    pub fn address_is_scratchpad(&self, address: &str) -> Result<bool, Error> {
+        let pod_path = self.pods_dir.clone(); // Get the base pod directory
+        if pod_path.exists() && pod_path.is_dir() {
+            for entry in std::fs::read_dir(pod_path)? {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        let mut file_path = path.clone();
+                        file_path.push(address);
+                        if file_path.exists() && file_path.is_file() {
+                            return Ok(true); // Address is a scratchpad file
+                        }
+                    }
+                }
+            }
+        }
+        Ok(false) // Address is not a scratchpad file
+    }
+
+    pub fn address_is_pointer(&self, address: &str) -> Result<bool, Error> {
+        let mut pod_path = self.pods_dir.clone(); // Get the base pod directory
+        pod_path.push(address); // Append the address to the base directory path
+    
+        if pod_path.exists() && pod_path.is_dir() {
+            return Ok(true); // Address is a directory (pointer)
+        }
+    
+        Ok(false) // Address is not a directory (pointer)
     }
 }
 

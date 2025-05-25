@@ -1,15 +1,19 @@
-use autonomi::{Bytes, Client, SecretKey, Wallet, AddressParseError};
+use autonomi::{AddressParseError, Bytes, Chunk, Client, SecretKey, Wallet};
 use autonomi::client::pointer::{Pointer, PointerTarget, PointerError, PointerAddress};
 use autonomi::client::ConnectError;
 use autonomi::client::scratchpad::{Scratchpad, ScratchpadError, ScratchpadAddress};
 use autonomi::client::payment::PaymentOption;
 use autonomi;
+use std::fs::File;
+use std::io::{BufReader, BufRead};
 use thiserror;
 use tracing::{debug, error, info, warn, instrument};
 use std::fmt;
 use serde;
 use blsttc::Error as BlsttcError;
 use alloc::string::FromUtf8Error;
+use std::io::Error as IoError;
+use autonomi::client::analyze::{AnalysisError, Analysis};
 
 use crate::KeyStore;
 use crate::key::Error as KeyStoreError;
@@ -36,6 +40,8 @@ pub enum Error {
   KeyStore(#[from] KeyStoreError),
   #[error(transparent)]
   DataStore(#[from] DataStoreError),
+  #[error(transparent)]
+  Io(#[from] IoError),
 }
 
 #[derive(serde::Serialize)]
@@ -50,6 +56,7 @@ pub enum ErrorKind {
     FromUtf8(String),
     KeyStore(String),
     DataStore(String),
+    Io(String),
 }
 
 impl serde::Serialize for Error {
@@ -67,6 +74,7 @@ impl serde::Serialize for Error {
         Self::FromUtf8(_) => ErrorKind::FromUtf8(error_message),
         Self::KeyStore(_) => ErrorKind::KeyStore(error_message),
         Self::DataStore(_) => ErrorKind::DataStore(error_message),
+        Self::Io(_) => ErrorKind::Io(error_message),
       };
       error_kind.serialize(serializer)
     }
@@ -102,41 +110,28 @@ impl<'a> PodManager<'a> {
         Ok(Self { client, wallet, data_store, key_store })
     }
 
-
     // Create a new pointer key, make sure it is empty, and add it to the key store
     #[instrument]
-    async fn create_pointer_key(&mut self) -> Result<SecretKey, Error> {
+    async fn create_key(&mut self) -> Result<SecretKey, Error> {
         loop {
             // Derive a new key
             let key_string = self.key_store.add_derived_key()?;
             let derived_key: SecretKey = SecretKey::from_hex(key_string.as_str())?;
+            
             // Check if the key is empty
-            let address = PointerAddress::new(derived_key.clone().public_key());
-            let already_exists = self.client.pointer_check_existance(&address).await?;
-            if already_exists {
-                warn!("Pointer key already exists, generating a new one");
-                continue;
-            } else {
-                return Ok(derived_key);
-            }
-        }
-    }
-
-    // Create a new pointer key, make sure it is empty, and add it to the key store
-    #[instrument]
-    async fn create_scratchpad_key(&mut self) -> Result<SecretKey, Error> {
-        loop {
-            // Derive a new key
-            let key_string = self.key_store.add_derived_key()?;
-            let derived_key: SecretKey = SecretKey::from_hex(key_string.as_str())?;
-            // Check if the key is empty
-            let address = ScratchpadAddress::new(derived_key.clone().public_key());
-            let already_exists = self.client.scratchpad_check_existance(&address).await?;
-            if already_exists {
-                warn!("Scratchpad key already exists, generating a new one");
-                continue;
-            } else {
-                return Ok(derived_key);
+            match self.client.analyze_address(&derived_key.public_key().to_hex().as_str(), false).await {
+                Ok(_) => continue, // If analysis succeeds, there is data at the address already, continue the loop
+                Err(AnalysisError::FailedGet) => {
+                    return Ok(derived_key); // Exit the loop and return the key
+                }
+                Err(AnalysisError::UnrecognizedInput) => {
+                    warn!("Unrecognized input, generating a new key");
+                    continue; // Continue the loop for this error
+                }
+                Err(AnalysisError::GetError(get_error)) => {
+                    warn!("Get error: {:?}", get_error);
+                    continue; // Continue the loop for this error
+                }
             }
         }
     }
@@ -147,31 +142,174 @@ impl<'a> PodManager<'a> {
 
     // Add a new pod to the local data store
     #[instrument]
-    pub fn add(&mut self, pod_id: &str) -> Result<(), Error> {
-        Ok(())
+    pub async fn add(&mut self) -> Result<(String,String), Error> {
+        // Derive a new key and address for the pod scratchpad
+        let scratchpad_key: SecretKey = self.create_key().await?;
+        let scratchpad_address: ScratchpadAddress = ScratchpadAddress::new(scratchpad_key.clone().public_key());
+
+        // Derive a new key and address for the pod pointer
+        let pointer_key: SecretKey = self.create_key().await?;
+        let pointer_address: PointerAddress = PointerAddress::new(pointer_key.clone().public_key());
+
+        // Create a new directory from the pointer address
+        let mut pod_path = self.data_store.get_pod_path(pointer_address.to_hex().as_str());
+        pod_path.push(pointer_address.clone().to_hex().as_str());
+        if !pod_path.exists() {
+            std::fs::create_dir_all(&pod_path)?;
+            info!("Created pod directory: {:?}", pod_path);
+        }
+        self.data_store.append_update_list(pointer_address.clone().to_hex().as_str())?;
+
+        // Create a new pod file from the scratchpad address
+        pod_path.push(scratchpad_address.clone().to_hex().as_str());
+        if !pod_path.exists() {
+            std::fs::File::create(&pod_path)?;
+            info!("Created pod file: {:?}", pod_path);
+        }
+        self.data_store.append_update_list(scratchpad_address.clone().to_hex().as_str())?;
+
+
+        Ok((pointer_address.to_string(), scratchpad_address.to_string()))
+    }
+
+    //FIXME: placeholder, have not implemented corresponding autonomi operation for this
+    pub async fn add_scratchpad(&mut self, address: &str) -> Result<String, Error> {
+        // Derive a new key for the pod scratchpad
+        let scratchpad_key: SecretKey = self.create_key().await?;
+        let scratchpad_address: ScratchpadAddress = ScratchpadAddress::new(scratchpad_key.clone().public_key());
+
+        // Create a new file in the pod directory from the address
+        let mut pod_path = self.data_store.get_pod_path(address);
+        pod_path.push(scratchpad_address.clone().to_hex().as_str());
+        if !pod_path.exists() {
+            std::fs::File::create(&pod_path)?;
+            info!("Created additional pod file: {:?}", pod_path);
+        }
+        self.data_store.append_update_list(scratchpad_address.clone().to_hex().as_str())?;
+
+        Ok(scratchpad_address.to_string())
     }
 
     // Update a pod in the local data store
     #[instrument]
-    pub fn update(&mut self, pod_id: &str) -> Result<(), Error> {
+    pub fn update(&mut self, address: &str) -> Result<(), Error> {
         Ok(())
     }
 
     // Get a pod from the local data store
     #[instrument]
-    pub fn get(&mut self, pod_id: &str) -> Result<String, Error> {
-        let pod_data = self.data_store.read(pod_id)?;
+    pub fn get(&mut self, address: &str) -> Result<String, Error> {
+        let pod_data = self.data_store.read_pod(address)?;
         Ok(pod_data)
     }
 
     ///////////////////////////////////////////
     // Autonomi network operations
     ///////////////////////////////////////////
+    
+    pub async fn upload_all(&mut self) -> Result<(), Error> {
+        // open update list and walk through each line
+        let file_path = self.data_store.get_update_list_path();
+        let file = File::open(file_path.clone())?;
+        let reader = BufReader::new(file);
+
+        for line in reader.lines() {
+            let line = line?;
+            let address = line.trim();
+            let mut create_mode = false;
+            debug!("Uploading pod: {}", address);
+            
+            // get the type stored on the network
+            let pod_type = self.client.analyze_address(address, false).await.unwrap_or_else(|e| -> Analysis {
+                match e {
+                    AnalysisError::FailedGet => {
+                        info!("Address currently does not hold data: {}", address);
+                        create_mode = true;
+                        // check if address is a directory (pointer) or a file (scratchpad)
+                        // and return a dummy analysis type for processing, else
+                        // return a chunk to indicate an error
+                        if self.data_store.address_is_pointer(address).unwrap_or(false) {
+                            Analysis::Pointer(Pointer::new(
+                                &SecretKey::from_hex(self.key_store.get_pod_key(address.to_string()).unwrap().as_str()).unwrap(),
+                                0,
+                                PointerTarget::ScratchpadAddress(ScratchpadAddress::new(SecretKey::from_hex(self.key_store.get_pod_key(address.to_string()).unwrap().as_str()).unwrap().public_key())),
+                            ))
+                        } else if self.data_store.address_is_scratchpad(address).unwrap_or(false) {
+                            Analysis::Scratchpad(Scratchpad::new(
+                                &SecretKey::from_hex(self.key_store.get_pod_key(address.to_string()).unwrap().as_str()).unwrap(),
+                                0,
+                                &Bytes::new(),
+                                0))
+                        } else {
+                            error!("Address is neither a pointer nor a scratchpad: {}", address);
+                            Analysis::Chunk(Chunk::new(Bytes::new()))
+                        }
+                    }
+                    _ => {
+                        error!("Address error: {}", e);
+                        Analysis::Chunk(Chunk::new(Bytes::new()))
+                    }
+                }
+            });
+            debug!("Pod type: {:?}", pod_type);
+
+            match pod_type {
+                Analysis::Pointer(_) => {
+                    if create_mode {
+                        // Create new pointer
+                        info!("Nothing stored at address, creating new pointer");
+                        let _ = self.create_pointer(address, address).await?;
+                    } else {
+                        // Update existing pointer
+                        info!("Data stored at address is a pointer");
+                        let _ = self.update_pointer(address, address).await?;
+                    }
+                }
+                Analysis::Scratchpad(_) => {
+                    if create_mode {
+                        // Create new scratchpad
+                        info!("Nothing stored at address, creating new scratchpad");
+                        let _ = self.create_scratchpad(address).await?;
+                    } else {
+                        // Update existing scratchpad
+                        info!("Data stored at address is a scratchpad");
+                        let _ = self.update_scratchpad(address).await?;
+                    }
+                }
+                _ => {
+                    error!("Pod type is unknown, skipping upload");
+                    continue;
+                }
+            }
+            
+        }
+
+        // Clear out the update list
+        let _ = File::create(file_path)?;   
+        Ok(())
+    }
+
+    async fn create_pointer(&mut self, address: &str, target: &str) -> Result<(), Error> {
+        Ok(())
+    }
+
+    async fn create_scratchpad(&mut self, address: &str) -> Result<(), Error> {
+        Ok(())
+    }
+
+    async fn update_pointer(&mut self, address: &str, target: &str) -> Result<(), Error> {
+        Ok(())
+    }
+
+    async fn update_scratchpad(&mut self, address: &str) -> Result<(), Error> {
+        Ok(())
+    }
+
     // Create a new pod on the network
     #[instrument]
     pub async fn create(&mut self, data: &str) -> Result<(String, String), Error> {
         // Derive a new key for the pod scratchpad
-        let scratchpad_key: SecretKey = self.create_scratchpad_key().await?;
+        let scratchpad_key: SecretKey = self.create_key().await?;
         
         // Create new publicly readable scratchpad
         let scratchpad_address: ScratchpadAddress = ScratchpadAddress::new(scratchpad_key.clone().public_key());
@@ -189,7 +327,7 @@ impl<'a> PodManager<'a> {
         );
 
         // Derive a new key for the pod pointer
-        let pointer_key: SecretKey = self.create_pointer_key().await?;
+        let pointer_key: SecretKey = self.create_key().await?;
 
         // Create new pointer that points to the scratchpad
         let pointer = Pointer::new(
