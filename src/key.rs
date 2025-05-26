@@ -66,7 +66,8 @@ pub struct KeyStore {
     wallet_key: Vec<u8>,
     mnemonic: String,
     main_sk: Vec<u8>,
-    pods: HashMap<Vec<u8>, Vec<u8>>,
+    pointers: HashMap<Vec<u8>, Vec<u8>>,
+    scratchpads: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 impl KeyStore {
@@ -123,7 +124,8 @@ impl KeyStore {
         //let main_pk: MainPubkey = main_sk.public_key();
 
         // Create a new pods hashmap
-        let pods: HashMap<PublicKey, SecretKey> = HashMap::new();
+        let pointers: HashMap<PublicKey, SecretKey> = HashMap::new();
+        let scratchpads: HashMap<PublicKey, SecretKey> = HashMap::new();
         //let pod_key: SecretKey = main_sk.derive_key(&index(0)).into();
         //let pod_pubkey: PublicKey = pod_key.public_key();
         //pods.insert(pod_pubkey, pod_key.clone());
@@ -132,7 +134,8 @@ impl KeyStore {
             wallet_key: SecretKey::default().to_bytes().to_vec(),
             mnemonic: "Unknown, initialized with key".to_string(),
             main_sk: main_sk.to_bytes(),
-            pods: pods.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect()
+            pointers: pointers.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect(),
+            scratchpads: scratchpads.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect()
         })
     }
 
@@ -157,11 +160,11 @@ impl KeyStore {
     }
 
     #[instrument]
-    pub fn get_pod_key(&self, pod_pubkey: String) -> Result<String, Error> {
+    pub fn get_pointer_key(&self, pod_pubkey: String) -> Result<String, Error> {
         let decoded_key = hex::decode(pod_pubkey.as_str())?;
-        match self.pods.get(&decoded_key) {
+        match self.pointers.get(&decoded_key) {
             Some(value) => {
-                debug!("Pod key: {}", hex::encode(value));
+                debug!("Pointer key: {}", hex::encode(value));
                 Ok(hex::encode(value))
             },
             None => Err(Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Key not found"))),
@@ -169,20 +172,57 @@ impl KeyStore {
     }
 
     #[instrument]
-    pub fn add_derived_key(&mut self) -> Result<String, Error> {
+    pub fn get_scratchpad_key(&self, pod_pubkey: String) -> Result<String, Error> {
+        let decoded_key = hex::decode(pod_pubkey.as_str())?;
+        match self.scratchpads.get(&decoded_key) {
+            Some(value) => {
+                debug!("Pointer key: {}", hex::encode(value));
+                Ok(hex::encode(value))
+            },
+            None => Err(Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Key not found"))),
+        }
+    }
+
+    #[instrument]
+    pub fn add_pointer_key(&mut self) -> Result<String, Error> {
         let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
-        let pod_key: SecretKey = main_sk.derive_key(&index(self.get_num_derived_keys())).into();
+        let pod_key: SecretKey = main_sk.derive_key(&index(self.get_num_pointer_keys())).into();
         let pod_pubkey: PublicKey = pod_key.clone().public_key();
-        self.pods.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
+        self.pointers.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
         Ok(pod_key.to_hex().to_string())
     }
 
     #[instrument]
-    pub fn get_num_derived_keys(&self) -> u64 {
-        debug!("Number of derived keys: {}", self.pods.len());
-        self.pods.len() as u64
+    pub fn add_scratchpad_key(&mut self) -> Result<String, Error> {
+        let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
+        let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
+        let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
+        let pod_key: SecretKey = main_sk.derive_key(&index(self.get_num_scratchpad_keys())).into();
+        let pod_pubkey: PublicKey = pod_key.clone().public_key();
+        self.scratchpads.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
+        Ok(pod_key.to_hex().to_string())
+    }
+
+    #[instrument]
+    pub fn get_num_pointer_keys(&self) -> u64 {
+        debug!("Number of derived keys: {}", self.pointers.len());
+        self.pointers.len() as u64
+    }
+
+    #[instrument]
+    pub fn get_num_scratchpad_keys(&self) -> u64 {
+        debug!("Number of derived keys: {}", self.scratchpads.len());
+        self.scratchpads.len() as u64
+    }
+
+    pub fn get_pointers(&self) -> HashMap<String, String> {
+        self.pointers.iter().map(|(k, v)| (hex::encode(k), hex::encode(v))).collect()
+    }
+    
+    pub fn get_scratchpads(&self) -> HashMap<String, String> {
+        self.scratchpads.iter().map(|(k, v)| (hex::encode(k), hex::encode(v))).collect()
     }
 
 }

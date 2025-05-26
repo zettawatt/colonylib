@@ -112,11 +112,40 @@ impl<'a> PodManager<'a> {
 
     // Create a new pointer key, make sure it is empty, and add it to the key store
     #[instrument]
-    async fn create_key(&mut self) -> Result<SecretKey, Error> {
+    async fn create_pointer_key(&mut self) -> Result<SecretKey, Error> {
         loop {
             // Derive a new key
             info!("Deriving a new key");
-            let key_string = self.key_store.add_derived_key()?;
+            let key_string = self.key_store.add_pointer_key()?;
+            info!("Newly derived key: {}", key_string);
+            let derived_key: SecretKey = SecretKey::from_hex(key_string.trim())?;
+            
+            // Check if the key is empty
+            match self.client.analyze_address(&derived_key.public_key().to_hex().as_str(), false).await {
+                Ok(_) => continue, // If analysis succeeds, there is data at the address already, continue the loop
+                Err(AnalysisError::FailedGet) => {
+                    info!("Address is empty, using it for the pod");
+                    return Ok(derived_key); // Exit the loop and return the key
+                }
+                Err(AnalysisError::UnrecognizedInput) => {
+                    warn!("Unrecognized input, generating a new key");
+                    continue; // Continue the loop for this error
+                }
+                Err(AnalysisError::GetError(get_error)) => {
+                    warn!("Get error: {:?}", get_error);
+                    continue; // Continue the loop for this error
+                }
+            }
+        }
+    }
+
+    // Create a new scratchpad key, make sure it is empty, and add it to the key store
+    #[instrument]
+    async fn create_scratchpad_key(&mut self) -> Result<SecretKey, Error> {
+        loop {
+            // Derive a new key
+            info!("Deriving a new key");
+            let key_string = self.key_store.add_scratchpad_key()?;
             info!("Newly derived key: {}", key_string);
             let derived_key: SecretKey = SecretKey::from_hex(key_string.trim())?;
             
@@ -157,7 +186,7 @@ impl<'a> PodManager<'a> {
 
     async fn add_scratchpad(&mut self) -> Result<ScratchpadAddress, Error> {
         // Derive a new key for the pod scratchpad
-        let scratchpad_key: SecretKey = self.create_key().await?;
+        let scratchpad_key: SecretKey = self.create_scratchpad_key().await?;
         let scratchpad_address: ScratchpadAddress = ScratchpadAddress::new(scratchpad_key.clone().public_key());
 
         // Create a new file in the pod directory from the address
@@ -169,7 +198,7 @@ impl<'a> PodManager<'a> {
 
     async fn add_pointer(&mut self) -> Result<PointerAddress, Error> {
         // Derive a new key for the pod scratchpad
-        let pointer_key: SecretKey = self.create_key().await?;
+        let pointer_key: SecretKey = self.create_pointer_key().await?;
         let pointer_address = PointerAddress::new(pointer_key.clone().public_key());
 
         // Create a new file in the pod directory from the address
@@ -229,13 +258,13 @@ impl<'a> PodManager<'a> {
                         // return a chunk to indicate an error
                         if self.data_store.address_is_pointer(address).unwrap_or(false) {
                             Analysis::Pointer(Pointer::new(
-                                &SecretKey::from_hex(self.key_store.get_pod_key(address.to_string()).unwrap().trim()).unwrap(),
+                                &SecretKey::from_hex(self.key_store.get_pointer_key(address.to_string()).unwrap().trim()).unwrap(),
                                 0,
-                                PointerTarget::ScratchpadAddress(ScratchpadAddress::new(SecretKey::from_hex(self.key_store.get_pod_key(address.to_string()).unwrap().trim()).unwrap().public_key())),
+                                PointerTarget::ScratchpadAddress(ScratchpadAddress::new(SecretKey::from_hex(self.key_store.get_pointer_key(address.to_string()).unwrap().trim()).unwrap().public_key())),
                             ))
                         } else if self.data_store.address_is_scratchpad(address).unwrap_or(false) {
                             Analysis::Scratchpad(Scratchpad::new(
-                                &SecretKey::from_hex(self.key_store.get_pod_key(address.to_string()).unwrap().trim()).unwrap(),
+                                &SecretKey::from_hex(self.key_store.get_scratchpad_key(address.to_string()).unwrap().trim()).unwrap(),
                                 0,
                                 &Bytes::new(),
                                 0))
@@ -291,7 +320,7 @@ impl<'a> PodManager<'a> {
     }
 
     async fn create_pointer(&mut self, address: &str, target: &str) -> Result<String, Error> {
-        let key_string = self.key_store.get_pod_key(address.to_string())?;
+        let key_string = self.key_store.get_pointer_key(address.to_string())?;
         let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
 
         // Create new pointer that points to the scratchpad
@@ -310,7 +339,7 @@ impl<'a> PodManager<'a> {
     }
 
     async fn create_scratchpad(&mut self, address: &str, data: &str) -> Result<String, Error> {
-        let key_string = self.key_store.get_pod_key(address.to_string())?;
+        let key_string = self.key_store.get_scratchpad_key(address.to_string())?;
         let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
         
         // Create new publicly readable scratchpad
@@ -337,12 +366,12 @@ impl<'a> PodManager<'a> {
     }
 
     async fn update_pointer(&mut self, address: &str, target: &str) -> Result<(), Error> {
-        let key_string = self.key_store.get_pod_key(address.to_string())?;
+        let key_string = self.key_store.get_pointer_key(address.to_string())?;
         let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
 
         // get pointer to make sure it exists
         let pointer_address = PointerAddress::from_hex(address)?;
-        let _pointer = self.client.pointer_get(&pointer_address).await?;
+        let pointer = self.client.pointer_get(&pointer_address).await?;
 
         // Create the target address
         let target_address = ScratchpadAddress::from_hex(target)?;
@@ -350,11 +379,15 @@ impl<'a> PodManager<'a> {
 
         // Update the pointer counter and target 
         self.client.pointer_update(&key, target).await?;
+
+        // Update the local pointer file counter
+        let pointer_count = pointer.counter() + 1;
+        self.data_store.update_pointer_count(address, pointer_count.into())?;
         Ok(())
     }
 
     async fn update_scratchpad(&mut self, address: &str, data: &str) -> Result<(), Error> {
-        let key_string = self.key_store.get_pod_key(address.to_string())?;
+        let key_string = self.key_store.get_scratchpad_key(address.to_string())?;
         let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
 
         // get the scratchpad to make sure it exists and to get the current counter value
@@ -384,23 +417,45 @@ impl<'a> PodManager<'a> {
     }
 
     #[instrument]
-    pub async fn refresh_local(&mut self) -> Result<(), String> {
-        // Get the list of local pods from the key store
+    pub async fn refresh_local(&mut self) -> Result<(), Error> {
+        // Get the list of local pointers from the key store
+        for (address, _key) in self.key_store.get_pointers() {
+            let address = address.trim();
+            info!("Checking pointer: {}", address);
+            let pointer_address = PointerAddress::from_hex(address)?;
+            let pointer = self.client.pointer_get(&pointer_address).await?;
+            info!("Pointer found: {:?}", pointer);
 
-        // Download each pointer and check if there is an update vs the cache
-
-        // If the pointer is newer, download and update the associated scratchpad
-
-        // Then set the cache pointer value to the newer value
-
-        // Increment past the num derived keys 3 steps and make sure keys weren't skipped
-
+            // Check if the pointer is newer than the local cache
+            //FIXME: need to handle the case where the pointer does not exist locally
+            let local_pointer_count = self.data_store.get_pointer_count(address)?;
+            if pointer.counter() as u64 > local_pointer_count {
+                info!("Pointer is newer, updating scratchpad");
+                let target = pointer.target();
+                // get the scratchpad address from the pointer target
+                let target = match target {
+                    PointerTarget::ScratchpadAddress(scratchpad_address) => scratchpad_address,
+                    _ => {
+                        error!("Pointer target is not a scratchpad address, skipping");
+                        continue;
+                    }
+                };
+                let scratchpad = self.client.scratchpad_get(target).await?;
+                let data = scratchpad.encrypted_data();
+                let data = String::from_utf8(data.to_vec())?;
+                self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
+                self.data_store.update_pointer_target(address, target.to_hex().as_str())?;
+                self.data_store.update_pointer_count(address, pointer.counter().into())?;
+            } else {
+                info!("Pointer is up to date");
+            }
+        }
         Ok(())
     }
  
     // Refresh pod cache from the network
     #[instrument]
-    pub async fn refresh_all(&mut self, depth: u64) -> Result<(), String> {
+    pub async fn refresh_all(&mut self, depth: u64) -> Result<(), Error> {
         let _ = self.refresh_local().await?;
 
         // Walk through each scratchpad and check if it references other pods

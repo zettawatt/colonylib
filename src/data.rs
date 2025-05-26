@@ -152,22 +152,61 @@ impl DataStore {
     }
 
     pub fn update_pointer_target(&self, pointer_address: &str, scratchpad_address: &str) -> Result<(), Error> {
-        // Add the scratchpad address to the pointer file
+        // Update the first line with the scratchpad address, keeping the second line unchanged
         let mut pointer_path = self.get_pointers_dir();
         pointer_path.push(pointer_address);
-        let mut pointer_file = OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(&pointer_path)?;
-        writeln!(pointer_file, "{}", scratchpad_address)?;
-        Ok(())        
+    
+        let mut contents = String::new();
+        if pointer_path.exists() {
+            contents = read_to_string(&pointer_path)?;
+        }
+    
+        let mut lines = contents.lines();
+        let _ = lines.next(); // Skip the first line
+        let second_line = lines.next().unwrap_or("0").to_string(); // Get the second line or default to an empty string
+    
+        let mut pointer_file = File::create(&pointer_path)?; // Overwrite the file
+        writeln!(pointer_file, "{}", scratchpad_address)?; // Write the new first line
+        writeln!(pointer_file, "{}", second_line)?; // Write the second line back
+    
+        Ok(())
+    }
+    
+    pub fn update_pointer_count(&self, pointer_address: &str, count: u64) -> Result<(), Error> {
+        // Update the second line with the count, keeping the first line unchanged
+        let mut pointer_path = self.get_pointers_dir();
+        pointer_path.push(pointer_address);
+    
+        let mut contents = String::new();
+        if pointer_path.exists() {
+            contents = read_to_string(&pointer_path)?;
+        }
+    
+        let mut lines = contents.lines();
+        let first_line = lines.next().unwrap_or("").to_string(); // Get the first line or default to an empty string
+    
+        let mut pointer_file = File::create(&pointer_path)?; // Overwrite the file
+        writeln!(pointer_file, "{}", first_line)?; // Write the first line back
+        writeln!(pointer_file, "{}", count)?; // Write the new second line
+    
+        Ok(())
     }
 
     pub fn get_pointer_target(&self, pointer_address: &str) -> Result<String, Error> {
         let mut pointer_path = self.get_pointers_dir();
         pointer_path.push(pointer_address);
         let data = read_to_string(pointer_path)?;
-        Ok(data)
+        let target = data.lines().next().unwrap_or("").to_string(); // Get the first line or an empty string
+        Ok(target)
+    }
+    pub fn get_pointer_count(&self, pointer_address: &str) -> Result<u64, Error> {
+        let mut pointer_path = self.get_pointers_dir();
+        pointer_path.push(pointer_address);
+        let data = read_to_string(pointer_path)?;
+        // get the second line of the file
+        let count_line = data.lines().nth(1).unwrap_or("0");
+        let count: u64 = count_line.parse().unwrap_or(0);
+        Ok(count)
     }
 
     pub fn get_scratchpad_data(&self, address: &str) -> Result<String, Error> {
