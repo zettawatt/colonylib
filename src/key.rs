@@ -7,6 +7,7 @@ use cocoon::Cocoon;
 use cocoon::Error as CocoonError;
 use std::collections::HashMap;
 use std::io::Error as IoError;
+use std::fmt;
 use blsttc::Error as BlsttcError;
 use sn_bls_ckd::derive_master_sk;
 use sn_curv::elliptic::curves::ECScalar;
@@ -61,13 +62,25 @@ impl serde::Serialize for Error {
   }
 
 
-#[derive(BorshDeserialize, BorshSerialize, Clone, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, Clone)]
 pub struct KeyStore {
     wallet_key: Vec<u8>,
     mnemonic: String,
     main_sk: Vec<u8>,
     pointers: HashMap<Vec<u8>, Vec<u8>>,
     scratchpads: HashMap<Vec<u8>, Vec<u8>>,
+}
+
+impl fmt::Debug for KeyStore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("KeyStore")
+            .field("wallet_key", &hex::encode(&self.wallet_key))
+            .field("mnemonic", &self.mnemonic)
+            .field("main_sk", &hex::encode(&self.main_sk))
+            .field("pointers", &self.get_pointers())
+            .field("scratchpads", &self.get_scratchpads())
+            .finish()
+    }
 }
 
 impl KeyStore {
@@ -93,10 +106,10 @@ impl KeyStore {
     }
 
     #[instrument]
-    pub fn from_mnemonic(mnemonic: String) -> Result<Self, Error> {
+    pub fn from_mnemonic(mnemonic: &str) -> Result<Self, Error> {
 
         // Generate a new mnemonic from the given phrase
-        let mnemonic = Mnemonic::parse_in_normalized(Language::English, mnemonic.as_str())?;
+        let mnemonic = Mnemonic::parse_in_normalized(Language::English, mnemonic)?;
         let seed = mnemonic.to_seed_normalized("");
 
         // Derive BLS12-381 master secret key from seed using EIP-2333 standard.
@@ -110,14 +123,15 @@ impl KeyStore {
         let secret_key = SecretKey::from_bytes(key_bytes)?;
 
         let hex_key = hex::encode(secret_key.to_bytes());
+        let hex_key = hex_key.as_str();
 
-        Ok(Self::from_hex(hex_key)?)
+        Ok(Self::from_hex(hex_key, mnemonic.to_string().as_str())?)
     }
 
     #[instrument]
-    pub fn from_hex(key: String) -> Result<Self, Error> {
+    pub fn from_hex(key: &str, mnemonic: &str) -> Result<Self, Error> {
 
-        let secret_key = SecretKey::from_hex(key.as_str())?;
+        let secret_key = SecretKey::from_hex(key)?;
 
         // Generate a new main keys from the mnemonic
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
@@ -132,7 +146,7 @@ impl KeyStore {
 
         Ok(KeyStore {
             wallet_key: SecretKey::default().to_bytes().to_vec(),
-            mnemonic: "Unknown, initialized with key".to_string(),
+            mnemonic: mnemonic.to_string(),
             main_sk: main_sk.to_bytes(),
             pointers: pointers.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect(),
             scratchpads: scratchpads.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect()
@@ -188,7 +202,8 @@ impl KeyStore {
         let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
-        let pod_key: SecretKey = main_sk.derive_key(&index(self.get_num_pointer_keys())).into();
+        let num_keys = self.get_num_pointer_keys() + self.get_num_scratchpad_keys();
+        let pod_key: SecretKey = main_sk.derive_key(&index(num_keys)).into();
         let pod_pubkey: PublicKey = pod_key.clone().public_key();
         self.pointers.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
         Ok(pod_key.to_hex().to_string())
@@ -199,7 +214,8 @@ impl KeyStore {
         let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
-        let pod_key: SecretKey = main_sk.derive_key(&index(self.get_num_scratchpad_keys())).into();
+        let num_keys = self.get_num_pointer_keys() + self.get_num_scratchpad_keys();
+        let pod_key: SecretKey = main_sk.derive_key(&index(num_keys)).into();
         let pod_pubkey: PublicKey = pod_key.clone().public_key();
         self.scratchpads.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
         Ok(pod_key.to_hex().to_string())
@@ -220,7 +236,7 @@ impl KeyStore {
     pub fn get_pointers(&self) -> HashMap<String, String> {
         self.pointers.iter().map(|(k, v)| (hex::encode(k), hex::encode(v))).collect()
     }
-    
+
     pub fn get_scratchpads(&self) -> HashMap<String, String> {
         self.scratchpads.iter().map(|(k, v)| (hex::encode(k), hex::encode(v))).collect()
     }
@@ -248,8 +264,8 @@ mod tests {
 
     #[test]
     fn test_key_store_from_mnemonic() {
-        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string();
-        let key_store = KeyStore::from_mnemonic(mnemonic.clone()).unwrap();
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let key_store = KeyStore::from_mnemonic(mnemonic).unwrap();
 
         assert_eq!(key_store.get_seed_phrase(), mnemonic);
         assert!(key_store.pods.len() > 0);
@@ -257,7 +273,7 @@ mod tests {
 
     #[test]
     fn test_key_store_to_and_from_file() {
-        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string();
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         let key_store = KeyStore::from_mnemonic(mnemonic).unwrap();
 
         let password = "test_password";

@@ -90,7 +90,7 @@ pub struct PodManager<'a> {
 
 impl<'a> fmt::Debug for PodManager<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Network")
+        f.debug_struct("PodManager")
             .field("client", &"Client(Debug not implemented)")
             .field("wallet", &self.wallet.address().to_string())
             .field("data_store", &"DataStore(Debug not implemented)")
@@ -416,7 +416,6 @@ impl<'a> PodManager<'a> {
         Ok(())
     }
 
-    #[instrument]
     pub async fn refresh_local(&mut self) -> Result<(), Error> {
         // Get the list of local pointers from the key store
         for (address, _key) in self.key_store.get_pointers() {
@@ -426,8 +425,36 @@ impl<'a> PodManager<'a> {
             let pointer = self.client.pointer_get(&pointer_address).await?;
             info!("Pointer found: {:?}", pointer);
 
+            // Check if the pointer file exists in the local data store
+            let pointer_exists = self.data_store.address_is_pointer(address)?;
+            if !pointer_exists {
+                info!("Pointer file does not exist, creating it");
+                self.data_store.create_pointer_file(address)?;
+                self.data_store.update_pointer_target(address, pointer.target().to_hex().as_str())?;
+                self.data_store.update_pointer_count(address, pointer.counter().into())?;
+
+                // Check if the scratchpad file exists
+                let target = pointer.target();
+                let target = match target {
+                    PointerTarget::ScratchpadAddress(scratchpad_address) => scratchpad_address,
+                    _ => {
+                        error!("Pointer target is not a scratchpad address, skipping");
+                        continue;
+                    }
+                };
+                if !self.data_store.address_is_scratchpad(target.to_hex().as_str())? {
+                    info!("Scratchpad file does not exist, creating it");
+                    self.data_store.create_scratchpad_file(target.to_hex().as_str())?;
+                }
+                // Download the scratchpad data
+                let scratchpad = self.client.scratchpad_get(target).await?;
+                let data = scratchpad.encrypted_data();
+                let data = String::from_utf8(data.to_vec())?;
+                self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
+                info!("Pointer and scratchpad files created successfully");
+                continue; // Skip to the next pointer if it was just created
+            }
             // Check if the pointer is newer than the local cache
-            //FIXME: need to handle the case where the pointer does not exist locally
             let local_pointer_count = self.data_store.get_pointer_count(address)?;
             if pointer.counter() as u64 > local_pointer_count {
                 info!("Pointer is newer, updating scratchpad");
