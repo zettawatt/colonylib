@@ -2,7 +2,7 @@
 name = "colonylib"
 version = "0.1.0"
 edition = "2024"
-authors = "Chuck McClish"
+authors = ["Chuck McClish"]
 description = "A library implementing the Colony metadata framework on Autonomi"
 homepage = "https://github.com/zettawatt/colonylib"
 license = "GNU GPL-3.0"
