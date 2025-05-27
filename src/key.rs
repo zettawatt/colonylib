@@ -69,6 +69,7 @@ pub struct KeyStore {
     main_sk: Vec<u8>,
     pointers: HashMap<Vec<u8>, Vec<u8>>,
     scratchpads: HashMap<Vec<u8>, Vec<u8>>,
+    bad_keys: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 impl fmt::Debug for KeyStore {
@@ -79,6 +80,7 @@ impl fmt::Debug for KeyStore {
             .field("main_sk", &hex::encode(&self.main_sk))
             .field("pointers", &self.get_pointers())
             .field("scratchpads", &self.get_scratchpads())
+            .field("bad_keys", &self.get_bad_keys())
             .finish()
     }
 }
@@ -140,6 +142,7 @@ impl KeyStore {
         // Create a new pods hashmap
         let pointers: HashMap<PublicKey, SecretKey> = HashMap::new();
         let scratchpads: HashMap<PublicKey, SecretKey> = HashMap::new();
+        let bad_keys: HashMap<PublicKey, SecretKey> = HashMap::new();
         //let pod_key: SecretKey = main_sk.derive_key(&index(0)).into();
         //let pod_pubkey: PublicKey = pod_key.public_key();
         //pods.insert(pod_pubkey, pod_key.clone());
@@ -149,7 +152,8 @@ impl KeyStore {
             mnemonic: mnemonic.to_string(),
             main_sk: main_sk.to_bytes(),
             pointers: pointers.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect(),
-            scratchpads: scratchpads.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect()
+            scratchpads: scratchpads.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect(),
+            bad_keys: bad_keys.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect()
         })
     }
 
@@ -190,7 +194,18 @@ impl KeyStore {
         let decoded_key = hex::decode(pod_pubkey.as_str())?;
         match self.scratchpads.get(&decoded_key) {
             Some(value) => {
-                debug!("Pointer key: {}", hex::encode(value));
+                debug!("Scratchpad key: {}", hex::encode(value));
+                Ok(hex::encode(value))
+            },
+            None => Err(Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Key not found"))),
+        }
+    }
+
+    pub fn get_bad_key(&self, pod_pubkey: String) -> Result<String, Error> {
+        let decoded_key = hex::decode(pod_pubkey.as_str())?;
+        match self.bad_keys.get(&decoded_key) {
+            Some(value) => {
+                debug!("Bad key: {}", hex::encode(value));
                 Ok(hex::encode(value))
             },
             None => Err(Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Key not found"))),
@@ -202,7 +217,7 @@ impl KeyStore {
         let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
-        let num_keys = self.get_num_pointer_keys() + self.get_num_scratchpad_keys();
+        let num_keys = self.get_num_keys();
         let pod_key: SecretKey = main_sk.derive_key(&index(num_keys)).into();
         let pod_pubkey: PublicKey = pod_key.clone().public_key();
         self.pointers.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
@@ -214,23 +229,43 @@ impl KeyStore {
         let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
-        let num_keys = self.get_num_pointer_keys() + self.get_num_scratchpad_keys();
+        let num_keys = self.get_num_keys();
         let pod_key: SecretKey = main_sk.derive_key(&index(num_keys)).into();
         let pod_pubkey: PublicKey = pod_key.clone().public_key();
         self.scratchpads.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
         Ok(pod_key.to_hex().to_string())
     }
 
+    pub fn add_bad_key(&mut self) -> Result<String, Error> {
+        let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
+        let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
+        let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
+        let num_keys = self.get_num_keys();
+        let pod_key: SecretKey = main_sk.derive_key(&index(num_keys)).into();
+        let pod_pubkey: PublicKey = pod_key.clone().public_key();
+        self.bad_keys.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
+        Ok(pod_key.to_hex().to_string())
+    }
+
     #[instrument]
     pub fn get_num_pointer_keys(&self) -> u64 {
-        debug!("Number of derived keys: {}", self.pointers.len());
+        debug!("Number of pointer keys: {}", self.pointers.len());
         self.pointers.len() as u64
     }
 
     #[instrument]
     pub fn get_num_scratchpad_keys(&self) -> u64 {
-        debug!("Number of derived keys: {}", self.scratchpads.len());
+        debug!("Number of scratchpad keys: {}", self.scratchpads.len());
         self.scratchpads.len() as u64
+    }
+
+    pub fn get_num_bad_keys(&self) -> u64 {
+        debug!("Number of bad derived keys: {}", self.bad_keys.len());
+        self.bad_keys.len() as u64
+    }
+
+    pub fn get_num_keys(&self) -> u64 {
+        self.get_num_pointer_keys() + self.get_num_scratchpad_keys() + self.get_num_bad_keys()
     }
 
     pub fn get_pointers(&self) -> HashMap<String, String> {
@@ -239,6 +274,18 @@ impl KeyStore {
 
     pub fn get_scratchpads(&self) -> HashMap<String, String> {
         self.scratchpads.iter().map(|(k, v)| (hex::encode(k), hex::encode(v))).collect()
+    }
+
+    pub fn get_bad_keys(&self) -> HashMap<String, String> {
+        self.bad_keys.iter().map(|(k, v)| (hex::encode(k), hex::encode(v))).collect()
+    }
+
+    pub fn get_address_at_index(&self, count: u64) -> Result<String, Error> {
+        let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
+        let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
+        let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
+        let pod_key: SecretKey = main_sk.derive_key(&index(count)).into();
+        Ok(pod_key.public_key().to_hex())
     }
 
 }

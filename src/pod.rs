@@ -174,7 +174,7 @@ impl<'a> PodManager<'a> {
 
     // Add a new pod to the local data store
     #[instrument]
-    pub async fn add(&mut self) -> Result<(String,String), Error> {
+    pub async fn add_pod(&mut self) -> Result<(String,String), Error> {
         let scratchpad_address = self.add_scratchpad().await?;
         let pointer_address = self.add_pointer().await?;
 
@@ -210,7 +210,7 @@ impl<'a> PodManager<'a> {
 
     // Update a pod in the local data store
     #[instrument]
-    pub fn update(&mut self, address: &str, data: &str) -> Result<(), Error> {
+    pub fn update_pod(&mut self, address: &str, data: &str) -> Result<(), Error> {
         // Get the scratchpad address from the pointer
         let scratchpad_address = self.data_store.get_pointer_target(address)?;
         // Update the scratchpad data
@@ -225,7 +225,7 @@ impl<'a> PodManager<'a> {
 
     // Get a pod from the local data store
     #[instrument]
-    pub fn get(&mut self, address: &str) -> Result<String, Error> {
+    pub fn get_pod(&mut self, address: &str) -> Result<String, Error> {
         let scratchpad_address = self.data_store.get_pointer_target(address)?;
         let pod_data = self.data_store.get_scratchpad_data(scratchpad_address.trim())?;
         Ok(pod_data)
@@ -234,6 +234,43 @@ impl<'a> PodManager<'a> {
     ///////////////////////////////////////////
     // Autonomi network operations
     ///////////////////////////////////////////
+     
+    async fn get_address_type(&mut self, address: &str) -> Result<(Analysis, bool), Error> {
+        // get the type stored on the network
+        let mut create_mode = false;
+        let pod_type = self.client.analyze_address(address, false).await.unwrap_or_else(|e| -> Analysis {
+            match e {
+                AnalysisError::FailedGet => {
+                    info!("Address currently does not hold data: {}", address);
+                    create_mode = true;
+                    // check if address is a directory (pointer) or a file (scratchpad)
+                    // and return a dummy analysis type for processing, else
+                    // return a chunk to indicate an error
+                    if self.data_store.address_is_pointer(address).unwrap_or(false) {
+                        Analysis::Pointer(Pointer::new(
+                            &SecretKey::from_hex(self.key_store.get_pointer_key(address.to_string()).unwrap().trim()).unwrap(),
+                            0,
+                            PointerTarget::ScratchpadAddress(ScratchpadAddress::new(SecretKey::from_hex(self.key_store.get_pointer_key(address.to_string()).unwrap().trim()).unwrap().public_key())),
+                        ))
+                    } else if self.data_store.address_is_scratchpad(address).unwrap_or(false) {
+                        Analysis::Scratchpad(Scratchpad::new(
+                            &SecretKey::from_hex(self.key_store.get_scratchpad_key(address.to_string()).unwrap().trim()).unwrap(),
+                            0,
+                            &Bytes::new(),
+                            0))
+                    } else {
+                        error!("Address is neither a pointer nor a scratchpad: {}", address);
+                        Analysis::Chunk(Chunk::new(Bytes::new()))
+                    }
+                }
+                _ => {
+                    error!("Address error: {}", e);
+                    Analysis::Chunk(Chunk::new(Bytes::new()))
+                }
+            }
+        });
+        Ok((pod_type, create_mode))
+    }
     
     pub async fn upload_all(&mut self) -> Result<(), Error> {
         // open update list and walk through each line
@@ -244,44 +281,13 @@ impl<'a> PodManager<'a> {
         for line in reader.lines() {
             let line = line?;
             let address = line.trim();
-            let mut create_mode = false;
             debug!("Uploading pod: {}", address);
             
             // get the type stored on the network
-            let pod_type = self.client.analyze_address(address, false).await.unwrap_or_else(|e| -> Analysis {
-                match e {
-                    AnalysisError::FailedGet => {
-                        info!("Address currently does not hold data: {}", address);
-                        create_mode = true;
-                        // check if address is a directory (pointer) or a file (scratchpad)
-                        // and return a dummy analysis type for processing, else
-                        // return a chunk to indicate an error
-                        if self.data_store.address_is_pointer(address).unwrap_or(false) {
-                            Analysis::Pointer(Pointer::new(
-                                &SecretKey::from_hex(self.key_store.get_pointer_key(address.to_string()).unwrap().trim()).unwrap(),
-                                0,
-                                PointerTarget::ScratchpadAddress(ScratchpadAddress::new(SecretKey::from_hex(self.key_store.get_pointer_key(address.to_string()).unwrap().trim()).unwrap().public_key())),
-                            ))
-                        } else if self.data_store.address_is_scratchpad(address).unwrap_or(false) {
-                            Analysis::Scratchpad(Scratchpad::new(
-                                &SecretKey::from_hex(self.key_store.get_scratchpad_key(address.to_string()).unwrap().trim()).unwrap(),
-                                0,
-                                &Bytes::new(),
-                                0))
-                        } else {
-                            error!("Address is neither a pointer nor a scratchpad: {}", address);
-                            Analysis::Chunk(Chunk::new(Bytes::new()))
-                        }
-                    }
-                    _ => {
-                        error!("Address error: {}", e);
-                        Analysis::Chunk(Chunk::new(Bytes::new()))
-                    }
-                }
-            });
-            debug!("Pod type: {:?}", pod_type);
+            let (address_type, create_mode) = self.get_address_type(address).await?;
+            debug!("Pod type: {:?}", address_type);
 
-            match pod_type {
+            match address_type {
                 Analysis::Pointer(_) => {
                     let target = self.data_store.get_pointer_target(address)?;
                     if create_mode {
@@ -416,7 +422,42 @@ impl<'a> PodManager<'a> {
         Ok(())
     }
 
-    pub async fn refresh_local(&mut self) -> Result<(), Error> {
+    pub async fn refresh_cache(&mut self) -> Result<(), Error> {
+        // Loop through the next 3 derived keys and check if they contain data on the network
+        // This is to ensure that we have all of the relevant keys in our key store
+        let mut count: u64 = 0;
+        let base_count = count.clone();
+        loop {
+            let address = self.key_store.get_address_at_index(self.key_store.get_num_keys() as u64 + count)?;
+            info!("Checking address: {}", address);
+            let (address_type, create_mode) = self.get_address_type(address.as_str()).await?;
+            if create_mode {
+                info!("Address is empty, increment count!");
+                count += 1;
+            } else {
+                info!("Address is not empty, processing type: {:?}", address_type);
+                match address_type {
+                    Analysis::Pointer(_) => {
+                        info!("Address is a pointer, adding key");
+                        self.key_store.add_pointer_key()?;
+                    }
+                    Analysis::Scratchpad(_) => {
+                        info!("Address is a scratchpad, adding key");
+                        self.key_store.add_scratchpad_key()?;
+                    }
+                    _ => {
+                        info!("Address is neither a pointer nor a scratchpad, marking key as bad");
+                        self.key_store.add_bad_key()?;
+                    }
+                }
+                count = base_count;
+            }
+            if count > 2 {
+                info!("No new addresses found, done with refresh!");
+                break;
+            }
+        }
+
         // Get the list of local pointers from the key store
         for (address, _key) in self.key_store.get_pointers() {
             let address = address.trim();
@@ -477,13 +518,14 @@ impl<'a> PodManager<'a> {
                 info!("Pointer is up to date");
             }
         }
+
         Ok(())
     }
  
     // Refresh pod cache from the network
     #[instrument]
-    pub async fn refresh_all(&mut self, depth: u64) -> Result<(), Error> {
-        let _ = self.refresh_local().await?;
+    pub async fn refresh_ref(&mut self, depth: u64) -> Result<(), Error> {
+        let _ = self.refresh_cache().await?;
 
         // Walk through each scratchpad and check if it references other pods
 
