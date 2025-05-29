@@ -2,6 +2,7 @@
 pub mod pod;
 pub mod key;
 pub mod data;
+pub mod rdf;
 
 pub use key::KeyStore;
 pub use pod::PodManager;

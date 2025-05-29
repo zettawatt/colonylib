@@ -1889,6 +1889,7 @@ dependencies = [
  "hex 0.4.3",
  "oxigraph",
  "serde",
+ "serde_json",
  "sn_bls_ckd",
  "sn_curv",
  "thiserror 2.0.12",

@@ -14,6 +14,7 @@ use blsttc::Error as BlsttcError;
 use alloc::string::FromUtf8Error;
 use std::io::Error as IoError;
 use autonomi::client::analyze::{AnalysisError, Analysis};
+use serde_json::{Value, Result as SerdeResult, Error as SerdeError};
 
 use crate::KeyStore;
 use crate::key::Error as KeyStoreError;
@@ -42,6 +43,8 @@ pub enum Error {
   DataStore(#[from] DataStoreError),
   #[error(transparent)]
   Io(#[from] IoError),
+  #[error(transparent)]
+  Serde(#[from] SerdeError),
 }
 
 #[derive(serde::Serialize)]
@@ -57,6 +60,7 @@ pub enum ErrorKind {
     KeyStore(String),
     DataStore(String),
     Io(String),
+    Serde(String),
 }
 
 impl serde::Serialize for Error {
@@ -75,6 +79,7 @@ impl serde::Serialize for Error {
         Self::KeyStore(_) => ErrorKind::KeyStore(error_message),
         Self::DataStore(_) => ErrorKind::DataStore(error_message),
         Self::Io(_) => ErrorKind::Io(error_message),
+        Self::Serde(_) => ErrorKind::Serde(error_message),
       };
       error_kind.serialize(serializer)
     }
@@ -169,8 +174,72 @@ impl<'a> PodManager<'a> {
     }
 
     ///////////////////////////////////////////
+    // Graph operations
+    ///////////////////////////////////////////
+
+    // Search for content
+    pub async fn search(&mut self, query: Value) -> Result<Value, Error> {
+        Ok(Value::String("Search functionality not implemented yet".to_string()))
+    }
+
+    // Add/modify/remove file metadata in a pod
+    pub async fn put_object_data(&mut self, pod_address: &str, object_data: Value) -> Result<(), Error> {
+        
+        // Inject the JSON data into the graph using the pod address as the named graph for insertion
+        // FIXME: Need to add a 'masked' attribute to handle deletion of file attributes if the pod is a reference
+        // TODO
+
+        // Perform a SPARQL query using the pod address as the named graph to retrieve all pod metadata
+        // TODO
+
+        // Serialize the returned JSON data to a Trig string
+        // TODO
+
+        // Convert the Trig string to a byte vector
+        // TODO
+
+        // Split the byte vector into 4MB chunks so that the data fits into scratchpads
+        // TODO
+
+        // Map the chunks to scratchpad addresses and update them with the new data
+        // TODO
+
+        // Add the pod pointer address and scratchpad addresses to the update list
+        let _ = self.data_store.append_update_list(pod_address)?;
+
+        let addresses = self.get_pod_scratchpads(pod_address)?;
+        if let Some(addresses) = addresses {
+            for addr in addresses {
+                let _ = self.data_store.append_update_list(addr.trim())?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn get_object_data(&mut self, pod_address: &str, object_address: &str) -> Result<Value, Error> {
+        // Perform a SPARQL query with the Autonomi object address and return the metadata as JSON results
+        // TODO
+        let file_data = "placeholder file metadata";
+
+        // Parse the pod data as JSON
+        let json_data: Value = serde_json::from_str(&file_data)?;
+        
+        Ok(json_data)
+    }
+
+    fn get_pod_scratchpads(&self, address: &str) -> Result<Option<Vec<String>>, Error> {
+        // TODO: Placeholder function to get all pod scratchpad addresses from the pointer address
+        // This will be implemented to read from the scratchpad data and extract addresses
+
+        // For now, just return the pointer target as a single-item vector
+        let target = self.data_store.get_pointer_target(address)?;
+        Ok(Some(vec![target]))
+    }
+
+    ///////////////////////////////////////////
     // Local data operations
     ///////////////////////////////////////////
+    
 
     // Add a new pod to the local data store
     #[instrument]
@@ -209,6 +278,7 @@ impl<'a> PodManager<'a> {
     }
 
     // Update a pod in the local data store
+    // FIXME: will remove or make private once graph operations are implemented
     #[instrument]
     pub fn update_pod(&mut self, address: &str, data: &str) -> Result<(), Error> {
         // Get the scratchpad address from the pointer
@@ -224,6 +294,7 @@ impl<'a> PodManager<'a> {
     }
 
     // Get a pod from the local data store
+    // FIXME: will remove or make private once graph operations are implemented
     #[instrument]
     pub fn get_pod(&mut self, address: &str) -> Result<String, Error> {
         let scratchpad_address = self.data_store.get_pointer_target(address)?;
@@ -533,7 +604,8 @@ impl<'a> PodManager<'a> {
         // if so, download the scratchpad, and perform the same operation,
         // putting each pod into the respective depth directory
 
-        // Once all pods are downloaded, populate the oxigraph database starting with the deepest pods
+        // Once all pods are downloaded, populate the oxigraph database
+        // Inject an attribute for each pod that indicates the depth of the pod
 
         Ok(())
     }
