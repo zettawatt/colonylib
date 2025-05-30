@@ -20,6 +20,8 @@ use crate::KeyStore;
 use crate::key::Error as KeyStoreError;
 use crate::DataStore;
 use crate::data::Error as DataStoreError;
+use crate::Graph;
+use crate::graph::Error as GraphError;
 
 
 // Error handling
@@ -45,6 +47,8 @@ pub enum Error {
   Io(#[from] IoError),
   #[error(transparent)]
   Serde(#[from] SerdeError),
+  #[error(transparent)]
+  Graph(#[from] GraphError),
 }
 
 #[derive(serde::Serialize)]
@@ -61,6 +65,7 @@ pub enum ErrorKind {
     DataStore(String),
     Io(String),
     Serde(String),
+    Graph(String),
 }
 
 impl serde::Serialize for Error {
@@ -80,6 +85,7 @@ impl serde::Serialize for Error {
         Self::DataStore(_) => ErrorKind::DataStore(error_message),
         Self::Io(_) => ErrorKind::Io(error_message),
         Self::Serde(_) => ErrorKind::Serde(error_message),
+        Self::Graph(_) => ErrorKind::Graph(error_message),
       };
       error_kind.serialize(serializer)
     }
@@ -91,6 +97,7 @@ pub struct PodManager<'a> {
     pub wallet: &'a Wallet,
     pub data_store: &'a mut DataStore,
     pub key_store: &'a mut KeyStore,
+    pub graph: &'a mut Graph,
 }
 
 impl<'a> fmt::Debug for PodManager<'a> {
@@ -100,6 +107,7 @@ impl<'a> fmt::Debug for PodManager<'a> {
             .field("wallet", &self.wallet.address().to_string())
             .field("data_store", &"DataStore(Debug not implemented)")
             .field("key_store", &"KeyStore(Debug not implemented)")
+            .field("graph", &"Graph(Debug not implemented)")
             .finish()
     }
 }
@@ -110,9 +118,10 @@ impl<'a> PodManager<'a> {
     pub async fn new(client: Client,
                      wallet: &'a Wallet,
                      data_store: &'a mut DataStore,
-                     key_store: &'a mut KeyStore) -> Result<Self, Error> {
+                     key_store: &'a mut KeyStore,
+                     graph: &'a mut Graph) -> Result<Self, Error> {
 
-        Ok(Self { client, wallet, data_store, key_store })
+        Ok(Self { client, wallet, data_store, key_store, graph })
     }
 
     // Create a new pointer key, make sure it is empty, and add it to the key store
@@ -183,7 +192,7 @@ impl<'a> PodManager<'a> {
     }
 
     // Add/modify/remove file metadata in a pod
-    pub async fn put_object_data(&mut self, pod_address: &str, object_data: Value) -> Result<(), Error> {
+    pub async fn put_graph_data(&mut self, pod_address: &str, object_data: Value) -> Result<(), Error> {
         
         // Inject the JSON data into the graph using the pod address as the named graph for insertion
         // FIXME: Need to add a 'masked' attribute to handle deletion of file attributes if the pod is a reference
@@ -216,7 +225,7 @@ impl<'a> PodManager<'a> {
         Ok(())
     }
 
-    pub async fn get_object_data(&mut self, pod_address: &str, object_address: &str) -> Result<Value, Error> {
+    pub async fn get_graph_data(&mut self, pod_address: &str, object_address: &str) -> Result<Value, Error> {
         // Perform a SPARQL query with the Autonomi object address and return the metadata as JSON results
         // TODO
         let file_data = "placeholder file metadata";
@@ -589,6 +598,8 @@ impl<'a> PodManager<'a> {
                 info!("Pointer is up to date");
             }
         }
+
+        // TODO read in all of the local scratchpads into the RDF graph?
 
         Ok(())
     }

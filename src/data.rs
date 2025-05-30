@@ -127,6 +127,12 @@ impl DataStore {
         keystore_path
     }
 
+    pub fn get_graph_path(&self) -> PathBuf {
+        let mut graph_path = self.get_data_path();
+        graph_path.push("graph.db");
+        graph_path
+    }
+
     pub fn get_update_list_path(&self) -> PathBuf {
         let mut update_list_path = self.get_data_path();
         update_list_path.push("update_list.txt");
