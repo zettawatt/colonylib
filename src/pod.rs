@@ -7,14 +7,14 @@ use autonomi;
 use std::fs::File;
 use std::io::{BufReader, BufRead};
 use thiserror;
-use tracing::{debug, error, info, warn, instrument};
+use tracing::{debug, error, info, warn};
 use std::fmt;
 use serde;
 use blsttc::Error as BlsttcError;
 use alloc::string::FromUtf8Error;
 use std::io::Error as IoError;
 use autonomi::client::analyze::{AnalysisError, Analysis};
-use serde_json::{Value, Result as SerdeResult, Error as SerdeError};
+use serde_json::{Value, Error as SerdeError};
 
 use crate::KeyStore;
 use crate::key::Error as KeyStoreError;
@@ -125,7 +125,6 @@ impl<'a> PodManager<'a> {
     }
 
     // Create a new pointer key, make sure it is empty, and add it to the key store
-    #[instrument]
     async fn create_pointer_key(&mut self) -> Result<SecretKey, Error> {
         loop {
             // Derive a new key
@@ -154,7 +153,6 @@ impl<'a> PodManager<'a> {
     }
 
     // Create a new scratchpad key, make sure it is empty, and add it to the key store
-    #[instrument]
     async fn create_scratchpad_key(&mut self) -> Result<SecretKey, Error> {
         loop {
             // Derive a new key
@@ -192,26 +190,21 @@ impl<'a> PodManager<'a> {
     }
 
     // Add/modify/remove file metadata in a pod
-    pub async fn put_graph_data(&mut self, pod_address: &str, object_data: Value) -> Result<(), Error> {
+    pub async fn put_subject_data(&mut self, pod_address: &str, object_data: Value) -> Result<(), Error> {
         
-        // Inject the JSON data into the graph using the pod address as the named graph for insertion
+        // Inject the JSON data into the graph using the pod address as the named graph
+        // And return the resulting graph data as a TriG formatted byte vector
         // FIXME: Need to add a 'masked' attribute to handle deletion of file attributes if the pod is a reference
-        // TODO
-
-        // Perform a SPARQL query using the pod address as the named graph to retrieve all pod metadata
-        // TODO
-
-        // Serialize the returned JSON data to a Trig string
-        // TODO
-
-        // Convert the Trig string to a byte vector
-        // TODO
+        let graph = self.graph.insert_data(pod_address, object_data)?;
 
         // Split the byte vector into 4MB chunks so that the data fits into scratchpads
         // TODO
 
         // Map the chunks to scratchpad addresses and update them with the new data
-        // TODO
+        // TODO, for now just write the whole graph to the scratchpad
+        let pod_data: String = graph.into_iter().map(|b| b as char).collect();
+        let scratchpad_address = self.data_store.get_pointer_target(pod_address)?;
+        let _ = self.data_store.update_scratchpad_data(scratchpad_address.trim(), pod_data.as_str())?;
 
         // Add the pod pointer address and scratchpad addresses to the update list
         let _ = self.data_store.append_update_list(pod_address)?;
@@ -225,7 +218,7 @@ impl<'a> PodManager<'a> {
         Ok(())
     }
 
-    pub async fn get_graph_data(&mut self, pod_address: &str, object_address: &str) -> Result<Value, Error> {
+    pub async fn get_subject_data(&mut self, pod_address: &str, object_address: &str) -> Result<Value, Error> {
         // Perform a SPARQL query with the Autonomi object address and return the metadata as JSON results
         // TODO
         let file_data = "placeholder file metadata";
@@ -251,14 +244,20 @@ impl<'a> PodManager<'a> {
     
 
     // Add a new pod to the local data store
-    #[instrument]
     pub async fn add_pod(&mut self) -> Result<(String,String), Error> {
         let scratchpad_address = self.add_scratchpad().await?;
+        let scratchpad_address = scratchpad_address.to_hex();
+        let scratchpad_address = scratchpad_address.as_str();
         let pointer_address = self.add_pointer().await?;
+        let pointer_address = pointer_address.to_hex();
+        let pointer_address = pointer_address.as_str();
 
         // Add the scratchpad address to the pointer file
-        let _ = self.data_store.update_pointer_target(pointer_address.clone().to_hex().as_str(), scratchpad_address.clone().to_hex().as_str())?;
+        let _ = self.data_store.update_pointer_target(pointer_address, scratchpad_address)?;
 
+        // Add initial data to the scratchpad
+        let pod_data = self.graph.add_pod_entry(pointer_address, scratchpad_address)?;
+        let _ = self.data_store.update_scratchpad_data(scratchpad_address, pod_data.as_str())?;
         Ok((pointer_address.to_string(), scratchpad_address.to_string()))
     }
 
@@ -288,7 +287,6 @@ impl<'a> PodManager<'a> {
 
     // Update a pod in the local data store
     // FIXME: will remove or make private once graph operations are implemented
-    #[instrument]
     pub fn update_pod(&mut self, address: &str, data: &str) -> Result<(), Error> {
         // Get the scratchpad address from the pointer
         let scratchpad_address = self.data_store.get_pointer_target(address)?;
@@ -304,7 +302,6 @@ impl<'a> PodManager<'a> {
 
     // Get a pod from the local data store
     // FIXME: will remove or make private once graph operations are implemented
-    #[instrument]
     pub fn get_pod(&mut self, address: &str) -> Result<String, Error> {
         let scratchpad_address = self.data_store.get_pointer_target(address)?;
         let pod_data = self.data_store.get_scratchpad_data(scratchpad_address.trim())?;
@@ -442,6 +439,9 @@ impl<'a> PodManager<'a> {
                 0,
             )),
         );
+
+        info!("Scratchpad payload size: {}", scratchpad.payload_size());
+        info!("Scratchpad total size: {}", scratchpad.payload_size());
 
         // Put the scratchpad on the network
         let payment_option = PaymentOption::from(self.wallet);
@@ -605,7 +605,6 @@ impl<'a> PodManager<'a> {
     }
  
     // Refresh pod cache from the network
-    #[instrument]
     pub async fn refresh_ref(&mut self, depth: u64) -> Result<(), Error> {
         let _ = self.refresh_cache().await?;
 
