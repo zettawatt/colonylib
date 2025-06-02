@@ -1118,7 +1118,7 @@ mod tests {
 
     #[test]
     fn test_search_functionality() {
-        let (_data_store, _key_store, mut graph, _temp_dir) = create_test_components();
+        let (_data_store, _key_store, graph, _temp_dir) = create_test_components();
 
         // Add test data to the graph
         let pod_address = "test_search_pod";
@@ -1173,7 +1173,7 @@ mod tests {
 
     #[test]
     fn test_structured_search_queries() {
-        let (_data_store, _key_store, mut graph, _temp_dir) = create_test_components();
+        let (_data_store, _key_store, graph, _temp_dir) = create_test_components();
 
         // Add test data
         let pod_address = "test_structured_search";
@@ -1228,7 +1228,7 @@ mod tests {
 
     #[test]
     fn test_search_error_handling() {
-        let (_data_store, _key_store, mut graph, _temp_dir) = create_test_components();
+        let (_data_store, _key_store, graph, _temp_dir) = create_test_components();
 
         // Test search with empty text (should return no results)
         let empty_results = graph.search_content("", Some(10)).unwrap();

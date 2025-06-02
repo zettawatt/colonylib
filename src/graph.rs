@@ -3,11 +3,11 @@ use tracing::{info, debug, error};
 use thiserror;
 use serde;
 use oxigraph::sparql::EvaluationError;
-use oxigraph::model::{NamedNodeRef, IriParseError, QuadRef, SubjectRef, TermRef, GraphNameRef, LiteralRef, Quad};
+use oxigraph::model::{NamedNodeRef, IriParseError, QuadRef, TermRef, GraphNameRef, LiteralRef, Quad};
 use oxigraph::store::{SerializerError, StorageError, Store, LoaderError};
 use oxigraph::sparql::results::QueryResultsFormat;
 use std::path::PathBuf;
-use serde_json::{Value, Error as SerdeError};
+use serde_json::{Error as SerdeError};
 use alloc::string::FromUtf8Error;
 use chrono::Utc;
 use oxjsonld::{JsonLdProfile, JsonLdProfileSet};
@@ -65,7 +65,9 @@ const HAS_DATE: &str = PREDICATE!("date");
 
 /// Address Type Objects
 /// Defines what kind of object the address is pointing to
+#[allow(dead_code)]
 const POD: &str = OBJECT!("pod");
+#[allow(dead_code)]
 const POD_REF: &str = OBJECT!("pod_ref");
 const POD_SCRATCHPAD: &str = OBJECT!("scratchpad");
 
@@ -225,7 +227,7 @@ impl Graph {
         let pod = NamedNodeRef::new(pod_iri)?;
         let subject_iri = format!("ant://{}", subject_address);
         let subject_iri = subject_iri.as_str();
-        let subject = NamedNodeRef::new(subject_iri)?;
+        let _subject = NamedNodeRef::new(subject_iri)?;
 
         // Delete existing data for the subject in the pod graph
         // This query deletes all triples for the subject in the specified pod graph
@@ -557,7 +559,7 @@ impl Graph {
         // Handle pod filter (specific graph)
         if let Some(pod_address) = criteria.get("pod").and_then(|v| v.as_str()) {
             if !pod_address.is_empty() {
-                let pod_iri = if pod_address.starts_with("ant://") {
+                let _pod_iri = if pod_address.starts_with("ant://") {
                     pod_address.to_string()
                 } else {
                     format!("ant://{}", pod_address)

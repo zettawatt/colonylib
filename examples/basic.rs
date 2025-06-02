@@ -68,7 +68,7 @@ async fn main() {
 
     // Example 1: Simple text search
     println!("=== Simple Text Search ===");
-    let res = podman.search(json!("ant")).await.unwrap();
+    let res = podman.search(json!("beg")).await.unwrap();
     println!("Text search results: {}", serde_json::to_string_pretty(&res).unwrap());
 
     // Example 2: Search for media objects by type
@@ -161,7 +161,7 @@ async fn main() {
     // Get the beg blag data
     // let subject_data = podman.get_subject_data(
     //     "c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59").await.unwrap();
-    let subject_data = podman.get_subject_data(
+    let _subject_data = podman.get_subject_data(
         "5467c38f2591ddf840161dfd8536bfff594be4e455bf2630e841de846d49029a").await.unwrap();
 
 
