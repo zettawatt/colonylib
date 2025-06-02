@@ -3,11 +3,11 @@ use tracing::{info, debug, error};
 use thiserror;
 use serde;
 use oxigraph::sparql::EvaluationError;
-use oxigraph::model::{NamedNodeRef, IriParseError, QuadRef, TermRef, GraphNameRef, LiteralRef, Quad};
+use oxigraph::model::{NamedNodeRef, IriParseError, QuadRef, SubjectRef, TermRef, GraphNameRef, LiteralRef, Quad};
 use oxigraph::store::{SerializerError, StorageError, Store, LoaderError};
 use oxigraph::sparql::results::QueryResultsFormat;
 use std::path::PathBuf;
-use serde_json::{Error as SerdeError};
+use serde_json::{Value, Error as SerdeError};
 use alloc::string::FromUtf8Error;
 use chrono::Utc;
 use oxjsonld::{JsonLdProfile, JsonLdProfileSet};
@@ -65,7 +65,8 @@ const HAS_DATE: &str = PREDICATE!("date");
 
 /// Address Type Objects
 /// Defines what kind of object the address is pointing to
-
+const POD: &str = OBJECT!("pod");
+const POD_REF: &str = OBJECT!("pod_ref");
 const POD_SCRATCHPAD: &str = OBJECT!("scratchpad");
 
 // Error handling
@@ -178,8 +179,8 @@ impl Graph {
         let date = Utc::now().to_rfc3339();
         let date = date.as_str();
         let _quad = self.put_quad(scratchpad_iri,HAS_ADDR_TYPE,POD_SCRATCHPAD,Some(pod_iri))?;
-        let _quad = self.put_quad(scratchpad_iri,HAS_NAME,"Unnamed Pod",Some(pod_iri))?;
-        let _quad = self.put_quad(scratchpad_iri,HAS_DEPTH,"0",Some(pod_iri))?;
+        let _quad = self.put_quad(scratchpad_iri,HAS_NAME,"Unnamed Pod",None)?;
+        let _quad = self.put_quad(scratchpad_iri,HAS_DEPTH,"0",None)?;
         let _quad = self.put_quad(scratchpad_iri,HAS_POD_INDEX, "0", Some(pod_iri))?;
         let _quad = self.put_quad(scratchpad_iri,HAS_DATE,date,Some(pod_iri))?;
         debug!("Pod entries added");
@@ -222,7 +223,7 @@ impl Graph {
         let pod = NamedNodeRef::new(pod_iri)?;
         let subject_iri = format!("ant://{}", subject_address);
         let subject_iri = subject_iri.as_str();
-        let _subject = NamedNodeRef::new(subject_iri)?;
+        let subject = NamedNodeRef::new(subject_iri)?;
 
         // Delete existing data for the subject in the pod graph
         // This query deletes all triples for the subject in the specified pod graph

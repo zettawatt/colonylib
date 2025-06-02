@@ -1890,6 +1890,7 @@ dependencies = [
  "hex 0.4.3",
  "oxigraph",
  "oxjsonld",
+ "ruint",
  "serde",
  "serde_json",
  "sn_bls_ckd",
@@ -1899,6 +1900,7 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -188,7 +188,6 @@ impl<'a> PodManager<'a> {
     pub async fn search(&mut self, _query: Value) -> Result<Value, Error> {
         Ok(Value::String("Search functionality not implemented yet".to_string()))
     }
-
     // Add/modify/remove file metadata in a pod
     pub async fn put_subject_data(&mut self, pod_address: &str, subject_address: &str, subject_data: &str) -> Result<(), Error> {
         
