@@ -185,7 +185,7 @@ impl<'a> PodManager<'a> {
     ///////////////////////////////////////////
 
     // Search for content
-    pub async fn search(&mut self, query: Value) -> Result<Value, Error> {
+    pub async fn search(&mut self, _query: Value) -> Result<Value, Error> {
         Ok(Value::String("Search functionality not implemented yet".to_string()))
     }
 
@@ -607,15 +607,169 @@ impl<'a> PodManager<'a> {
     pub async fn refresh_ref(&mut self, depth: u64) -> Result<(), Error> {
         let _ = self.refresh_cache().await?;
 
-        // Walk through each pod graph and check if it references other pods
+        // Process pods iteratively up to the specified depth to avoid async recursion
+        for current_depth in 0..=depth {
+            info!("Processing pod references at depth {}", current_depth);
 
-        // Download each referenced pod
+            // Get all local pods at the current depth
+            let pod_addresses = self.get_pods_at_depth(current_depth)?;
+            let mut referenced_pods = Vec::new();
 
-        // Recurse through each of the reference pods, check to see if there is an update vs the cache,
-        // if so, download the pod scratchpads, and perform the same operation,
+            // Walk through each pod graph and check if it references other pods
+            for pod_address in pod_addresses {
+                info!("Checking pod {} for references", pod_address);
+                let pod_refs = self.get_pod_references(&pod_address)?;
 
-        // Once all pods are downloaded, populate the oxigraph database
-        // Inject an attribute for each pod that indicates the depth of the pod
+                for pod_ref in pod_refs {
+                    // Extract the address from the ant:// URI
+                    if let Some(ref_address) = pod_ref.strip_prefix("ant://") {
+                        if !referenced_pods.contains(&ref_address.to_string()) {
+                            referenced_pods.push(ref_address.to_string());
+                        }
+                    }
+                }
+            }
+
+            // Download each referenced pod that we don't already have
+            for ref_address in referenced_pods {
+                info!("Processing referenced pod: {}", ref_address);
+
+                // Check if we already have this pod locally
+                if !self.data_store.address_is_pointer(&ref_address)? {
+                    info!("Referenced pod {} not found locally, attempting to download", ref_address);
+
+                    // Try to download the referenced pod
+                    if let Err(e) = self.download_referenced_pod(&ref_address, current_depth + 1).await {
+                        warn!("Failed to download referenced pod {}: {}", ref_address, e);
+                        continue;
+                    }
+                } else {
+                    // Update the depth if this pod is found at a shallower depth
+                    self.update_pod_depth(&ref_address, current_depth + 1)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    // Get all pod addresses at a specific depth
+    fn get_pods_at_depth(&self, depth: u64) -> Result<Vec<String>, Error> {
+        // Get all local pointers from the key store
+        let mut pods_at_depth = Vec::new();
+
+        for (address, _key) in self.key_store.get_pointers() {
+            let address = address.trim();
+            // Check if this pod exists at the specified depth
+            if let Ok(pod_depth) = self.get_pod_depth(address) {
+                if pod_depth == depth {
+                    pods_at_depth.push(address.to_string());
+                }
+            }
+        }
+
+        Ok(pods_at_depth)
+    }
+
+    // Get the current depth of a pod from the graph database
+    fn get_pod_depth(&self, _pod_address: &str) -> Result<u64, Error> {
+        // Query the graph for the depth attribute of this pod
+        // For now, return 0 as default depth for local pods
+        // TODO: Implement proper SPARQL query to get depth from graph
+        Ok(0)
+    }
+
+    // Get all pod references from a pod's graph data
+    fn get_pod_references(&mut self, pod_address: &str) -> Result<Vec<String>, Error> {
+        let mut references = Vec::new();
+
+        // Get the pod data from local storage
+        if let Ok(pod_data) = self.get_pod(pod_address) {
+            // Parse the pod data (TriG format) and look for ant:// URIs
+            // This is a simplified implementation - in practice, you'd want to use proper RDF parsing
+            for line in pod_data.lines() {
+                if let Some(start) = line.find("ant://") {
+                    if let Some(end) = line[start..].find(|c: char| c.is_whitespace() || c == '>' || c == '"') {
+                        let uri = &line[start..start + end];
+                        // Only include URIs that look like pod addresses (not vocabulary URIs)
+                        if !uri.contains("/vocabulary/") && uri.len() > 6 {
+                            references.push(uri.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(references)
+    }
+
+    // Download a referenced pod from the network
+    async fn download_referenced_pod(&mut self, pod_address: &str, depth: u64) -> Result<(), Error> {
+        info!("Attempting to download referenced pod: {} at depth {}", pod_address, depth);
+
+        // Try to analyze the address to see if it exists on the network
+        let (address_type, create_mode) = self.get_address_type(pod_address).await?;
+
+        if create_mode {
+            warn!("Referenced pod {} does not exist on the network", pod_address);
+            return Ok(()); // Not an error, just means the reference is invalid
+        }
+
+        match address_type {
+            Analysis::Pointer(_) => {
+                // This is a pointer (pod), download it
+                let pointer_address = PointerAddress::from_hex(pod_address)?;
+                let pointer = self.client.pointer_get(&pointer_address).await?;
+
+                // Create local pointer file
+                self.data_store.create_pointer_file(pod_address)?;
+                self.data_store.update_pointer_target(pod_address, pointer.target().to_hex().as_str())?;
+                self.data_store.update_pointer_count(pod_address, pointer.counter().into())?;
+
+                // Download the scratchpad data
+                let target = pointer.target();
+                let target = match target {
+                    PointerTarget::ScratchpadAddress(scratchpad_address) => scratchpad_address,
+                    _ => {
+                        error!("Pointer target is not a scratchpad address");
+                        return Ok(());
+                    }
+                };
+
+                // Create scratchpad file if it doesn't exist
+                if !self.data_store.address_is_scratchpad(target.to_hex().as_str())? {
+                    self.data_store.create_scratchpad_file(target.to_hex().as_str())?;
+                }
+
+                // Download the scratchpad data
+                let scratchpad = self.client.scratchpad_get(target).await?;
+                let data = scratchpad.encrypted_data();
+                let data = String::from_utf8(data.to_vec())?;
+                self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
+
+                // Update the depth in the graph database
+                self.update_pod_depth(pod_address, depth)?;
+
+                info!("Successfully downloaded referenced pod: {}", pod_address);
+            }
+            _ => {
+                warn!("Referenced address {} is not a pod pointer", pod_address);
+            }
+        }
+
+        Ok(())
+    }
+
+    // Update the depth attribute of a pod in the graph database
+    fn update_pod_depth(&mut self, pod_address: &str, depth: u64) -> Result<(), Error> {
+        // TODO: Implement proper depth update in the graph database
+        // For now, this is a placeholder that logs the operation
+        info!("Setting depth {} for pod {}", depth, pod_address);
+
+        // In a full implementation, this would:
+        // 1. Query the graph for existing depth attribute
+        // 2. Update or insert the depth attribute using SPARQL UPDATE
+        // 3. Only update if the new depth is smaller (closer to root)
 
         Ok(())
     }
