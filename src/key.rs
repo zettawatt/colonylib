@@ -312,10 +312,16 @@ mod tests {
     #[test]
     fn test_key_store_from_mnemonic() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let key_store = KeyStore::from_mnemonic(mnemonic).unwrap();
+        let mut key_store = KeyStore::from_mnemonic(mnemonic).unwrap();
 
         assert_eq!(key_store.get_seed_phrase(), mnemonic);
-        assert!(key_store.pods.len() > 0);
+
+        // Initially, no pointers should exist
+        assert_eq!(key_store.get_pointers().len(), 0);
+
+        // Add a pointer key and verify it exists
+        key_store.add_pointer_key().unwrap();
+        assert!(key_store.get_pointers().len() > 0);
     }
 
     #[test]
@@ -332,7 +338,7 @@ mod tests {
         let loaded_key_store = KeyStore::from_file(&mut file, password).unwrap();
 
         assert_eq!(key_store.get_seed_phrase(), loaded_key_store.get_seed_phrase());
-        assert_eq!(key_store.pods.len(), loaded_key_store.pods.len());
+        assert_eq!(key_store.get_pointers().len(), loaded_key_store.get_pointers().len());
     }
 
 }

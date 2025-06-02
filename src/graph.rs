@@ -3,11 +3,11 @@ use tracing::{info, debug, error};
 use thiserror;
 use serde;
 use oxigraph::sparql::EvaluationError;
-use oxigraph::model::{NamedNodeRef, IriParseError, QuadRef, SubjectRef, TermRef, GraphNameRef, LiteralRef, Quad};
+use oxigraph::model::{NamedNodeRef, IriParseError, QuadRef, TermRef, GraphNameRef, LiteralRef, Quad};
 use oxigraph::store::{SerializerError, StorageError, Store, LoaderError};
 use oxigraph::sparql::results::QueryResultsFormat;
 use std::path::PathBuf;
-use serde_json::{Value, Error as SerdeError};
+use serde_json::{Error as SerdeError};
 use alloc::string::FromUtf8Error;
 use chrono::Utc;
 use oxjsonld::{JsonLdProfile, JsonLdProfileSet};
@@ -65,8 +65,7 @@ const HAS_DATE: &str = PREDICATE!("date");
 
 /// Address Type Objects
 /// Defines what kind of object the address is pointing to
-const POD: &str = OBJECT!("pod");
-const POD_REF: &str = OBJECT!("pod_ref");
+
 const POD_SCRATCHPAD: &str = OBJECT!("scratchpad");
 
 // Error handling
@@ -179,8 +178,8 @@ impl Graph {
         let date = Utc::now().to_rfc3339();
         let date = date.as_str();
         let _quad = self.put_quad(scratchpad_iri,HAS_ADDR_TYPE,POD_SCRATCHPAD,Some(pod_iri))?;
-        let _quad = self.put_quad(scratchpad_iri,HAS_NAME,"Unnamed Pod",None)?;
-        let _quad = self.put_quad(scratchpad_iri,HAS_DEPTH,"0",None)?;
+        let _quad = self.put_quad(scratchpad_iri,HAS_NAME,"Unnamed Pod",Some(pod_iri))?;
+        let _quad = self.put_quad(scratchpad_iri,HAS_DEPTH,"0",Some(pod_iri))?;
         let _quad = self.put_quad(scratchpad_iri,HAS_POD_INDEX, "0", Some(pod_iri))?;
         let _quad = self.put_quad(scratchpad_iri,HAS_DATE,date,Some(pod_iri))?;
         debug!("Pod entries added");
@@ -223,7 +222,7 @@ impl Graph {
         let pod = NamedNodeRef::new(pod_iri)?;
         let subject_iri = format!("ant://{}", subject_address);
         let subject_iri = subject_iri.as_str();
-        let subject = NamedNodeRef::new(subject_iri)?;
+        let _subject = NamedNodeRef::new(subject_iri)?;
 
         // Delete existing data for the subject in the pod graph
         // This query deletes all triples for the subject in the specified pod graph
@@ -423,4 +422,195 @@ impl Graph {
         Ok(())
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn create_test_graph() -> (Graph, TempDir) {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let db_path = temp_dir.path().join("test_graph.db");
+        let graph = Graph::open(&db_path).expect("Failed to create test graph");
+        (graph, temp_dir)
+    }
+
+    #[test]
+    fn test_graph_creation() {
+        let (_graph, _temp_dir) = create_test_graph();
+        // Graph should be created successfully
+        assert!(true); // If we get here, graph creation worked
+    }
+
+    #[test]
+    fn test_add_pod_entry() {
+        let (mut graph, _temp_dir) = create_test_graph();
+
+        let pod_address = "1234567890abcdef";
+        let scratchpad_address = "abcdef1234567890";
+
+        let result = graph.add_pod_entry(pod_address, scratchpad_address);
+        assert!(result.is_ok());
+
+        let trig_data = result.unwrap();
+        assert!(!trig_data.is_empty());
+        // The function creates a named graph for the pod and adds data about the scratchpad
+        assert!(trig_data.contains(&format!("ant://{}", scratchpad_address)));
+        // Check for the actual predicate URIs
+        assert!(trig_data.contains("colonylib/vocabulary"));
+        assert!(trig_data.contains("predicate#depth"));
+        assert!(trig_data.contains("\"0\"")); // Initial depth should be 0
+    }
+
+    #[test]
+    fn test_pod_depth_operations() {
+        let (mut graph, _temp_dir) = create_test_graph();
+
+        let pod_address = "test_pod_123";
+
+        // Initially, pod should have no depth (returns u64::MAX)
+        let initial_depth = graph.get_pod_depth(pod_address).unwrap();
+        assert_eq!(initial_depth, u64::MAX);
+
+        // Set depth to 0
+        graph.update_pod_depth(pod_address, 0).unwrap();
+        let depth = graph.get_pod_depth(pod_address).unwrap();
+        assert_eq!(depth, 0);
+
+        // Try to set depth to 2 (should NOT work since 2 > 0, depth should remain 0)
+        graph.update_pod_depth(pod_address, 2).unwrap();
+        let depth = graph.get_pod_depth(pod_address).unwrap();
+        assert_eq!(depth, 0); // Should still be 0 since we only update to smaller depths
+
+        // Try to set depth to 1 (should NOT work since 1 > 0, depth should remain 0)
+        graph.update_pod_depth(pod_address, 1).unwrap();
+        let depth = graph.get_pod_depth(pod_address).unwrap();
+        assert_eq!(depth, 0); // Should still be 0
+
+        // Now let's test with a higher initial depth
+        // First set depth to 5
+        graph.update_pod_depth(pod_address, 5).unwrap(); // This won't work since 5 > 0
+        let depth = graph.get_pod_depth(pod_address).unwrap();
+        assert_eq!(depth, 0); // Should still be 0
+
+        // Let's start fresh with a new pod to test the depth logic properly
+        let pod_address2 = "test_pod_456";
+
+        // Set initial depth to 5 (this should work since no depth exists)
+        graph.update_pod_depth(pod_address2, 5).unwrap();
+        let depth = graph.get_pod_depth(pod_address2).unwrap();
+        assert_eq!(depth, 5);
+
+        // Try to set depth to 3 (should work since 3 < 5)
+        graph.update_pod_depth(pod_address2, 3).unwrap();
+        let depth = graph.get_pod_depth(pod_address2).unwrap();
+        assert_eq!(depth, 3);
+
+        // Try to set depth to 7 (should not change since 7 > 3)
+        graph.update_pod_depth(pod_address2, 7).unwrap();
+        let depth = graph.get_pod_depth(pod_address2).unwrap();
+        assert_eq!(depth, 3); // Should still be 3
+    }
+
+    #[test]
+    fn test_get_pods_at_depth() {
+        let (mut graph, _temp_dir) = create_test_graph();
+
+        let pod1 = "pod1_address";
+        let pod2 = "pod2_address";
+        let pod3 = "pod3_address";
+
+        // Set different depths
+        graph.update_pod_depth(pod1, 0).unwrap();
+        graph.update_pod_depth(pod2, 1).unwrap();
+        graph.update_pod_depth(pod3, 0).unwrap();
+
+        // Get pods at depth 0
+        let pods_at_depth_0 = graph.get_pods_at_depth(0).unwrap();
+        assert_eq!(pods_at_depth_0.len(), 2);
+        assert!(pods_at_depth_0.contains(&pod1.to_string()));
+        assert!(pods_at_depth_0.contains(&pod3.to_string()));
+
+        // Get pods at depth 1
+        let pods_at_depth_1 = graph.get_pods_at_depth(1).unwrap();
+        assert_eq!(pods_at_depth_1.len(), 1);
+        assert!(pods_at_depth_1.contains(&pod2.to_string()));
+
+        // Get pods at depth 2 (should be empty)
+        let pods_at_depth_2 = graph.get_pods_at_depth(2).unwrap();
+        assert_eq!(pods_at_depth_2.len(), 0);
+    }
+
+    #[test]
+    fn test_load_trig_data() {
+        let (mut graph, _temp_dir) = create_test_graph();
+
+        // Test with empty data
+        let result = graph.load_trig_data("");
+        assert!(result.is_ok());
+
+        // Test with whitespace only
+        let result = graph.load_trig_data("   \n\t  ");
+        assert!(result.is_ok());
+
+        // Test with simple TriG data
+        let trig_data = r#"
+            @prefix ex: <http://example.org/> .
+            ex:graph1 {
+                ex:subject ex:predicate ex:object .
+            }
+        "#;
+
+        let result = graph.load_trig_data(trig_data);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_pod_references() {
+        let (mut graph, _temp_dir) = create_test_graph();
+
+        let pod_address = "test_pod";
+
+        // Create a pod with some test data that includes references
+        let trig_data = format!(r#"
+            @prefix ant: <ant://> .
+            <ant://{}> {{
+                <ant://subject1> <ant://colonylib/vocabulary/0.1/predicate#references> <ant://referenced_pod1> .
+                <ant://subject2> <ant://colonylib/vocabulary/0.1/predicate#references> <ant://referenced_pod2> .
+                <ant://subject3> <ant://colonylib/vocabulary/0.1/predicate#name> "Some Name" .
+            }}
+        "#, pod_address);
+
+        // Load the test data
+        graph.load_trig_data(&trig_data).unwrap();
+
+        // Get references
+        let references = graph.get_pod_references(pod_address).unwrap();
+
+        // Should find the referenced pods but not vocabulary URIs
+        assert!(references.contains(&"ant://referenced_pod1".to_string()));
+        assert!(references.contains(&"ant://referenced_pod2".to_string()));
+
+        // Should not contain vocabulary URIs or the pod itself
+        assert!(!references.iter().any(|r| r.contains("/vocabulary/")));
+        assert!(!references.contains(&format!("ant://{}", pod_address)));
+    }
+
+    #[test]
+    fn test_put_quad() {
+        let (graph, _temp_dir) = create_test_graph();
+
+        let subject = "ant://test_subject";
+        let predicate = "ant://colonylib/vocabulary/0.1/predicate#test";
+        let object = "test_value";
+
+        let result = graph.put_quad(subject, predicate, object, None);
+        assert!(result.is_ok());
+
+        // Test with named graph
+        let graph_name = "ant://test_graph";
+        let result = graph.put_quad(subject, predicate, object, Some(graph_name));
+        assert!(result.is_ok());
+    }
 }
