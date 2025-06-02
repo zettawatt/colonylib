@@ -263,7 +263,7 @@ impl Graph {
 
     pub fn get_subject_data(&self, subject_address: &str) -> Result<String, Error> {
         let subject_iri = format!("ant://{}", subject_address);
-        
+
         let query = format!(
             "SELECT ?p ?o WHERE {{ GRAPH ?g {{ <{}> ?p ?o . }} }}",
             subject_iri.as_str()
@@ -279,6 +279,148 @@ impl Graph {
         // This is output in the W3C JSON SPARQL format.
         // Can use the JavaScript `sparqljson-parse` library to parse it
         Ok(json_str)
+    }
+
+    // Get the depth of a pod from the graph database
+    pub fn get_pod_depth(&self, pod_address: &str) -> Result<u64, Error> {
+        let pod_iri = format!("ant://{}", pod_address);
+
+        let query = format!(
+            "SELECT ?depth WHERE {{ <{}> <{}> ?depth . }}",
+            pod_iri, HAS_DEPTH
+        );
+        debug!("Depth query: {}", query);
+
+        let results = self.store.query(query.as_str())?;
+        if let oxigraph::sparql::QueryResults::Solutions(solutions) = results {
+            for solution in solutions {
+                if let Ok(solution) = solution {
+                    if let Some(depth_term) = solution.get("depth") {
+                        if let oxigraph::model::Term::Literal(literal) = depth_term {
+                            if let Ok(depth_value) = literal.value().parse::<u64>() {
+                                debug!("Found depth {} for pod {}", depth_value, pod_address);
+                                return Ok(depth_value);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no depth found, return a high value to indicate unknown depth
+        debug!("No depth found for pod {}, returning default", pod_address);
+        Ok(u64::MAX)
+    }
+
+    // Update or set the depth of a pod in the graph database
+    pub fn update_pod_depth(&mut self, pod_address: &str, new_depth: u64) -> Result<(), Error> {
+        let pod_iri = format!("ant://{}", pod_address);
+
+        // First, check if there's an existing depth
+        let current_depth = self.get_pod_depth(pod_address)?;
+
+        // Only update if the new depth is smaller (closer to root) or if no depth exists
+        if new_depth < current_depth {
+            info!("Updating depth for pod {} from {} to {}", pod_address, current_depth, new_depth);
+
+            // Delete existing depth if it exists
+            if current_depth != u64::MAX {
+                let delete_query = format!(
+                    "DELETE WHERE {{ <{}> <{}> ?depth . }}",
+                    pod_iri, HAS_DEPTH
+                );
+                debug!("Delete depth query: {}", delete_query);
+                self.store.update(delete_query.as_str())?;
+            }
+
+            // Insert new depth
+            let _quad = self.put_quad(&pod_iri, HAS_DEPTH, &new_depth.to_string(), None)?;
+            info!("Set depth {} for pod {}", new_depth, pod_address);
+        } else {
+            debug!("Not updating depth for pod {} (current: {}, new: {})", pod_address, current_depth, new_depth);
+        }
+
+        Ok(())
+    }
+
+    // Get all pods at a specific depth
+    pub fn get_pods_at_depth(&self, depth: u64) -> Result<Vec<String>, Error> {
+        let query = format!(
+            "SELECT ?pod WHERE {{ ?pod <{}> \"{}\" . }}",
+            HAS_DEPTH, depth
+        );
+        debug!("Pods at depth query: {}", query);
+
+        let mut pods = Vec::new();
+        let results = self.store.query(query.as_str())?;
+        if let oxigraph::sparql::QueryResults::Solutions(solutions) = results {
+            for solution in solutions {
+                if let Ok(solution) = solution {
+                    if let Some(pod_term) = solution.get("pod") {
+                        if let oxigraph::model::Term::NamedNode(pod_node) = pod_term {
+                            let pod_iri = pod_node.as_str();
+                            // Extract the address from the ant:// URI
+                            if let Some(address) = pod_iri.strip_prefix("ant://") {
+                                pods.push(address.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        debug!("Found {} pods at depth {}", pods.len(), depth);
+        Ok(pods)
+    }
+
+    // Get all pod references from the graph data
+    pub fn get_pod_references(&self, pod_address: &str) -> Result<Vec<String>, Error> {
+        let pod_iri = format!("ant://{}", pod_address);
+
+        // Query for all objects in the pod's named graph that are ant:// URIs
+        let query = format!(
+            "SELECT DISTINCT ?ref WHERE {{ GRAPH <{}> {{ ?s ?p ?ref . FILTER(isIRI(?ref) && STRSTARTS(STR(?ref), \"ant://\")) }} }}",
+            pod_iri
+        );
+        debug!("Pod references query: {}", query);
+
+        let mut references = Vec::new();
+        let results = self.store.query(query.as_str())?;
+        if let oxigraph::sparql::QueryResults::Solutions(solutions) = results {
+            for solution in solutions {
+                if let Ok(solution) = solution {
+                    if let Some(ref_term) = solution.get("ref") {
+                        if let oxigraph::model::Term::NamedNode(ref_node) = ref_term {
+                            let ref_iri = ref_node.as_str();
+                            // Only include URIs that don't contain vocabulary (to exclude predicate/object URIs)
+                            if !ref_iri.contains("/vocabulary/") && ref_iri != pod_iri {
+                                references.push(ref_iri.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        debug!("Found {} references in pod {}", references.len(), pod_address);
+        Ok(references)
+    }
+
+    // Load TriG data into the graph database
+    pub fn load_trig_data(&mut self, trig_data: &str) -> Result<(), Error> {
+        if !trig_data.trim().is_empty() {
+            let data_reader = Cursor::new(trig_data);
+
+            // Load the TriG data into the graph store
+            self.store.load_from_reader(
+                RdfParser::from_format(RdfFormat::TriG),
+                data_reader,
+            )?;
+
+            debug!("Successfully loaded TriG data into graph database");
+        }
+
+        Ok(())
     }
 
 }

@@ -655,52 +655,37 @@ impl<'a> PodManager<'a> {
 
     // Get all pod addresses at a specific depth
     fn get_pods_at_depth(&self, depth: u64) -> Result<Vec<String>, Error> {
-        // Get all local pointers from the key store
-        let mut pods_at_depth = Vec::new();
+        // Use the graph database to get pods at the specified depth
+        let graph_pods = self.graph.get_pods_at_depth(depth)?;
 
-        for (address, _key) in self.key_store.get_pointers() {
-            let address = address.trim();
-            // Check if this pod exists at the specified depth
-            if let Ok(pod_depth) = self.get_pod_depth(address) {
-                if pod_depth == depth {
-                    pods_at_depth.push(address.to_string());
+        // If no pods found at this depth in the graph, check local pointers for depth 0
+        if graph_pods.is_empty() && depth == 0 {
+            // For depth 0, include all local pods that don't have a depth set yet
+            let mut local_pods = Vec::new();
+            for (address, _key) in self.key_store.get_pointers() {
+                let address = address.trim();
+                // Check if this pod has no depth set (returns u64::MAX)
+                if let Ok(pod_depth) = self.graph.get_pod_depth(address) {
+                    if pod_depth == u64::MAX || pod_depth == 0 {
+                        local_pods.push(address.to_string());
+                    }
                 }
             }
+            Ok(local_pods)
+        } else {
+            Ok(graph_pods)
         }
-
-        Ok(pods_at_depth)
     }
 
     // Get the current depth of a pod from the graph database
-    fn get_pod_depth(&self, _pod_address: &str) -> Result<u64, Error> {
-        // Query the graph for the depth attribute of this pod
-        // For now, return 0 as default depth for local pods
-        // TODO: Implement proper SPARQL query to get depth from graph
-        Ok(0)
+    fn get_pod_depth(&self, pod_address: &str) -> Result<u64, Error> {
+        Ok(self.graph.get_pod_depth(pod_address)?)
     }
 
     // Get all pod references from a pod's graph data
     fn get_pod_references(&mut self, pod_address: &str) -> Result<Vec<String>, Error> {
-        let mut references = Vec::new();
-
-        // Get the pod data from local storage
-        if let Ok(pod_data) = self.get_pod(pod_address) {
-            // Parse the pod data (TriG format) and look for ant:// URIs
-            // This is a simplified implementation - in practice, you'd want to use proper RDF parsing
-            for line in pod_data.lines() {
-                if let Some(start) = line.find("ant://") {
-                    if let Some(end) = line[start..].find(|c: char| c.is_whitespace() || c == '>' || c == '"') {
-                        let uri = &line[start..start + end];
-                        // Only include URIs that look like pod addresses (not vocabulary URIs)
-                        if !uri.contains("/vocabulary/") && uri.len() > 6 {
-                            references.push(uri.to_string());
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(references)
+        // Use the graph database to get pod references via SPARQL
+        Ok(self.graph.get_pod_references(pod_address)?)
     }
 
     // Download a referenced pod from the network
@@ -747,6 +732,10 @@ impl<'a> PodManager<'a> {
                 let data = String::from_utf8(data.to_vec())?;
                 self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
 
+                // Load the downloaded pod data into the graph database
+                // The data should be in TriG format, so we need to parse it and load it
+                self.load_pod_into_graph(pod_address, data.trim())?;
+
                 // Update the depth in the graph database
                 self.update_pod_depth(pod_address, depth)?;
 
@@ -762,14 +751,25 @@ impl<'a> PodManager<'a> {
 
     // Update the depth attribute of a pod in the graph database
     fn update_pod_depth(&mut self, pod_address: &str, depth: u64) -> Result<(), Error> {
-        // TODO: Implement proper depth update in the graph database
-        // For now, this is a placeholder that logs the operation
-        info!("Setting depth {} for pod {}", depth, pod_address);
+        // Use the graph database to update the pod depth
+        self.graph.update_pod_depth(pod_address, depth)?;
+        Ok(())
+    }
 
-        // In a full implementation, this would:
-        // 1. Query the graph for existing depth attribute
-        // 2. Update or insert the depth attribute using SPARQL UPDATE
-        // 3. Only update if the new depth is smaller (closer to root)
+    // Load pod data into the graph database
+    fn load_pod_into_graph(&mut self, pod_address: &str, pod_data: &str) -> Result<(), Error> {
+        // The pod data should be in TriG format
+        // Load it into the graph database using the Graph's method
+
+        match self.graph.load_trig_data(pod_data) {
+            Ok(_) => {
+                info!("Successfully loaded pod {} data into graph database", pod_address);
+            }
+            Err(e) => {
+                warn!("Failed to load pod {} data into graph database: {}", pod_address, e);
+                // Don't fail the entire operation if graph loading fails
+            }
+        }
 
         Ok(())
     }
