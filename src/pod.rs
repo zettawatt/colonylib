@@ -185,8 +185,125 @@ impl<'a> PodManager<'a> {
     ///////////////////////////////////////////
 
     // Search for content
-    pub async fn search(&mut self, _query: Value) -> Result<Value, Error> {
-        Ok(Value::String("Search functionality not implemented yet".to_string()))
+    pub async fn search(&mut self, query: Value) -> Result<Value, Error> {
+        info!("Performing search with query: {}", query);
+
+        // Parse the query to determine search type and parameters
+        let search_results = if let Some(query_obj) = query.as_object() {
+            // Handle structured query
+            if let Some(search_type) = query_obj.get("type").and_then(|v| v.as_str()) {
+                match search_type {
+                    "text" => {
+                        // Text search across all literal values
+                        if let Some(text) = query_obj.get("text").and_then(|v| v.as_str()) {
+                            let limit = query_obj.get("limit").and_then(|v| v.as_u64());
+                            self.graph.search_content(text, limit)?
+                        } else {
+                            return Ok(Value::Object(serde_json::Map::from_iter([
+                                ("error".to_string(), Value::String("Missing 'text' parameter for text search".to_string()))
+                            ])));
+                        }
+                    },
+                    "by_type" => {
+                        // Search by RDF type
+                        if let Some(type_uri) = query_obj.get("type_uri").and_then(|v| v.as_str()) {
+                            let limit = query_obj.get("limit").and_then(|v| v.as_u64());
+                            self.graph.search_by_type(type_uri, limit)?
+                        } else {
+                            return Ok(Value::Object(serde_json::Map::from_iter([
+                                ("error".to_string(), Value::String("Missing 'type_uri' parameter for type search".to_string()))
+                            ])));
+                        }
+                    },
+                    "by_predicate" => {
+                        // Search by predicate
+                        if let Some(predicate_uri) = query_obj.get("predicate_uri").and_then(|v| v.as_str()) {
+                            let limit = query_obj.get("limit").and_then(|v| v.as_u64());
+                            self.graph.search_by_predicate(predicate_uri, limit)?
+                        } else {
+                            return Ok(Value::Object(serde_json::Map::from_iter([
+                                ("error".to_string(), Value::String("Missing 'predicate_uri' parameter for predicate search".to_string()))
+                            ])));
+                        }
+                    },
+                    "advanced" => {
+                        // Advanced search with multiple criteria
+                        self.graph.advanced_search(&query)?
+                    },
+                    _ => {
+                        return Ok(Value::Object(serde_json::Map::from_iter([
+                            ("error".to_string(), Value::String(format!("Unknown search type: {}", search_type)))
+                        ])));
+                    }
+                }
+            } else {
+                // No explicit type, treat as advanced search
+                self.graph.advanced_search(&query)?
+            }
+        } else if let Some(text) = query.as_str() {
+            // Simple text search if query is just a string
+            self.graph.search_content(text, Some(50))?
+        } else {
+            return Ok(Value::Object(serde_json::Map::from_iter([
+                ("error".to_string(), Value::String("Invalid query format. Expected object or string.".to_string()))
+            ])));
+        };
+
+        // Parse the SPARQL JSON results and return them
+        let results: Value = serde_json::from_str(&search_results)?;
+
+        // Enhance the results with additional metadata
+        let enhanced_results = self.enhance_search_results(results)?;
+
+        info!("Search completed successfully");
+        Ok(enhanced_results)
+    }
+
+    // Helper method to enhance search results with additional metadata
+    fn enhance_search_results(&self, results: Value) -> Result<Value, Error> {
+        let mut enhanced = serde_json::Map::new();
+
+        if let Some(results_obj) = results.as_object() {
+            // Copy the original results
+            enhanced.insert("sparql_results".to_string(), results.clone());
+
+            // Add metadata
+            enhanced.insert("search_timestamp".to_string(),
+                Value::String(chrono::Utc::now().to_rfc3339()));
+
+            // Count results
+            if let Some(bindings) = results_obj.get("results")
+                .and_then(|r| r.get("bindings"))
+                .and_then(|b| b.as_array()) {
+                enhanced.insert("result_count".to_string(),
+                    Value::Number(serde_json::Number::from(bindings.len())));
+
+                // Extract unique graphs (pods) from results
+                let mut unique_graphs = std::collections::HashSet::new();
+                for binding in bindings {
+                    if let Some(graph_value) = binding.get("graph")
+                        .and_then(|g| g.get("value"))
+                        .and_then(|v| v.as_str()) {
+                        unique_graphs.insert(graph_value.to_string());
+                    }
+                }
+
+                let graphs_vec: Vec<Value> = unique_graphs.into_iter()
+                    .map(|g| Value::String(g))
+                    .collect();
+                enhanced.insert("pods_found".to_string(), Value::Array(graphs_vec));
+            } else {
+                enhanced.insert("result_count".to_string(), Value::Number(serde_json::Number::from(0)));
+                enhanced.insert("pods_found".to_string(), Value::Array(vec![]));
+            }
+        } else {
+            // If results is not an object, just wrap it
+            enhanced.insert("sparql_results".to_string(), results);
+            enhanced.insert("result_count".to_string(), Value::Number(serde_json::Number::from(0)));
+            enhanced.insert("pods_found".to_string(), Value::Array(vec![]));
+        }
+
+        Ok(Value::Object(enhanced))
     }
     // Add/modify/remove file metadata in a pod
     pub async fn put_subject_data(&mut self, pod_address: &str, subject_address: &str, subject_data: &str) -> Result<(), Error> {
@@ -953,8 +1070,12 @@ mod tests {
         assert!(trig_data.contains(&format!("ant://{}", scratchpad_address)));
         // Check for the actual predicate URIs
         assert!(trig_data.contains("colonylib/vocabulary"));
-        assert!(trig_data.contains("predicate#depth"));
-        assert!(trig_data.contains("\"0\"")); // Initial depth should be 0
+        // Note: depth is stored in the default graph, not in the pod's named graph
+        // so it won't appear in the TriG output for the specific pod graph
+
+        // Verify that the depth was actually set by querying it directly
+        let depth = graph.get_pod_depth(pod_address).unwrap();
+        assert_eq!(depth, 0); // Initial depth should be 0
     }
 
     #[test]
@@ -993,6 +1114,152 @@ mod tests {
 
         let references = graph.get_pod_references(non_existent_address).unwrap();
         assert!(references.is_empty()); // Should return empty vec for non-existent pods
+    }
+
+    #[test]
+    fn test_search_functionality() {
+        let (_data_store, _key_store, mut graph, _temp_dir) = create_test_components();
+
+        // Add test data to the graph
+        let pod_address = "test_search_pod";
+        let pod_iri = format!("ant://{}", pod_address);
+
+        // Add searchable content
+        graph.put_quad(
+            "ant://file1",
+            "ant://colonylib/vocabulary/0.1/predicate#name",
+            "Important Document",
+            Some(&pod_iri)
+        ).unwrap();
+
+        graph.put_quad(
+            "ant://file1",
+            "ant://colonylib/vocabulary/0.1/predicate#description",
+            "This document contains important information",
+            Some(&pod_iri)
+        ).unwrap();
+
+        graph.put_quad(
+            "ant://file2",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+            "http://schema.org/MediaObject",
+            Some(&pod_iri)
+        ).unwrap();
+
+        // Test search directly on graph (without network calls)
+        let search_results = graph.search_content("important", Some(10)).unwrap();
+        let parsed_results: serde_json::Value = serde_json::from_str(&search_results).unwrap();
+
+        // Verify results structure
+        assert!(parsed_results.get("results").is_some());
+        let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
+        assert!(bindings.len() > 0);
+
+        // Test type search
+        let type_results = graph.search_by_type("http://schema.org/MediaObject", Some(10)).unwrap();
+        let parsed_type_results: serde_json::Value = serde_json::from_str(&type_results).unwrap();
+        let type_bindings = parsed_type_results["results"]["bindings"].as_array().unwrap();
+        assert_eq!(type_bindings.len(), 1);
+
+        // Test predicate search
+        let predicate_results = graph.search_by_predicate(
+            "ant://colonylib/vocabulary/0.1/predicate#name",
+            Some(10)
+        ).unwrap();
+        let parsed_predicate_results: serde_json::Value = serde_json::from_str(&predicate_results).unwrap();
+        let predicate_bindings = parsed_predicate_results["results"]["bindings"].as_array().unwrap();
+        assert_eq!(predicate_bindings.len(), 1);
+    }
+
+    #[test]
+    fn test_structured_search_queries() {
+        let (_data_store, _key_store, mut graph, _temp_dir) = create_test_components();
+
+        // Add test data
+        let pod_address = "test_structured_search";
+        let pod_iri = format!("ant://{}", pod_address);
+
+        graph.put_quad(
+            "ant://media1",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+            "http://schema.org/MediaObject",
+            Some(&pod_iri)
+        ).unwrap();
+
+        graph.put_quad(
+            "ant://media1",
+            "ant://colonylib/vocabulary/0.1/predicate#name",
+            "Test Video",
+            Some(&pod_iri)
+        ).unwrap();
+
+        // Test text search directly on graph
+        let text_results = graph.search_content("video", Some(10)).unwrap();
+        let parsed_text_results: serde_json::Value = serde_json::from_str(&text_results).unwrap();
+        let text_bindings = parsed_text_results["results"]["bindings"].as_array().unwrap();
+        assert!(text_bindings.len() > 0);
+
+        // Test type search directly on graph
+        let type_results = graph.search_by_type("http://schema.org/MediaObject", Some(10)).unwrap();
+        let parsed_type_results: serde_json::Value = serde_json::from_str(&type_results).unwrap();
+        let type_bindings = parsed_type_results["results"]["bindings"].as_array().unwrap();
+        assert_eq!(type_bindings.len(), 1);
+
+        // Test predicate search directly on graph
+        let predicate_results = graph.search_by_predicate(
+            "ant://colonylib/vocabulary/0.1/predicate#name",
+            Some(10)
+        ).unwrap();
+        let parsed_predicate_results: serde_json::Value = serde_json::from_str(&predicate_results).unwrap();
+        let predicate_bindings = parsed_predicate_results["results"]["bindings"].as_array().unwrap();
+        assert_eq!(predicate_bindings.len(), 1);
+
+        // Test advanced search directly on graph
+        let advanced_criteria = serde_json::json!({
+            "text": "test",
+            "type": "http://schema.org/MediaObject",
+            "limit": 10
+        });
+        let advanced_results = graph.advanced_search(&advanced_criteria).unwrap();
+        let parsed_advanced_results: serde_json::Value = serde_json::from_str(&advanced_results).unwrap();
+        let advanced_bindings = parsed_advanced_results["results"]["bindings"].as_array().unwrap();
+        assert!(advanced_bindings.len() > 0);
+    }
+
+    #[test]
+    fn test_search_error_handling() {
+        let (_data_store, _key_store, mut graph, _temp_dir) = create_test_components();
+
+        // Test search with empty text (should return no results)
+        let empty_results = graph.search_content("", Some(10)).unwrap();
+        let parsed_empty_results: serde_json::Value = serde_json::from_str(&empty_results).unwrap();
+        let empty_bindings = parsed_empty_results["results"]["bindings"].as_array().unwrap();
+        assert_eq!(empty_bindings.len(), 0);
+
+        // Test search with non-existent text
+        let no_results = graph.search_content("nonexistent_text_12345", Some(10)).unwrap();
+        let parsed_no_results: serde_json::Value = serde_json::from_str(&no_results).unwrap();
+        let no_bindings = parsed_no_results["results"]["bindings"].as_array().unwrap();
+        assert_eq!(no_bindings.len(), 0);
+
+        // Test search by non-existent type
+        let no_type_results = graph.search_by_type("http://example.com/NonExistentType", Some(10)).unwrap();
+        let parsed_no_type_results: serde_json::Value = serde_json::from_str(&no_type_results).unwrap();
+        let no_type_bindings = parsed_no_type_results["results"]["bindings"].as_array().unwrap();
+        assert_eq!(no_type_bindings.len(), 0);
+
+        // Test search by non-existent predicate
+        let no_pred_results = graph.search_by_predicate("http://example.com/nonexistent", Some(10)).unwrap();
+        let parsed_no_pred_results: serde_json::Value = serde_json::from_str(&no_pred_results).unwrap();
+        let no_pred_bindings = parsed_no_pred_results["results"]["bindings"].as_array().unwrap();
+        assert_eq!(no_pred_bindings.len(), 0);
+
+        // Test advanced search with empty criteria
+        let empty_criteria = serde_json::json!({});
+        let empty_advanced_results = graph.advanced_search(&empty_criteria).unwrap();
+        let parsed_empty_advanced: serde_json::Value = serde_json::from_str(&empty_advanced_results).unwrap();
+        // Should return all triples (if any exist) since no filters are applied
+        assert!(parsed_empty_advanced.get("results").is_some());
     }
 }
 

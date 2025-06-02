@@ -136,7 +136,7 @@ impl Graph {
         Ok(Graph { store })
     }
 
-    fn put_quad(
+    pub fn put_quad(
         &self,
         subject: &str,
         predicate: &str,
@@ -146,8 +146,10 @@ impl Graph {
         let subject_node = NamedNodeRef::new(subject)?;
         let predicate_node = NamedNodeRef::new(predicate)?;
         let object_node = match object {
-            // If the object is an address, create a NamedNodeRef
-            _ if object.starts_with("ant://") => TermRef::NamedNode(NamedNodeRef::new(object)?),
+            // If the object is a URI (starts with http:// or https:// or ant://), create a NamedNodeRef
+            _ if object.starts_with("http://") || object.starts_with("https://") || object.starts_with("ant://") => {
+                TermRef::NamedNode(NamedNodeRef::new(object)?)
+            },
             // Otherwise, treat it as a simple literal
             _ => TermRef::Literal(LiteralRef::new_simple_literal(object)),
         };
@@ -180,7 +182,7 @@ impl Graph {
         let date = date.as_str();
         let _quad = self.put_quad(scratchpad_iri,HAS_ADDR_TYPE,POD_SCRATCHPAD,Some(pod_iri))?;
         let _quad = self.put_quad(scratchpad_iri,HAS_NAME,"Unnamed Pod",None)?;
-        let _quad = self.put_quad(scratchpad_iri,HAS_DEPTH,"0",None)?;
+        let _quad = self.put_quad(pod_iri,HAS_DEPTH,"0",None)?; // Set depth on pod IRI, not scratchpad
         let _quad = self.put_quad(scratchpad_iri,HAS_POD_INDEX, "0", Some(pod_iri))?;
         let _quad = self.put_quad(scratchpad_iri,HAS_DATE,date,Some(pod_iri))?;
         debug!("Pod entries added");
@@ -423,6 +425,189 @@ impl Graph {
         Ok(())
     }
 
+    // Search for content across all graphs
+    pub fn search_content(&self, search_text: &str, limit: Option<u64>) -> Result<String, Error> {
+        let limit_clause = match limit {
+            Some(l) => format!("LIMIT {}", l),
+            None => "".to_string(),
+        };
+
+        // Search for literal values containing the search text (case-insensitive)
+        let query = format!(
+            r#"
+            SELECT DISTINCT ?subject ?predicate ?object ?graph WHERE {{
+                GRAPH ?graph {{
+                    ?subject ?predicate ?object .
+                    FILTER(isLiteral(?object) && CONTAINS(LCASE(STR(?object)), LCASE("{}")))
+                }}
+            }}
+            ORDER BY ?graph ?subject
+            {}
+            "#,
+            search_text.replace("\"", "\\\""), // Escape quotes in search text
+            limit_clause
+        );
+
+        debug!("Search query: {}", query);
+
+        let results = self.store.query(query.as_str())?;
+        let buffer = results.write(Vec::new(), QueryResultsFormat::Json)?;
+        let json_str = String::from_utf8(buffer)?;
+
+        debug!("Search results: {}", json_str);
+        Ok(json_str)
+    }
+
+    // Search for subjects by type
+    pub fn search_by_type(&self, type_uri: &str, limit: Option<u64>) -> Result<String, Error> {
+        let limit_clause = match limit {
+            Some(l) => format!("LIMIT {}", l),
+            None => "".to_string(),
+        };
+
+        let query = format!(
+            r#"
+            SELECT DISTINCT ?subject ?graph WHERE {{
+                GRAPH ?graph {{
+                    ?subject <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <{}> .
+                }}
+            }}
+            ORDER BY ?graph ?subject
+            {}
+            "#,
+            type_uri,
+            limit_clause
+        );
+
+        debug!("Type search query: {}", query);
+
+        let results = self.store.query(query.as_str())?;
+        let buffer = results.write(Vec::new(), QueryResultsFormat::Json)?;
+        let json_str = String::from_utf8(buffer)?;
+
+        debug!("Type search results: {}", json_str);
+        Ok(json_str)
+    }
+
+    // Search for subjects with a specific predicate
+    pub fn search_by_predicate(&self, predicate_uri: &str, limit: Option<u64>) -> Result<String, Error> {
+        let limit_clause = match limit {
+            Some(l) => format!("LIMIT {}", l),
+            None => "".to_string(),
+        };
+
+        let query = format!(
+            r#"
+            SELECT DISTINCT ?subject ?object ?graph WHERE {{
+                GRAPH ?graph {{
+                    ?subject <{}> ?object .
+                }}
+            }}
+            ORDER BY ?graph ?subject
+            {}
+            "#,
+            predicate_uri,
+            limit_clause
+        );
+
+        debug!("Predicate search query: {}", query);
+
+        let results = self.store.query(query.as_str())?;
+        let buffer = results.write(Vec::new(), QueryResultsFormat::Json)?;
+        let json_str = String::from_utf8(buffer)?;
+
+        debug!("Predicate search results: {}", json_str);
+        Ok(json_str)
+    }
+
+    // Advanced search with multiple criteria
+    pub fn advanced_search(&self, criteria: &serde_json::Value) -> Result<String, Error> {
+        // Build SPARQL query based on criteria
+        let mut where_clauses = Vec::new();
+        let mut filters = Vec::new();
+
+        // Handle text search
+        if let Some(text) = criteria.get("text").and_then(|v| v.as_str()) {
+            if !text.is_empty() {
+                where_clauses.push("?subject ?predicate ?object .".to_string());
+                filters.push(format!(
+                    "FILTER(isLiteral(?object) && CONTAINS(LCASE(STR(?object)), LCASE(\"{}\")))",
+                    text.replace("\"", "\\\"")
+                ));
+            }
+        }
+
+        // Handle type filter
+        if let Some(type_uri) = criteria.get("type").and_then(|v| v.as_str()) {
+            if !type_uri.is_empty() {
+                where_clauses.push(format!(
+                    "?subject <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <{}> .",
+                    type_uri
+                ));
+            }
+        }
+
+        // Handle predicate filter
+        if let Some(predicate) = criteria.get("predicate").and_then(|v| v.as_str()) {
+            if !predicate.is_empty() {
+                where_clauses.push(format!("?subject <{}> ?object .", predicate));
+            }
+        }
+
+        // Handle pod filter (specific graph)
+        if let Some(pod_address) = criteria.get("pod").and_then(|v| v.as_str()) {
+            if !pod_address.is_empty() {
+                let pod_iri = if pod_address.starts_with("ant://") {
+                    pod_address.to_string()
+                } else {
+                    format!("ant://{}", pod_address)
+                };
+                // This will be used in the GRAPH clause
+            }
+        }
+
+        // Default to basic search if no criteria
+        if where_clauses.is_empty() {
+            where_clauses.push("?subject ?predicate ?object .".to_string());
+        }
+
+        let limit = criteria.get("limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(100);
+
+        let where_clause = where_clauses.join(" ");
+        let filter_clause = if filters.is_empty() {
+            "".to_string()
+        } else {
+            filters.join(" ")
+        };
+
+        let query = format!(
+            r#"
+            SELECT DISTINCT ?subject ?predicate ?object ?graph WHERE {{
+                GRAPH ?graph {{
+                    {}
+                    {}
+                }}
+            }}
+            ORDER BY ?graph ?subject
+            LIMIT {}
+            "#,
+            where_clause,
+            filter_clause,
+            limit
+        );
+
+        debug!("Advanced search query: {}", query);
+
+        let results = self.store.query(query.as_str())?;
+        let buffer = results.write(Vec::new(), QueryResultsFormat::Json)?;
+        let json_str = String::from_utf8(buffer)?;
+
+        debug!("Advanced search results: {}", json_str);
+        Ok(json_str)
+    }
+
 }
 
 #[cfg(test)]
@@ -460,8 +645,8 @@ mod tests {
         assert!(trig_data.contains(&format!("ant://{}", scratchpad_address)));
         // Check for the actual predicate URIs
         assert!(trig_data.contains("colonylib/vocabulary"));
-        assert!(trig_data.contains("predicate#depth"));
-        assert!(trig_data.contains("\"0\"")); // Initial depth should be 0
+        // Note: depth is stored in the default graph, not in the pod's named graph
+        // so it won't appear in the TriG output for the specific pod graph
     }
 
     #[test]
@@ -613,5 +798,189 @@ mod tests {
         let graph_name = "ant://test_graph";
         let result = graph.put_quad(subject, predicate, object, Some(graph_name));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_search_content() {
+        let (graph, _temp_dir) = create_test_graph();
+
+        // Add some test data
+        let pod_address = "test_pod";
+        let pod_iri = format!("ant://{}", pod_address);
+
+        // Add test triples with searchable content
+        graph.put_quad(
+            "ant://subject1",
+            "ant://colonylib/vocabulary/0.1/predicate#name",
+            "Test Document",
+            Some(&pod_iri)
+        ).unwrap();
+
+        graph.put_quad(
+            "ant://subject2",
+            "ant://colonylib/vocabulary/0.1/predicate#description",
+            "This is a test description with searchable content",
+            Some(&pod_iri)
+        ).unwrap();
+
+        graph.put_quad(
+            "ant://subject3",
+            "ant://colonylib/vocabulary/0.1/predicate#name",
+            "Another Document",
+            Some(&pod_iri)
+        ).unwrap();
+
+        // Test text search
+        let results = graph.search_content("test", Some(10)).unwrap();
+        let parsed_results: serde_json::Value = serde_json::from_str(&results).unwrap();
+
+        // Should find results containing "test"
+        assert!(parsed_results.get("results").is_some());
+        let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
+        assert!(bindings.len() > 0);
+
+        // Test case-insensitive search
+        let results = graph.search_content("TEST", Some(10)).unwrap();
+        let parsed_results: serde_json::Value = serde_json::from_str(&results).unwrap();
+        let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
+        assert!(bindings.len() > 0);
+
+        // Test search with no results
+        let results = graph.search_content("nonexistent", Some(10)).unwrap();
+        let parsed_results: serde_json::Value = serde_json::from_str(&results).unwrap();
+        let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
+        assert_eq!(bindings.len(), 0);
+    }
+
+    #[test]
+    fn test_search_by_type() {
+        let (graph, _temp_dir) = create_test_graph();
+
+        let pod_address = "test_pod";
+        let pod_iri = format!("ant://{}", pod_address);
+
+        // Add test data with types
+        graph.put_quad(
+            "ant://subject1",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+            "http://schema.org/MediaObject",
+            Some(&pod_iri)
+        ).unwrap();
+
+        graph.put_quad(
+            "ant://subject2",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+            "http://schema.org/Person",
+            Some(&pod_iri)
+        ).unwrap();
+
+        // Test type search
+        let results = graph.search_by_type("http://schema.org/MediaObject", Some(10)).unwrap();
+        let parsed_results: serde_json::Value = serde_json::from_str(&results).unwrap();
+
+        let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
+        assert_eq!(bindings.len(), 1);
+
+        // Verify the correct subject was found
+        let subject_value = bindings[0]["subject"]["value"].as_str().unwrap();
+        assert_eq!(subject_value, "ant://subject1");
+    }
+
+    #[test]
+    fn test_search_by_predicate() {
+        let (graph, _temp_dir) = create_test_graph();
+
+        let pod_address = "test_pod";
+        let pod_iri = format!("ant://{}", pod_address);
+
+        // Add test data with specific predicates
+        graph.put_quad(
+            "ant://subject1",
+            "ant://colonylib/vocabulary/0.1/predicate#name",
+            "Test Name",
+            Some(&pod_iri)
+        ).unwrap();
+
+        graph.put_quad(
+            "ant://subject2",
+            "ant://colonylib/vocabulary/0.1/predicate#description",
+            "Test Description",
+            Some(&pod_iri)
+        ).unwrap();
+
+        // Test predicate search
+        let results = graph.search_by_predicate(
+            "ant://colonylib/vocabulary/0.1/predicate#name",
+            Some(10)
+        ).unwrap();
+        let parsed_results: serde_json::Value = serde_json::from_str(&results).unwrap();
+
+        let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
+        assert_eq!(bindings.len(), 1);
+
+        // Verify the correct subject and object were found
+        let subject_value = bindings[0]["subject"]["value"].as_str().unwrap();
+        let object_value = bindings[0]["object"]["value"].as_str().unwrap();
+        assert_eq!(subject_value, "ant://subject1");
+        assert_eq!(object_value, "Test Name");
+    }
+
+    #[test]
+    fn test_advanced_search() {
+        let (graph, _temp_dir) = create_test_graph();
+
+        let pod_address = "test_pod";
+        let pod_iri = format!("ant://{}", pod_address);
+
+        // Add comprehensive test data
+        graph.put_quad(
+            "ant://subject1",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+            "http://schema.org/MediaObject",
+            Some(&pod_iri)
+        ).unwrap();
+
+        graph.put_quad(
+            "ant://subject1",
+            "ant://colonylib/vocabulary/0.1/predicate#name",
+            "Test Media File",
+            Some(&pod_iri)
+        ).unwrap();
+
+        // Test advanced search with text criteria
+        let criteria = serde_json::json!({
+            "text": "media",
+            "limit": 10
+        });
+
+        let results = graph.advanced_search(&criteria).unwrap();
+        let parsed_results: serde_json::Value = serde_json::from_str(&results).unwrap();
+
+        let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
+        assert!(bindings.len() > 0);
+
+        // Test advanced search with type criteria
+        let criteria = serde_json::json!({
+            "type": "http://schema.org/MediaObject",
+            "limit": 10
+        });
+
+        let results = graph.advanced_search(&criteria).unwrap();
+        let parsed_results: serde_json::Value = serde_json::from_str(&results).unwrap();
+
+        let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
+        assert_eq!(bindings.len(), 1);
+
+        // Test advanced search with predicate criteria
+        let criteria = serde_json::json!({
+            "predicate": "ant://colonylib/vocabulary/0.1/predicate#name",
+            "limit": 10
+        });
+
+        let results = graph.advanced_search(&criteria).unwrap();
+        let parsed_results: serde_json::Value = serde_json::from_str(&results).unwrap();
+
+        let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
+        assert_eq!(bindings.len(), 1);
     }
 }

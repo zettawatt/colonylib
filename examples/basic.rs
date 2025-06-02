@@ -4,7 +4,7 @@ use colonylib::{KeyStore, PodManager, DataStore, Graph};
 use tokio;
 use tracing::{Level};
 use tracing_subscriber::{filter, prelude::*};
-use serde_json::{Value, json};
+use serde_json::json;
 
 // ETH wallet for local testnet
 const LOCAL_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
@@ -62,12 +62,51 @@ async fn main() {
     let balance = get_balance_of_gas_tokens(wallet).await.unwrap();
     println!("Balance of gas tokens: {}", balance);
 
-    println!("podman {:#?}", podman);
-    let data = podman.dump_graph("c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59").await.unwrap();
-    println!("Graph data: {}", String::from_utf8(data).unwrap());
 
     // // refresh local cache
     // podman.refresh_cache().await.unwrap();
+
+    // Example 1: Simple text search
+    println!("=== Simple Text Search ===");
+    let res = podman.search(json!("ant")).await.unwrap();
+    println!("Text search results: {}", serde_json::to_string_pretty(&res).unwrap());
+
+    // Example 2: Search for media objects by type
+    println!("\n=== Search by Type ===");
+    let res = podman.search(json!({
+        "type": "by_type",
+        "type_uri": "http://schema.org/MediaObject",
+        "limit": 10
+    })).await.unwrap();
+    println!("Type search results: {}", serde_json::to_string_pretty(&res).unwrap());
+
+    // Example 3: Search for files with "name" property
+    println!("\n=== Search by Predicate ===");
+    let res = podman.search(json!({
+        "type": "by_predicate",
+        "predicate_uri": "http://schema.org/name",
+        "limit": 10
+    })).await.unwrap();
+    println!("Predicate search results: {}", serde_json::to_string_pretty(&res).unwrap());
+
+    // Example 4: Advanced search with multiple criteria
+    println!("\n=== Advanced Search ===");
+    let res = podman.search(json!({
+        "type": "advanced",
+        "text": "drawing",
+        "type": "http://schema.org/MediaObject",
+        "limit": 5
+    })).await.unwrap();
+    println!("Advanced search results: {}", serde_json::to_string_pretty(&res).unwrap());
+
+    // Example 5: Search for specific content
+    println!("\n=== Content Search ===");
+    let res = podman.search(json!({
+        "type": "text",
+        "text": "beg blag",
+        "limit": 10
+    })).await.unwrap();
+    println!("Content search results: {}", serde_json::to_string_pretty(&res).unwrap());
 
     // // Add pod 1
     // let (pointer_address1, scratchpad_address1) = podman.add_pod().await.unwrap();
