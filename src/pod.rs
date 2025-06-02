@@ -190,12 +190,12 @@ impl<'a> PodManager<'a> {
     }
 
     // Add/modify/remove file metadata in a pod
-    pub async fn put_subject_data(&mut self, pod_address: &str, object_data: Value) -> Result<(), Error> {
+    pub async fn put_subject_data(&mut self, pod_address: &str, object_address: &str, object_data: Value) -> Result<(), Error> {
         
         // Inject the JSON data into the graph using the pod address as the named graph
         // And return the resulting graph data as a TriG formatted byte vector
         // FIXME: Need to add a 'masked' attribute to handle deletion of file attributes if the pod is a reference
-        let graph = self.graph.insert_data(pod_address, object_data)?;
+        let graph = self.graph.put_subject_data(pod_address, object_address, object_data)?;
 
         // Split the byte vector into 4MB chunks so that the data fits into scratchpads
         // TODO
@@ -218,13 +218,9 @@ impl<'a> PodManager<'a> {
         Ok(())
     }
 
-    pub async fn get_subject_data(&mut self, pod_address: &str, object_address: &str) -> Result<Value, Error> {
+    pub async fn get_subject_data(&mut self, subject_address: &str) -> Result<Value, Error> {
         // Perform a SPARQL query with the Autonomi object address and return the metadata as JSON results
-        // TODO
-        let file_data = "placeholder file metadata";
-
-        // Parse the pod data as JSON
-        let json_data: Value = serde_json::from_str(&file_data)?;
+        let json_data = self.graph.get_subject_data(subject_address)?;
         
         Ok(json_data)
     }
@@ -232,6 +228,7 @@ impl<'a> PodManager<'a> {
     fn get_pod_scratchpads(&self, address: &str) -> Result<Option<Vec<String>>, Error> {
         // TODO: Placeholder function to get all pod scratchpad addresses from the pointer address
         // This will be implemented to read from the scratchpad data and extract addresses
+        // FIXME: will need to specify the order of the scratchpads to reassemble the pod data correctly
 
         // For now, just return the pointer target as a single-item vector
         let target = self.data_store.get_pointer_target(address)?;

@@ -1,12 +1,14 @@
 use oxigraph::io::RdfFormat;
-use tracing::{debug, error};
+use tracing::{info, debug, error};
 use thiserror;
 use serde;
 use oxigraph::sparql::EvaluationError;
 use oxigraph::model::{NamedNodeRef, IriParseError, QuadRef, SubjectRef, TermRef, GraphNameRef, LiteralRef};
 use oxigraph::store::{SerializerError, StorageError, Store};
+use oxigraph::sparql::results::QueryResultsFormat;
 use std::path::PathBuf;
 use serde_json::{Value, Error as SerdeError};
+use alloc::string::FromUtf8Error;
 
 //////////////////////////////////////////////
 // Vocabulary
@@ -97,6 +99,8 @@ pub enum Error {
     Evaluation(#[from] EvaluationError),
     #[error(transparent)]
     Serde(#[from] SerdeError),
+    #[error(transparent)]
+    FromUtf8(#[from] FromUtf8Error),
 }
 
 #[derive(serde::Serialize)]
@@ -108,6 +112,7 @@ pub enum ErrorKind {
     Serializer(String),
     Evaluation(String),
     Serde(String),
+    FromUtf8(String),
 }
 
 impl serde::Serialize for Error {
@@ -122,6 +127,7 @@ impl serde::Serialize for Error {
         Self::Serializer(_) => ErrorKind::Serializer(error_message),
         Self::Evaluation(_) => ErrorKind::Evaluation(error_message),
         Self::Serde(_) => ErrorKind::Serde(error_message),
+        Self::FromUtf8(_) => ErrorKind::FromUtf8(error_message),
       };
       error_kind.serialize(serializer)
     }
@@ -135,6 +141,7 @@ pub struct Graph {
 impl Graph {
     pub fn open(db: &PathBuf) -> Result<Self, Error> {
         let store = Store::open(db)?;
+        info!("Opened graph store at {:?}", db);
         Ok(Graph { store })
     }
 
@@ -159,7 +166,7 @@ impl Graph {
 
         let version = LiteralRef::new_simple_literal(VERSION);
         let quad = QuadRef::new(
-            SubjectRef::NamedNode(pod),
+            SubjectRef::NamedNode(scratchpad),
             NamedNodeRef::new(HAS_VERSION)?,
             TermRef::Literal(version),
             GraphNameRef::NamedNode(pod),
@@ -169,7 +176,7 @@ impl Graph {
 
         let name = LiteralRef::new_simple_literal("example pod");
         let quad = QuadRef::new(
-            SubjectRef::NamedNode(pod),
+            SubjectRef::NamedNode(scratchpad),
             NamedNodeRef::new(HAS_NAME)?,
             TermRef::Literal(name),
             GraphNameRef::NamedNode(pod),
@@ -209,102 +216,106 @@ impl Graph {
     //     Ok(scratchpads)
     // }
 
-    pub fn insert_data(&mut self, pointer_address: &str, data: Value) -> Result<Vec<u8>, Error> {
+    pub fn put_subject_data(&mut self, pointer_address: &str, subject_address: &str, data: Value) -> Result<Vec<u8>, Error> {
 
         // Process the data and convert it to a format suitable for insertion
         let pointer_iri = format!("ant://{}", pointer_address);
         let pod = NamedNodeRef::new(pointer_iri.as_str())?;
-        let mut quads = Vec::new();
+        let subject_iri = format!("ant://{}", subject_address);
+        let subject = NamedNodeRef::new(subject_iri.as_str())?;
         if let Some(name) = data.get("name") {
             let name_literal = LiteralRef::new_simple_literal(name.as_str().unwrap_or("Unnamed Pod"));
             let quad = QuadRef::new(
-                SubjectRef::NamedNode(pod),
+                SubjectRef::NamedNode(subject),
                 NamedNodeRef::new(HAS_NAME)?,
                 TermRef::Literal(name_literal),
                 GraphNameRef::NamedNode(pod),
             );
-            quads.push(quad);
+            // check if the name is already set
+            self.store.remove(quad)?;
+            self.store.insert(quad)?;
         }
         if let Some(version) = data.get("version") {
             let version_literal = LiteralRef::new_simple_literal(version.as_str().unwrap_or(VERSION));
             let quad = QuadRef::new(
-                SubjectRef::NamedNode(pod),
+                SubjectRef::NamedNode(subject),
                 NamedNodeRef::new(HAS_VERSION)?,
                 TermRef::Literal(version_literal),
                 GraphNameRef::NamedNode(pod),
             );
-            quads.push(quad);
+            self.store.remove(quad)?;
+            self.store.insert(quad)?;
         }
         if let Some(addr_type) = data.get("addr_type") {
             let addr_type_iri = match addr_type.as_str() {
-                Some(POD) => POD,
-                Some(POD_REF) => POD_REF,
-                Some(SCRATCHPAD) => SCRATCHPAD,
-                Some(FILE) => FILE,
+                Some("pod") => POD,
+                Some("pod_ref") => POD_REF,
+                Some("scratchpad") => SCRATCHPAD,
+                Some("file") => FILE,
                 _ => return Err(StorageError::Other(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "Invalid address type"))).into()),
             };
             let addr_type_node = NamedNodeRef::new(addr_type_iri)?;
             let quad = QuadRef::new(
-                SubjectRef::NamedNode(pod),
+                SubjectRef::NamedNode(subject),
                 NamedNodeRef::new(HAS_ADDR_TYPE)?,
                 TermRef::NamedNode(addr_type_node),
                 GraphNameRef::NamedNode(pod),
             );
-            quads.push(quad);
+            self.store.remove(quad)?;
+            self.store.insert(quad)?;
         }
         if let Some(file_type) = data.get("file_type") {
             let file_type_iri = match file_type.as_str() {
-                Some(MUSIC) => MUSIC,
-                Some(IMAGE) => IMAGE,
-                Some(VIDEO) => VIDEO,
-                Some(TEXT) => TEXT,
-                Some(DOCUMENT) => DOCUMENT,
-                Some(ARCHIVE) => ARCHIVE,
-                Some(BINARY) => BINARY,
+                Some("music") => MUSIC,
+                Some("image") => IMAGE,
+                Some("video") => VIDEO,
+                Some("text") => TEXT,
+                Some("document") => DOCUMENT,
+                Some("archive") => ARCHIVE,
+                Some("binary") => BINARY,
                 _ => return Err(StorageError::Other(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "Invalid file type"))).into()),
             };
             let file_type_node = NamedNodeRef::new(file_type_iri)?;
             let quad = QuadRef::new(
-                SubjectRef::NamedNode(pod),
+                SubjectRef::NamedNode(subject),
                 NamedNodeRef::new(HAS_FILE_TYPE)?,
                 TermRef::NamedNode(file_type_node),
                 GraphNameRef::NamedNode(pod),
             );
-            quads.push(quad);
+            self.store.remove(quad)?;
+            self.store.insert(quad)?;
         }
         if let Some(file_size) = data.get("file_size") {
             let file_size_literal = LiteralRef::new_simple_literal(file_size.as_str().unwrap_or("0"));
             let quad = QuadRef::new(
-                SubjectRef::NamedNode(pod),
+                SubjectRef::NamedNode(subject),
                 NamedNodeRef::new(HAS_FILE_SIZE)?,
                 TermRef::Literal(file_size_literal),
                 GraphNameRef::NamedNode(pod),
             );
-            quads.push(quad);
+            self.store.remove(quad)?;
+            self.store.insert(quad)?;
         }
         if let Some(file_description) = data.get("file_description") {
             let file_description_literal = LiteralRef::new_simple_literal(file_description.as_str().unwrap_or(""));
             let quad = QuadRef::new(
-                SubjectRef::NamedNode(pod),
+                SubjectRef::NamedNode(subject),
                 NamedNodeRef::new(HAS_FILE_DESCRIPTION)?,
                 TermRef::Literal(file_description_literal),
                 GraphNameRef::NamedNode(pod),
             );
-            quads.push(quad);
+            self.store.remove(quad)?;
+            self.store.insert(quad)?;
         }
         if let Some(file_comment) = data.get("file_comment") {
             let file_comment_literal = LiteralRef::new_simple_literal(file_comment.as_str().unwrap_or(""));
             let quad = QuadRef::new(
-                SubjectRef::NamedNode(pod),
+                SubjectRef::NamedNode(subject),
                 NamedNodeRef::new(HAS_FILE_COMMENT)?,
                 TermRef::Literal(file_comment_literal),
                 GraphNameRef::NamedNode(pod),
             );
-            quads.push(quad);
-        }
-        // Insert all quads into the store
-        for quad in quads {
-            debug!("Inserting quad: {:?}", quad);
+            self.store.remove(quad)?;
             self.store.insert(quad)?;
         }
 
@@ -312,6 +323,28 @@ impl Graph {
         let mut buffer = Vec::new();
         self.store.dump_graph_to_writer(pod, RdfFormat::TriG, &mut buffer)?;
         Ok(buffer)
+    }
+
+    pub fn get_subject_data(&self, subject_address: &str) -> Result<Value, Error> {
+        let subject_iri = format!("ant://{}", subject_address);
+        
+        let query = format!(
+            "SELECT ?p ?o WHERE {{ GRAPH ?g {{ <{}> ?p ?o . }} }}",
+            subject_iri.as_str()
+        );
+        debug!("Query string: {}", query);
+
+        let results = self.store.query(query.as_str())?;
+        let buffer = results.write(Vec::new(), QueryResultsFormat::Json)?;
+
+        // Map the vector buffer to a Value JSON object
+        let json_str = String::from_utf8(buffer)?;
+        debug!("Query results: {}", json_str);
+        //FIXME: this is output in the W3C JSON SPARQL format.
+        // Do we want to convert this to a JSON format that matches the input to put_subject_data?
+        let json_value: Value = serde_json::from_str(&json_str)?;
+
+        Ok(json_value)
     }
 
 }
