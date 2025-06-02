@@ -190,12 +190,11 @@ impl<'a> PodManager<'a> {
     }
 
     // Add/modify/remove file metadata in a pod
-    pub async fn put_subject_data(&mut self, pod_address: &str, object_address: &str, object_data: Value) -> Result<(), Error> {
+    pub async fn put_subject_data(&mut self, pod_address: &str, subject_address: &str, subject_data: &str) -> Result<(), Error> {
         
         // Inject the JSON data into the graph using the pod address as the named graph
         // And return the resulting graph data as a TriG formatted byte vector
-        // FIXME: Need to add a 'masked' attribute to handle deletion of file attributes if the pod is a reference
-        let graph = self.graph.put_subject_data(pod_address, object_address, object_data)?;
+        let graph = self.graph.put_subject_data(pod_address, subject_address, subject_data)?;
 
         // Split the byte vector into 4MB chunks so that the data fits into scratchpads
         // TODO
@@ -218,7 +217,7 @@ impl<'a> PodManager<'a> {
         Ok(())
     }
 
-    pub async fn get_subject_data(&mut self, subject_address: &str) -> Result<Value, Error> {
+    pub async fn get_subject_data(&mut self, subject_address: &str) -> Result<String, Error> {
         // Perform a SPARQL query with the Autonomi object address and return the metadata as JSON results
         let json_data = self.graph.get_subject_data(subject_address)?;
         
@@ -228,7 +227,6 @@ impl<'a> PodManager<'a> {
     fn get_pod_scratchpads(&self, address: &str) -> Result<Option<Vec<String>>, Error> {
         // TODO: Placeholder function to get all pod scratchpad addresses from the pointer address
         // This will be implemented to read from the scratchpad data and extract addresses
-        // FIXME: will need to specify the order of the scratchpads to reassemble the pod data correctly
 
         // For now, just return the pointer target as a single-item vector
         let target = self.data_store.get_pointer_target(address)?;
@@ -591,13 +589,17 @@ impl<'a> PodManager<'a> {
                 self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
                 self.data_store.update_pointer_target(address, target.to_hex().as_str())?;
                 self.data_store.update_pointer_count(address, pointer.counter().into())?;
+                // FIXME: update graph database
+                // clear existing pod graph if it exists using the store.clear function
+                // read in all of the local scratchpads into the RDF graph database
+                // Get any additional scratchpads that are part of this pod
+                // Remove the existing scratchpad graph from the existing database
+                // Add the newly downloaded scratchpad to the graph database
+                // Set the depth attribute to 0
             } else {
                 info!("Pointer is up to date");
             }
         }
-
-        // TODO read in all of the local scratchpads into the RDF graph?
-
         Ok(())
     }
  
@@ -605,11 +607,12 @@ impl<'a> PodManager<'a> {
     pub async fn refresh_ref(&mut self, depth: u64) -> Result<(), Error> {
         let _ = self.refresh_cache().await?;
 
-        // Walk through each scratchpad and check if it references other pods
+        // Walk through each pod graph and check if it references other pods
 
-        // Recurse through each of the external pods, check to see if there is an update vs the cache,
-        // if so, download the scratchpad, and perform the same operation,
-        // putting each pod into the respective depth directory
+        // Download each referenced pod
+
+        // Recurse through each of the reference pods, check to see if there is an update vs the cache,
+        // if so, download the pod scratchpads, and perform the same operation,
 
         // Once all pods are downloaded, populate the oxigraph database
         // Inject an attribute for each pod that indicates the depth of the pod

@@ -20,10 +20,12 @@ autonomi = "0.4.6"
 bip39 = { version = "2.1.0", features = ["rand"] }
 blsttc = "8.0.2"
 borsh = {version = "1.5.7", features = ["derive", "borsh-derive"]}
+chrono = "0.4.41"
 cocoon = "0.4.3"
 dirs = "6.0.0"
 hex = "0.4.3"
 oxigraph = "0.4.11"
+oxjsonld = "0.1.0"
 serde = "1.0.219"
 serde_json = "1.0.140"
 sn_bls_ckd = "0.2.1"
