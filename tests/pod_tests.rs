@@ -43,7 +43,8 @@ fn test_pod_reference_extraction() {
     "#, pod_address);
 
     // Load the test data
-    graph.load_trig_data(&trig_data).unwrap();
+    graph.load_pod_into_graph(pod_address, &trig_data).unwrap();
+    // graph.load_trig_data(&trig_data).unwrap();
 
     // Get references
     let references = graph.get_pod_references(pod_address).unwrap();
@@ -145,7 +146,7 @@ fn test_graph_pod_entry_creation() {
     let scratchpad_address = "test_scratchpad_entry";
 
     // Create pod entry
-    let trig_data = graph.add_pod_entry(pod_address, scratchpad_address).unwrap();
+    let trig_data = graph.add_pod_entry("test pod", pod_address, scratchpad_address).unwrap();
 
     // Verify the TriG data contains expected elements
     assert!(!trig_data.is_empty());

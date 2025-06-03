@@ -55,7 +55,7 @@ async fn main() {
     let graph_path = data_store.get_graph_path();
     let graph = &mut Graph::open(&graph_path).unwrap();
 
-    let mut podman = PodManager::new(client, wallet, data_store, key_store, graph).await.unwrap();
+    let _podman = PodManager::new(client, wallet, data_store, key_store, graph).await.unwrap();
     println!("Network created");
     let balance = get_balance_of_tokens(wallet).await.unwrap();
     println!("Balance of tokens: {}", balance);

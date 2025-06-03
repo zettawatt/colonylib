@@ -110,6 +110,7 @@ async fn main() {
 }
 
 // Get balance of gas tokens in wallet
+#[allow(dead_code)]
 async fn get_balance_of_gas_tokens (wallet: &Wallet) -> Result<f64, String> {
     let balance: Uint<256, 4> = wallet.balance_of_gas_tokens().await.map_err(|e| {
             println!("Error getting balance of gas tokens: {e}");
@@ -120,6 +121,7 @@ async fn get_balance_of_gas_tokens (wallet: &Wallet) -> Result<f64, String> {
     Ok(balance)
 }
 // Get balance of ANT tokens in wallet
+#[allow(dead_code)]
 async fn get_balance_of_tokens (wallet: &Wallet) -> Result<f64, String> {
     let balance: Uint<256, 4> = wallet.balance_of_tokens().await.map_err(|e| {
             println!("Error getting balance of gas tokens: {e}");

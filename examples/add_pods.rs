@@ -51,7 +51,7 @@ async fn main() {
 
     // Add pod 1 with ant girl image metadata
     println!("\n=== Adding Pod 1 ===");
-    let (pointer_address1, scratchpad_address1) = podman.add_pod().await.unwrap();
+    let (pointer_address1, scratchpad_address1) = podman.add_pod("Pod 1").await.unwrap();
     println!("Pod 1 - Pointer address: {}", pointer_address1);
     println!("Pod 1 - Scratchpad address: {}", scratchpad_address1);
 
@@ -73,7 +73,7 @@ async fn main() {
 
     // Add pod 2 with audio file metadata
     println!("\n=== Adding Pod 2 ===");
-    let (pointer_address2, scratchpad_address2) = podman.add_pod().await.unwrap();
+    let (pointer_address2, scratchpad_address2) = podman.add_pod("Pod 2").await.unwrap();
     println!("Pod 2 - Pointer address: {}", pointer_address2);
     println!("Pod 2 - Scratchpad address: {}", scratchpad_address2);
 
@@ -109,6 +109,7 @@ async fn main() {
 }
 
 // Get balance of gas tokens in wallet
+#[allow(dead_code)]
 async fn get_balance_of_gas_tokens (wallet: &Wallet) -> Result<f64, String> {
     let balance: Uint<256, 4> = wallet.balance_of_gas_tokens().await.map_err(|e| {
             println!("Error getting balance of gas tokens: {e}");
@@ -120,6 +121,7 @@ async fn get_balance_of_gas_tokens (wallet: &Wallet) -> Result<f64, String> {
 }
 
 // Get balance of ANT tokens in wallet
+#[allow(dead_code)]
 async fn get_balance_of_tokens (wallet: &Wallet) -> Result<f64, String> {
     let balance: Uint<256, 4> = wallet.balance_of_tokens().await.map_err(|e| {
             println!("Error getting balance of gas tokens: {e}");

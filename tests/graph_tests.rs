@@ -1,27 +1,26 @@
 mod common;
 use common::create_test_graph;
-use colonylib::graph::{HAS_ADDR_TYPE, POD_SCRATCHPAD, HAS_POD_INDEX};
+
+macro_rules! PREDICATE {
+    ($e:expr) => {
+        concat!("ant://colonylib/vocabulary/", "0.1/", "predicate#", $e)
+    };
+}
+
+macro_rules! OBJECT {
+    ($e:expr) => {
+        concat!("ant://colonylib/vocabulary/", "0.1/", "object#", $e)
+    };
+}
+const HAS_ADDR_TYPE: &str = PREDICATE!("addr_type");
+const POD_SCRATCHPAD: &str = OBJECT!("scratchpad");
+const HAS_POD_INDEX: &str = PREDICATE!("pod_index");
 
 #[test]
 fn test_graph_creation() {
     let (_graph, _temp_dir) = create_test_graph();
     // Graph should be created successfully
     assert!(true); // If we get here, graph creation worked
-}
-
-#[test]
-fn test_put_quad() {
-    let (graph, _temp_dir) = create_test_graph();
-
-    // Test creating a simple quad
-    let result = graph.put_quad(
-        "ant://test_subject",
-        "ant://test_predicate",
-        "test_object",
-        Some("ant://test_graph")
-    );
-
-    assert!(result.is_ok(), "Failed to create quad: {:?}", result.err());
 }
 
 #[test]
@@ -120,30 +119,6 @@ fn test_get_pods_at_depth() {
 }
 
 #[test]
-fn test_load_trig_data() {
-    let (mut graph, _temp_dir) = create_test_graph();
-
-    // Test with empty data
-    let result = graph.load_trig_data("");
-    assert!(result.is_ok());
-
-    // Test with whitespace only
-    let result = graph.load_trig_data("   \n\t  ");
-    assert!(result.is_ok());
-
-    // Test with simple TriG data
-    let trig_data = r#"
-        @prefix ex: <http://example.org/> .
-        ex:graph1 {
-            ex:subject ex:predicate ex:object .
-        }
-    "#;
-
-    let result = graph.load_trig_data(trig_data);
-    assert!(result.is_ok());
-}
-
-#[test]
 fn test_get_pod_references() {
     let (mut graph, _temp_dir) = create_test_graph();
 
@@ -160,7 +135,7 @@ fn test_get_pod_references() {
     "#, pod_address);
 
     // Load the test data
-    graph.load_trig_data(&trig_data).unwrap();
+    graph.load_pod_into_graph(pod_address, &trig_data).unwrap();
 
     // Get references
     let references = graph.get_pod_references(pod_address).unwrap();
