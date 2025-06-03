@@ -305,6 +305,7 @@ impl<'a> PodManager<'a> {
 
         Ok(Value::Object(enhanced))
     }
+
     // Add/modify/remove file metadata in a pod
     pub async fn put_subject_data(&mut self, pod_address: &str, subject_address: &str, subject_data: &str) -> Result<(), Error> {
         
@@ -341,12 +342,23 @@ impl<'a> PodManager<'a> {
     }
 
     fn get_pod_scratchpads(&self, address: &str) -> Result<Option<Vec<String>>, Error> {
-        // TODO: Placeholder function to get all pod scratchpad addresses from the pointer address
-        // This will be implemented to read from the scratchpad data and extract addresses
-
-        // For now, just return the pointer target as a single-item vector
-        let target = self.data_store.get_pointer_target(address)?;
-        Ok(Some(vec![target]))
+        // Get all scratchpad addresses for this pod from the graph database
+        match self.graph.get_pod_scratchpads(address) {
+            Ok(scratchpads) => {
+                if scratchpads.is_empty() {
+                    // Fallback to the pointer target if no scratchpads found in graph
+                    let target = self.data_store.get_pointer_target(address)?;
+                    Ok(Some(vec![target]))
+                } else {
+                    Ok(Some(scratchpads))
+                }
+            }
+            Err(_) => {
+                // Fallback to the pointer target if graph query fails
+                let target = self.data_store.get_pointer_target(address)?;
+                Ok(Some(vec![target]))
+            }
+        }
     }
 
     ///////////////////////////////////////////
@@ -355,7 +367,7 @@ impl<'a> PodManager<'a> {
     
 
     // Add a new pod to the local data store
-    pub async fn add_pod(&mut self) -> Result<(String,String), Error> {
+    pub async fn add_pod(&mut self, pod_name: &str) -> Result<(String,String), Error> {
         let scratchpad_address = self.add_scratchpad().await?;
         let scratchpad_address = scratchpad_address.to_hex();
         let scratchpad_address = scratchpad_address.as_str();
@@ -367,9 +379,15 @@ impl<'a> PodManager<'a> {
         let _ = self.data_store.update_pointer_target(pointer_address, scratchpad_address)?;
 
         // Add initial data to the scratchpad
-        let pod_data = self.graph.add_pod_entry(pointer_address, scratchpad_address)?;
+        let pod_data = self.graph.add_pod_entry(pod_name, pointer_address, scratchpad_address)?;
         let _ = self.data_store.update_scratchpad_data(scratchpad_address, pod_data.as_str())?;
         Ok((pointer_address.to_string(), scratchpad_address.to_string()))
+    }
+
+    pub fn add_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
+        // Add the pointer address to the graph
+        self.graph.add_pod_ref_entry(pod_address, pod_ref_address)?;
+        Ok(())
     }
 
     async fn add_scratchpad(&mut self) -> Result<ScratchpadAddress, Error> {
@@ -396,29 +414,6 @@ impl<'a> PodManager<'a> {
         Ok(pointer_address)
     }
 
-    // Update a pod in the local data store
-    // FIXME: will remove or make private once graph operations are implemented
-    pub fn update_pod(&mut self, address: &str, data: &str) -> Result<(), Error> {
-        // Get the scratchpad address from the pointer
-        let scratchpad_address = self.data_store.get_pointer_target(address)?;
-        // Update the scratchpad data
-        let _ = self.data_store.update_scratchpad_data(scratchpad_address.trim(), data)?;
-
-        // Add the addres and scratchpad address to the update list
-        let _ = self.data_store.append_update_list(address)?;
-        let _ = self.data_store.append_update_list(scratchpad_address.trim())?;
-
-        Ok(())
-    }
-
-    // Get a pod from the local data store
-    // FIXME: will remove or make private once graph operations are implemented
-    pub fn get_pod(&mut self, address: &str) -> Result<String, Error> {
-        let scratchpad_address = self.data_store.get_pointer_target(address)?;
-        let pod_data = self.data_store.get_scratchpad_data(scratchpad_address.trim())?;
-        Ok(pod_data)
-    }
-
     ///////////////////////////////////////////
     // Autonomi network operations
     ///////////////////////////////////////////
@@ -434,6 +429,7 @@ impl<'a> PodManager<'a> {
                     // check if address is a directory (pointer) or a file (scratchpad)
                     // and return a dummy analysis type for processing, else
                     // return a chunk to indicate an error
+                    // The unwraps in this section are OK because we're just making some default objects for analysis purposes. There aren't any unknowns here
                     if self.data_store.address_is_pointer(address).unwrap_or(false) {
                         Analysis::Pointer(Pointer::new(
                             &SecretKey::from_hex(self.key_store.get_pointer_key(address.to_string()).unwrap().trim()).unwrap(),
@@ -683,6 +679,20 @@ impl<'a> PodManager<'a> {
                 let data = scratchpad.encrypted_data();
                 let data = String::from_utf8(data.to_vec())?;
                 self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
+
+                // Load the newly discovered pod data into the graph database
+                info!("Loading newly discovered pod into graph database: {}", address);
+                if !data.trim().is_empty() {
+                    if let Err(e) = self.load_pod_into_graph(address, data.trim()) {
+                        warn!("Failed to load newly discovered pod data into graph for {}: {}", address, e);
+                    }
+                }
+
+                // Set the depth attribute to 0 (local pod)
+                if let Err(e) = self.update_pod_depth(address, 0) {
+                    warn!("Failed to update pod depth for newly discovered pod {}: {}", address, e);
+                }
+
                 info!("Pointer and scratchpad files created successfully");
                 continue; // Skip to the next pointer if it was just created
             }
@@ -705,13 +715,49 @@ impl<'a> PodManager<'a> {
                 self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
                 self.data_store.update_pointer_target(address, target.to_hex().as_str())?;
                 self.data_store.update_pointer_count(address, pointer.counter().into())?;
-                // FIXME: update graph database
-                // clear existing pod graph if it exists using the store.clear function
-                // read in all of the local scratchpads into the RDF graph database
-                // Get any additional scratchpads that are part of this pod
-                // Remove the existing scratchpad graph from the existing database
-                // Add the newly downloaded scratchpad to the graph database
-                // Set the depth attribute to 0
+
+                // Update graph database with newly discovered or updated pod data
+                info!("Updating graph database for pod: {}", address);
+
+                // Clear existing pod graph if it exists
+                if let Err(e) = self.graph.clear_pod_graph(address) {
+                    warn!("Failed to clear existing pod graph for {}: {}", address, e);
+                }
+
+                // Get all scratchpads that are part of this pod
+                let scratchpad_addresses = self.get_pod_scratchpads(address)?;
+                if let Some(addresses) = scratchpad_addresses {
+                    // Collect all scratchpad data
+                    let mut combined_data = String::new();
+
+                    for scratchpad_addr in addresses {
+                        match self.data_store.get_scratchpad_data(scratchpad_addr.trim()) {
+                            Ok(scratchpad_data) => {
+                                if !scratchpad_data.trim().is_empty() {
+                                    combined_data.push_str(scratchpad_data.trim());
+                                    combined_data.push('\n');
+                                }
+                            }
+                            Err(e) => {
+                                warn!("Failed to read scratchpad data for {}: {}", scratchpad_addr, e);
+                            }
+                        }
+                    }
+
+                    // Load the combined pod data into the graph database
+                    if !combined_data.trim().is_empty() {
+                        if let Err(e) = self.load_pod_into_graph(address, combined_data.trim()) {
+                            warn!("Failed to load pod data into graph for {}: {}", address, e);
+                        }
+                    }
+                }
+
+                // Set the depth attribute to 0 (local pod)
+                if let Err(e) = self.update_pod_depth(address, 0) {
+                    warn!("Failed to update pod depth for {}: {}", address, e);
+                }
+
+                info!("Successfully updated graph database for pod: {}", address);
             } else {
                 info!("Pointer is up to date");
             }
@@ -727,7 +773,7 @@ impl<'a> PodManager<'a> {
         for current_depth in 0..=depth {
             info!("Processing pod references at depth {}", current_depth);
 
-            // Get all local pods at the current depth
+            // Get all pods at the current depth
             let pod_addresses = self.get_pods_at_depth(current_depth)?;
             let mut referenced_pods = Vec::new();
 
@@ -737,12 +783,7 @@ impl<'a> PodManager<'a> {
                 let pod_refs = self.get_pod_references(&pod_address)?;
 
                 for pod_ref in pod_refs {
-                    // Extract the address from the ant:// URI
-                    if let Some(ref_address) = pod_ref.strip_prefix("ant://") {
-                        if !referenced_pods.contains(&ref_address.to_string()) {
-                            referenced_pods.push(ref_address.to_string());
-                        }
-                    }
+                    referenced_pods.push(pod_ref.to_string());
                 }
             }
 
@@ -773,24 +814,7 @@ impl<'a> PodManager<'a> {
     fn get_pods_at_depth(&self, depth: u64) -> Result<Vec<String>, Error> {
         // Use the graph database to get pods at the specified depth
         let graph_pods = self.graph.get_pods_at_depth(depth)?;
-
-        // If no pods found at this depth in the graph, check local pointers for depth 0
-        if graph_pods.is_empty() && depth == 0 {
-            // For depth 0, include all local pods that don't have a depth set yet
-            let mut local_pods = Vec::new();
-            for (address, _key) in self.key_store.get_pointers() {
-                let address = address.trim();
-                // Check if this pod has no depth set (returns u64::MAX)
-                if let Ok(pod_depth) = self.graph.get_pod_depth(address) {
-                    if pod_depth == u64::MAX || pod_depth == 0 {
-                        local_pods.push(address.to_string());
-                    }
-                }
-            }
-            Ok(local_pods)
-        } else {
-            Ok(graph_pods)
-        }
+        Ok(graph_pods)
     }
 
     // Get the current depth of a pod from the graph database
@@ -822,41 +846,64 @@ impl<'a> PodManager<'a> {
                 // This is a pointer (pod), download it
                 let pointer_address = PointerAddress::from_hex(pod_address)?;
                 let pointer = self.client.pointer_get(&pointer_address).await?;
-
-                // Create local pointer file
-                self.data_store.create_pointer_file(pod_address)?;
-                self.data_store.update_pointer_target(pod_address, pointer.target().to_hex().as_str())?;
-                self.data_store.update_pointer_count(pod_address, pointer.counter().into())?;
-
-                // Download the scratchpad data
-                let target = pointer.target();
-                let target = match target {
-                    PointerTarget::ScratchpadAddress(scratchpad_address) => scratchpad_address,
-                    _ => {
-                        error!("Pointer target is not a scratchpad address");
-                        return Ok(());
+                
+                // Check if we already have this pod locally
+                let pod_exists = self.data_store.address_is_pointer(pod_address)?;
+                let should_download = if pod_exists {
+                    // Check if the remote version is newer than our local version
+                    let local_pointer_count = self.data_store.get_pointer_count(pod_address)?;
+                    let remote_counter = pointer.counter() as u64;
+                    if remote_counter > local_pointer_count {
+                        info!("Remote pod is newer (counter: {} > {}), downloading update", 
+                              remote_counter, local_pointer_count);
+                        true
+                    } else {
+                        info!("Local pod is up to date (counter: {} >= {}), skipping download", 
+                              local_pointer_count, remote_counter);
+                        false
                     }
+                } else {
+                    // Pod doesn't exist locally, download it
+                    info!("Pod doesn't exist locally, downloading for the first time");
+                    // Create local pointer file
+                    self.data_store.create_pointer_file(pod_address)?;
+                    true
                 };
 
-                // Create scratchpad file if it doesn't exist
-                if !self.data_store.address_is_scratchpad(target.to_hex().as_str())? {
-                    self.data_store.create_scratchpad_file(target.to_hex().as_str())?;
+                if should_download {
+                    // Update pointer information
+                    self.data_store.update_pointer_target(pod_address, pointer.target().to_hex().as_str())?;
+                    self.data_store.update_pointer_count(pod_address, pointer.counter().into())?;
+
+                    // Download the scratchpad data
+                    let target = pointer.target();
+                    let target = match target {
+                        PointerTarget::ScratchpadAddress(scratchpad_address) => scratchpad_address,
+                        _ => {
+                            error!("Pointer target is not a scratchpad address");
+                            return Ok(());
+                        }
+                    };
+
+                    // Create scratchpad file if it doesn't exist
+                    if !self.data_store.address_is_scratchpad(target.to_hex().as_str())? {
+                        self.data_store.create_scratchpad_file(target.to_hex().as_str())?;
+                    }
+
+                    // Download the scratchpad data
+                    let scratchpad = self.client.scratchpad_get(target).await?;
+                    let data = scratchpad.encrypted_data();
+                    let data = String::from_utf8(data.to_vec())?;
+                    self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
+
+                    // Load the downloaded pod data into the graph database
+                    self.load_pod_into_graph(pod_address, data.trim())?;
+
+                    info!("Successfully downloaded referenced pod: {}", pod_address);
                 }
 
-                // Download the scratchpad data
-                let scratchpad = self.client.scratchpad_get(target).await?;
-                let data = scratchpad.encrypted_data();
-                let data = String::from_utf8(data.to_vec())?;
-                self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
-
-                // Load the downloaded pod data into the graph database
-                // The data should be in TriG format, so we need to parse it and load it
-                self.load_pod_into_graph(pod_address, data.trim())?;
-
-                // Update the depth in the graph database
+                // Always update the depth in the graph database, even if we didn't download
                 self.update_pod_depth(pod_address, depth)?;
-
-                info!("Successfully downloaded referenced pod: {}", pod_address);
             }
             _ => {
                 warn!("Referenced address {} is not a pod pointer", pod_address);
@@ -878,7 +925,7 @@ impl<'a> PodManager<'a> {
         // The pod data should be in TriG format
         // Load it into the graph database using the Graph's method
 
-        match self.graph.load_trig_data(pod_data) {
+        match self.graph.load_pod_into_graph(pod_address, pod_data) {
             Ok(_) => {
                 info!("Successfully loaded pod {} data into graph database", pod_address);
             }

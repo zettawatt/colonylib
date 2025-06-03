@@ -2,7 +2,7 @@ use oxigraph::io::{RdfFormat, RdfParser, RdfParseError};
 use tracing::{info, debug, error};
 use thiserror;
 use serde;
-use oxigraph::sparql::EvaluationError;
+use oxigraph::sparql::{EvaluationError,QueryResults};
 use oxigraph::model::{NamedNodeRef, IriParseError, QuadRef, TermRef, GraphNameRef, LiteralRef, Quad};
 use oxigraph::store::{SerializerError, StorageError, Store, LoaderError};
 use oxigraph::sparql::results::QueryResultsFormat;
@@ -17,15 +17,15 @@ use std::io::Cursor;
 // Vocabulary
 //////////////////////////////////////////////
 macro_rules! PREDICATE {
-  ($e:expr) => {
-      concat!("ant://colonylib/vocabulary/", "0.1/", "predicate#", $e)
-  };
+    ($e:expr) => {
+        concat!("ant://colonylib/vocabulary/", "0.1/", "predicate#", $e)
+    };
 }
 
 macro_rules! OBJECT {
-  ($e:expr) => {
-      concat!("ant://colonylib/vocabulary/", "0.1/", "object#", $e)
-  };
+    ($e:expr) => {
+        concat!("ant://colonylib/vocabulary/", "0.1/", "object#", $e)
+    };
 }
 
 //////////////////////////////////////////////
@@ -65,9 +65,7 @@ const HAS_DATE: &str = PREDICATE!("date");
 
 /// Address Type Objects
 /// Defines what kind of object the address is pointing to
-#[allow(dead_code)]
 const POD: &str = OBJECT!("pod");
-#[allow(dead_code)]
 const POD_REF: &str = OBJECT!("pod_ref");
 const POD_SCRATCHPAD: &str = OBJECT!("scratchpad");
 
@@ -170,7 +168,7 @@ impl Graph {
         Ok(quad.into_owned())
     }
 
-    pub fn add_pod_entry(&mut self, pod_address: &str, scratchpad_address: &str) -> Result<String, Error> {
+    pub fn add_pod_entry(&mut self, pod_name: &str, pod_address: &str, scratchpad_address: &str) -> Result<String, Error> {
         // Add a new pod
         let pod_iri = format!("ant://{}", pod_address);
         let pod_iri = pod_iri.as_str();
@@ -182,11 +180,14 @@ impl Graph {
         let scratchpad_iri = scratchpad_iri.as_str();
         let date = Utc::now().to_rfc3339();
         let date = date.as_str();
+        // Pod metadata
+        let _quad = self.put_quad(pod_iri,HAS_ADDR_TYPE,POD,None)?;
+        let _quad = self.put_quad(pod_iri,HAS_NAME,pod_name,None)?;
+        let _quad = self.put_quad(pod_iri,HAS_DEPTH,"0",None)?;
+        let _quad = self.put_quad(pod_iri,HAS_DATE,date,Some(pod_iri))?;
+        // Scratchpad metadata
         let _quad = self.put_quad(scratchpad_iri,HAS_ADDR_TYPE,POD_SCRATCHPAD,Some(pod_iri))?;
-        let _quad = self.put_quad(scratchpad_iri,HAS_NAME,"Unnamed Pod",None)?;
-        let _quad = self.put_quad(pod_iri,HAS_DEPTH,"0",None)?; // Set depth on pod IRI, not scratchpad
         let _quad = self.put_quad(scratchpad_iri,HAS_POD_INDEX, "0", Some(pod_iri))?;
-        let _quad = self.put_quad(scratchpad_iri,HAS_DATE,date,Some(pod_iri))?;
         debug!("Pod entries added");
 
         // Dump newly created graph in TriG format
@@ -196,30 +197,18 @@ impl Graph {
         Ok(buffer.into_iter().map(|b| b as char).collect())
     }
 
-    // pub fn get_pod_scratchpads(&self, pointer_address: &str) -> Result<Vec<String>, Error> {
-    //     let pointer_iri = format!("ant://{}", pointer_address);
-    //     let pod = NamedNodeRef::new(pointer_iri.as_str())?;
-    //     let query = format!(
-    //         "SELECT ?scratchpad WHERE {{ GRAPH <{}> {{ ?scratchpad <{}> <{}> . }} }}",
-    //         pod, HAS_ADDR_TYPE, POD
-    //     );
+    pub fn add_pod_ref_entry(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
+        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = pod_iri.as_str();
+        let pod_ref_iri = format!("ant://{}", pod_ref_address);
+        let pod_ref_iri = pod_ref_iri.as_str();
+        let _quad = self.put_quad(pod_ref_iri,HAS_ADDR_TYPE,POD_REF,Some(pod_iri))?;
+        let _quad = self.put_quad(pod_ref_iri,HAS_DEPTH,"1",None)?;
+        debug!("Pod ref added");
 
-    //     let mut scratchpads = Vec::new();
-    //     if let QueryResults::Solutions(solutions) = self.store.query(&query)? {
-    //         for solution in solutions {
-    //             if let Some(scratchpad) = solution.get("scratchpad") {
-    //                 if let TermRef::NamedNode(scratchpad_node) = scratchpad {
-    //                     scratchpads.push(scratchpad_node.to_string());
-    //                 }
-    //             }
-    //         }
-    //     } else {
-    //         error!("Query did not return solutions");
-    //     }
-    //     debug!("Found {} scratchpads for pod {}", scratchpads.len(), pointer_address);
-    //     Ok(scratchpads)
-    // }
-
+        Ok(())
+    }
+        
     // Input is a JSON-LD string
     pub fn put_subject_data(&mut self, pod_address: &str, subject_address: &str, data: &str) -> Result<Vec<u8>, Error> {
         let pod_iri = format!("ant://{}", pod_address);
@@ -227,7 +216,6 @@ impl Graph {
         let pod = NamedNodeRef::new(pod_iri)?;
         let subject_iri = format!("ant://{}", subject_address);
         let subject_iri = subject_iri.as_str();
-        let _subject = NamedNodeRef::new(subject_iri)?;
 
         // Delete existing data for the subject in the pod graph
         // This query deletes all triples for the subject in the specified pod graph
@@ -296,7 +284,7 @@ impl Graph {
         debug!("Depth query: {}", query);
 
         let results = self.store.query(query.as_str())?;
-        if let oxigraph::sparql::QueryResults::Solutions(solutions) = results {
+        if let QueryResults::Solutions(solutions) = results {
             for solution in solutions {
                 if let Ok(solution) = solution {
                     if let Some(depth_term) = solution.get("depth") {
@@ -327,15 +315,12 @@ impl Graph {
         if new_depth < current_depth {
             info!("Updating depth for pod {} from {} to {}", pod_address, current_depth, new_depth);
 
-            // Delete existing depth if it exists
-            if current_depth != u64::MAX {
-                let delete_query = format!(
-                    "DELETE WHERE {{ <{}> <{}> ?depth . }}",
-                    pod_iri, HAS_DEPTH
-                );
-                debug!("Delete depth query: {}", delete_query);
-                self.store.update(delete_query.as_str())?;
-            }
+            let delete_query = format!(
+                "DELETE WHERE {{ <{}> <{}> ?depth . }}",
+                pod_iri, HAS_DEPTH
+            );
+            debug!("Delete depth query: {}", delete_query);
+            self.store.update(delete_query.as_str())?;
 
             // Insert new depth
             let _quad = self.put_quad(&pod_iri, HAS_DEPTH, &new_depth.to_string(), None)?;
@@ -357,7 +342,7 @@ impl Graph {
 
         let mut pods = Vec::new();
         let results = self.store.query(query.as_str())?;
-        if let oxigraph::sparql::QueryResults::Solutions(solutions) = results {
+        if let QueryResults::Solutions(solutions) = results {
             for solution in solutions {
                 if let Ok(solution) = solution {
                     if let Some(pod_term) = solution.get("pod") {
@@ -383,22 +368,22 @@ impl Graph {
 
         // Query for all objects in the pod's named graph that are ant:// URIs
         let query = format!(
-            "SELECT DISTINCT ?ref WHERE {{ GRAPH <{}> {{ ?s ?p ?ref . FILTER(isIRI(?ref) && STRSTARTS(STR(?ref), \"ant://\")) }} }}",
-            pod_iri
+            "SELECT DISTINCT ?pod_ref WHERE {{ GRAPH <{}> {{ ?pod_ref <{}> <{}> . }} }}",
+            pod_iri, HAS_ADDR_TYPE, POD_REF
         );
         debug!("Pod references query: {}", query);
 
         let mut references = Vec::new();
         let results = self.store.query(query.as_str())?;
-        if let oxigraph::sparql::QueryResults::Solutions(solutions) = results {
+        if let QueryResults::Solutions(solutions) = results {
             for solution in solutions {
                 if let Ok(solution) = solution {
-                    if let Some(ref_term) = solution.get("ref") {
+                    if let Some(ref_term) = solution.get("pod_ref") {
                         if let oxigraph::model::Term::NamedNode(ref_node) = ref_term {
                             let ref_iri = ref_node.as_str();
-                            // Only include URIs that don't contain vocabulary (to exclude predicate/object URIs)
-                            if !ref_iri.contains("/vocabulary/") && ref_iri != pod_iri {
-                                references.push(ref_iri.to_string());
+                            // Extract the address from the ant:// URI
+                            if let Some(address) = ref_iri.strip_prefix("ant://") {
+                                references.push(address.to_string());
                             }
                         }
                     }
@@ -411,13 +396,25 @@ impl Graph {
     }
 
     // Load TriG data into the graph database
-    pub fn load_trig_data(&mut self, trig_data: &str) -> Result<(), Error> {
+    pub fn load_pod_into_graph(&mut self, pod_address: &str,trig_data: &str) -> Result<(), Error> {
         if !trig_data.trim().is_empty() {
+            let pod_iri = format!("ant://{}", pod_address);
+            let pod_iri = pod_iri.as_str();
+            let pod = NamedNodeRef::new(pod_iri)?;
+
+            // Insert the graph if it wasn't already there
+            self.store.insert_named_graph(pod)?;
+
+            // Clear graph to receive new data
+            self.store.clear_graph(pod)?;
+    
             let data_reader = Cursor::new(trig_data);
 
             // Load the TriG data into the graph store
             self.store.load_from_reader(
-                RdfParser::from_format(RdfFormat::TriG),
+                RdfParser::from_format(RdfFormat::TriG)
+                .without_named_graphs() // No named graphs allowed in the input
+                .with_default_graph(pod), // we put the file default graph inside of a named graph
                 data_reader,
             )?;
 
@@ -435,6 +432,7 @@ impl Graph {
         };
 
         // Search for literal values containing the search text (case-insensitive)
+        //FIXME: order the results by pod depth
         let query = format!(
             r#"
             SELECT DISTINCT ?subject ?predicate ?object ?graph WHERE {{
@@ -461,6 +459,7 @@ impl Graph {
     }
 
     // Search for subjects by type
+    //FIXME: order the results by pod depth
     pub fn search_by_type(&self, type_uri: &str, limit: Option<u64>) -> Result<String, Error> {
         let limit_clause = match limit {
             Some(l) => format!("LIMIT {}", l),
@@ -608,6 +607,48 @@ impl Graph {
 
         debug!("Advanced search results: {}", json_str);
         Ok(json_str)
+    }
+
+    // Get all scratchpad addresses for a pod
+    pub fn get_pod_scratchpads(&self, pod_address: &str) -> Result<Vec<String>, Error> {
+        let pod_iri = format!("ant://{}", pod_address);
+
+        // Query for all scratchpad addresses in the pod's named graph
+        let query = format!(
+            "SELECT DISTINCT ?scratchpad WHERE {{ GRAPH <{}> {{ ?scratchpad <{}> <{}> . }} }}",
+            pod_iri, HAS_ADDR_TYPE, POD_SCRATCHPAD
+        );
+        debug!("Pod scratchpads query: {}", query);
+
+        let mut scratchpads = Vec::new();
+        let results = self.store.query(query.as_str())?;
+        if let QueryResults::Solutions(solutions) = results {
+            for solution in solutions {
+                if let Ok(solution) = solution {
+                    if let Some(scratchpad_term) = solution.get("scratchpad") {
+                        if let oxigraph::model::Term::NamedNode(scratchpad_node) = scratchpad_term {
+                            let scratchpad_iri = scratchpad_node.as_str();
+                            // Extract the address from the ant:// URI
+                            if let Some(address) = scratchpad_iri.strip_prefix("ant://") {
+                                scratchpads.push(address.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        debug!("Found {} scratchpads for pod {}", scratchpads.len(), pod_address);
+        Ok(scratchpads)
+    }
+
+    // Clear a specific pod graph
+    pub fn clear_pod_graph(&mut self, pod_address: &str) -> Result<(), Error> {
+        let pod_iri = format!("ant://{}", pod_address);
+        let pod_node = NamedNodeRef::new(&pod_iri)?;
+        self.store.clear_graph(pod_node)?;
+        debug!("Cleared graph for pod: {}", pod_address);
+        Ok(())
     }
 
 }
