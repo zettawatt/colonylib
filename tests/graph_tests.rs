@@ -1,5 +1,6 @@
 mod common;
 use common::create_test_graph;
+use colonylib::graph::{HAS_ADDR_TYPE, POD_SCRATCHPAD, HAS_POD_INDEX};
 
 #[test]
 fn test_graph_creation() {
@@ -9,23 +10,34 @@ fn test_graph_creation() {
 }
 
 #[test]
+fn test_put_quad() {
+    let (graph, _temp_dir) = create_test_graph();
+
+    // Test creating a simple quad
+    let result = graph.put_quad(
+        "ant://test_subject",
+        "ant://test_predicate",
+        "test_object",
+        Some("ant://test_graph")
+    );
+
+    assert!(result.is_ok(), "Failed to create quad: {:?}", result.err());
+}
+
+#[test]
 fn test_add_pod_entry() {
     let (mut graph, _temp_dir) = create_test_graph();
 
     let pod_address = "1234567890abcdef";
     let scratchpad_address = "abcdef1234567890";
+    let pod_name = "Test Pod";
 
-    let result = graph.add_pod_entry(pod_address, scratchpad_address);
-    assert!(result.is_ok());
+    let result = graph.add_pod_entry(pod_name, pod_address, scratchpad_address);
+    assert!(result.is_ok(), "Failed to add pod entry: {:?}", result.err());
 
     let trig_data = result.unwrap();
-    assert!(!trig_data.is_empty());
-    // The function creates a named graph for the pod and adds data about the scratchpad
-    assert!(trig_data.contains(&format!("ant://{}", scratchpad_address)));
-    // Check for the actual predicate URIs
-    assert!(trig_data.contains("colonylib/vocabulary"));
-    // Note: depth is stored in the default graph, not in the pod's named graph
-    // so it won't appear in the TriG output for the specific pod graph
+    assert!(!trig_data.is_empty(), "TriG data should not be empty");
+    assert!(trig_data.contains(pod_name), "TriG data should contain pod name");
 }
 
 #[test]
@@ -361,4 +373,137 @@ fn test_advanced_search() {
 
     let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
     assert_eq!(bindings.len(), 1);
+}
+
+#[test]
+fn test_get_pod_scratchpads() {
+    let (mut graph, _temp_dir) = create_test_graph();
+
+    let pod_address = "test_pod_123";
+    let scratchpad1 = "scratchpad_addr_1";
+    let scratchpad2 = "scratchpad_addr_2";
+
+    // First create a pod entry to establish the named graph
+    graph.add_pod_entry("Test Pod", pod_address, scratchpad1).unwrap();
+
+    // Add additional scratchpad to the pod
+    let pod_iri = format!("ant://{}", pod_address);
+    let scratchpad2_iri = format!("ant://{}", scratchpad2);
+    graph.put_quad(&scratchpad2_iri, HAS_ADDR_TYPE, POD_SCRATCHPAD, Some(&pod_iri)).unwrap();
+    graph.put_quad(&scratchpad2_iri, HAS_POD_INDEX, "1", Some(&pod_iri)).unwrap();
+
+    // Test getting scratchpads for the pod
+    let scratchpads = graph.get_pod_scratchpads(pod_address).unwrap();
+    assert_eq!(scratchpads.len(), 2, "Should have 2 scratchpads");
+    assert!(scratchpads.contains(&scratchpad1.to_string()));
+    assert!(scratchpads.contains(&scratchpad2.to_string()));
+
+    // Test getting scratchpads for non-existent pod
+    let empty_scratchpads = graph.get_pod_scratchpads("non_existent_pod").unwrap();
+    assert_eq!(empty_scratchpads.len(), 0, "Should have 0 scratchpads for non-existent pod");
+}
+
+#[test]
+fn test_clear_pod_graph() {
+    let (mut graph, _temp_dir) = create_test_graph();
+
+    let pod_address = "test_pod_clear";
+    let scratchpad_address = "test_scratchpad_clear";
+
+    // Add a pod entry
+    let result = graph.add_pod_entry("Test Pod for Clearing", pod_address, scratchpad_address);
+    assert!(result.is_ok(), "Failed to add pod entry");
+
+    // Verify the pod has data
+    let scratchpads_before = graph.get_pod_scratchpads(pod_address).unwrap();
+    assert_eq!(scratchpads_before.len(), 1, "Should have 1 scratchpad before clearing");
+
+    // Clear the pod graph
+    let clear_result = graph.clear_pod_graph(pod_address);
+    assert!(clear_result.is_ok(), "Failed to clear pod graph: {:?}", clear_result.err());
+
+    // Verify the pod graph is cleared
+    let scratchpads_after = graph.get_pod_scratchpads(pod_address).unwrap();
+    assert_eq!(scratchpads_after.len(), 0, "Should have 0 scratchpads after clearing");
+}
+
+#[test]
+fn test_load_pod_into_graph() {
+    let (mut graph, _temp_dir) = create_test_graph();
+
+    let pod_address = "test_pod_load";
+
+    // Create some test TriG data
+    let trig_data = format!(r#"
+        <ant://{}> {{
+            <ant://test_subject> <ant://test_predicate> "test_object" .
+            <ant://scratchpad123> <{}> <{}> .
+            <ant://scratchpad123> <{}> "0" .
+        }}
+    "#, pod_address, HAS_ADDR_TYPE, POD_SCRATCHPAD, HAS_POD_INDEX);
+
+    // Load the data into the graph
+    let result = graph.load_pod_into_graph(pod_address, &trig_data);
+    assert!(result.is_ok(), "Failed to load pod into graph: {:?}", result.err());
+
+    // Verify the data was loaded by checking for scratchpads
+    let scratchpads = graph.get_pod_scratchpads(pod_address).unwrap();
+    assert_eq!(scratchpads.len(), 1, "Should have 1 scratchpad after loading");
+    assert!(scratchpads.contains(&"scratchpad123".to_string()));
+}
+
+#[test]
+fn test_get_pod_references_with_add_ref() {
+    let (mut graph, _temp_dir) = create_test_graph();
+
+    let pod_address = "test_pod_refs";
+    let ref_pod1 = "referenced_pod_1";
+    let ref_pod2 = "referenced_pod_2";
+
+    // Create a pod entry first
+    graph.add_pod_entry("Test Pod with References", pod_address, "scratchpad_main").unwrap();
+
+    // Add pod references
+    graph.add_pod_ref_entry(pod_address, ref_pod1).unwrap();
+    graph.add_pod_ref_entry(pod_address, ref_pod2).unwrap();
+
+    // Test getting pod references
+    let references = graph.get_pod_references(pod_address).unwrap();
+    assert_eq!(references.len(), 2, "Should have 2 pod references");
+    assert!(references.contains(&ref_pod1.to_string()));
+    assert!(references.contains(&ref_pod2.to_string()));
+
+    // Test getting references for pod with no references
+    let empty_refs = graph.get_pod_references("pod_with_no_refs").unwrap();
+    assert_eq!(empty_refs.len(), 0, "Should have 0 references for pod with no references");
+}
+
+#[test]
+fn test_enhanced_search_content() {
+    let (mut graph, _temp_dir) = create_test_graph();
+
+    let pod_address = "test_pod_search";
+
+    // Add a pod with some searchable content
+    graph.add_pod_entry("Searchable Pod", pod_address, "search_scratchpad").unwrap();
+
+    // Add some content to search for
+    let pod_iri = format!("ant://{}", pod_address);
+    graph.put_quad("ant://test_file", "ant://name", "important_document.pdf", Some(&pod_iri)).unwrap();
+    graph.put_quad("ant://test_file", "ant://description", "This is a very important document", Some(&pod_iri)).unwrap();
+
+    // Search for content
+    let search_results = graph.search_content("important", Some(10)).unwrap();
+    assert!(!search_results.is_empty(), "Search results should not be empty");
+
+    // Parse the JSON to verify it contains our data
+    let json_result: serde_json::Value = serde_json::from_str(&search_results).unwrap();
+    let bindings = json_result["results"]["bindings"].as_array().unwrap();
+    assert!(bindings.len() > 0, "Should have at least one search result");
+
+    // Verify the search found our content
+    let found_important = bindings.iter().any(|binding| {
+        binding["object"]["value"].as_str().unwrap_or("").contains("important")
+    });
+    assert!(found_important, "Search should find content containing 'important'");
 }
