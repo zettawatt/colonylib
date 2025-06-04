@@ -82,7 +82,7 @@ async fn main() {
         "@type": "schema:MediaObject",
         "@id": "ant://c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59",
         "schema:name": "BegBlag.mp3",
-        "schema:description": "Beg Blag and Steal STUFF",
+        "schema:description": "Beg Blag and Steal",
         "schema:contentSize": "4MB"
     });
     let file_data2_str = serde_json::to_string(&file_data2).unwrap();
