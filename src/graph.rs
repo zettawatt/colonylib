@@ -7,7 +7,7 @@ use oxigraph::model::{NamedNodeRef, IriParseError, QuadRef, TermRef, GraphNameRe
 use oxigraph::store::{SerializerError, StorageError, Store, LoaderError};
 use oxigraph::sparql::results::QueryResultsFormat;
 use std::path::PathBuf;
-use serde_json::{Error as SerdeError};
+use serde_json::{json, Error as SerdeError};
 use alloc::string::FromUtf8Error;
 use chrono::Utc;
 use oxjsonld::{JsonLdProfile, JsonLdProfileSet};
@@ -197,16 +197,34 @@ impl Graph {
         Ok(buffer.into_iter().map(|b| b as char).collect())
     }
 
-    pub fn add_pod_ref_entry(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
-        let pod_iri = format!("ant://{}", pod_address);
-        let pod_iri = pod_iri.as_str();
+    pub fn add_pod_ref_entry(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<Vec<u8>, Error> {
         let pod_ref_iri = format!("ant://{}", pod_ref_address);
         let pod_ref_iri = pod_ref_iri.as_str();
-        let _quad = self.put_quad(pod_ref_iri,HAS_ADDR_TYPE,POD_REF,Some(pod_iri))?;
-        let _quad = self.put_quad(pod_ref_iri,HAS_DEPTH,"1",None)?;
-        debug!("Pod ref added");
 
-        Ok(())
+        // Remove the depth object if it already exists in the default graph
+        let update = format!(
+            "DELETE WHERE {{ <{}> <{}> ?o . }}",
+            pod_ref_iri, HAS_DEPTH
+        );
+        debug!("Delete string: {}", update);
+        self.store.update(update.as_str())?;
+  
+        let _quad = self.put_quad(pod_ref_iri,HAS_DEPTH,"1",None)?;
+
+        let data = json!({
+            "@context": {"colonylib": "ant://colonylib/vocabulary/0.1/"},
+            "@id": pod_ref_iri,
+            HAS_ADDR_TYPE: POD_REF,
+        });
+        let data_str = serde_json::to_string(&data)?;
+        let buffer = self.put_subject_data(
+            pod_address,
+            pod_ref_address,
+            &data_str)?;
+
+        debug!("Pod ref {} added to pod {}", pod_ref_address, pod_address);
+
+        Ok(buffer)
     }
         
     // Input is a JSON-LD string

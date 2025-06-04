@@ -157,13 +157,11 @@ impl KeyStore {
         })
     }
 
-    #[instrument]
     pub fn get_seed_phrase(&self) -> String {
         debug!("Seed phrase: {}", self.mnemonic);
         self.mnemonic.clone()
     }
 
-    #[instrument]
     pub fn set_wallet_key(&mut self, wallet_key: String) -> Result<(), Error> {
         let wallet_key = remove_0x_prefix(wallet_key.as_str());
         self.wallet_key = hex::decode(wallet_key)?;
@@ -171,13 +169,11 @@ impl KeyStore {
         Ok(())
     }
 
-    #[instrument]
     pub fn get_wallet_key(&self) -> String {
         debug!("Wallet key: {}", hex::encode(self.wallet_key.clone()));
         hex::encode(self.wallet_key.clone())
     }
 
-    #[instrument]
     pub fn get_pointer_key(&self, pod_pubkey: String) -> Result<String, Error> {
         let decoded_key = hex::decode(pod_pubkey.as_str())?;
         match self.pointers.get(&decoded_key) {
@@ -189,7 +185,6 @@ impl KeyStore {
         }
     }
 
-    #[instrument]
     pub fn get_scratchpad_key(&self, pod_pubkey: String) -> Result<String, Error> {
         let decoded_key = hex::decode(pod_pubkey.as_str())?;
         match self.scratchpads.get(&decoded_key) {
@@ -212,7 +207,6 @@ impl KeyStore {
         }
     }
 
-    #[instrument]
     pub fn add_pointer_key(&mut self) -> Result<String, Error> {
         let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
@@ -224,7 +218,6 @@ impl KeyStore {
         Ok(pod_key.to_hex().to_string())
     }
 
-    #[instrument]
     pub fn add_scratchpad_key(&mut self) -> Result<String, Error> {
         let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
@@ -247,13 +240,11 @@ impl KeyStore {
         Ok(pod_key.to_hex().to_string())
     }
 
-    #[instrument]
     pub fn get_num_pointer_keys(&self) -> u64 {
         debug!("Number of pointer keys: {}", self.pointers.len());
         self.pointers.len() as u64
     }
 
-    #[instrument]
     pub fn get_num_scratchpad_keys(&self) -> u64 {
         debug!("Number of scratchpad keys: {}", self.scratchpads.len());
         self.scratchpads.len() as u64
@@ -290,7 +281,6 @@ impl KeyStore {
 
 }
 
-#[instrument]
 fn index(i: u64) -> DerivationIndex {
     let mut bytes = [0u8; 32];
     bytes[..8].copy_from_slice(&i.to_ne_bytes());

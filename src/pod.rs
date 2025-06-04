@@ -731,7 +731,26 @@ impl<'a> PodManager<'a> {
     /// - [`upload_all`] - Upload pod references to the network
     pub fn add_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
         // Add the pointer address to the graph
-        self.graph.add_pod_ref_entry(pod_address, pod_ref_address)?;
+        let graph = self.graph.add_pod_ref_entry(pod_address, pod_ref_address)?;
+        
+        // Split the byte vector into 4MB chunks so that the data fits into scratchpads
+        // TODO
+
+        // Map the chunks to scratchpad addresses and update them with the new data
+        // TODO, for now just write the whole graph to the scratchpad
+        let pod_data: String = graph.into_iter().map(|b| b as char).collect();
+        let scratchpad_address = self.data_store.get_pointer_target(pod_address)?;
+        let _ = self.data_store.update_scratchpad_data(scratchpad_address.trim(), pod_data.as_str())?;
+
+        // Add the pod pointer address and scratchpad addresses to the update list
+        let _ = self.data_store.append_update_list(pod_address)?;
+
+        let addresses = self.get_pod_scratchpads(pod_address)?;
+        if let Some(addresses) = addresses {
+            for addr in addresses {
+                let _ = self.data_store.append_update_list(addr.trim())?;
+            }
+        }        
         Ok(())
     }
 
