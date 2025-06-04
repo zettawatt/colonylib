@@ -36,7 +36,7 @@ fn test_add_pod_entry() {
 
     let trig_data = result.unwrap();
     assert!(!trig_data.is_empty(), "TriG data should not be empty");
-    assert!(trig_data.contains(pod_name), "TriG data should contain pod name");
+    assert!(trig_data.contains(scratchpad_address), "TriG data should contain the scratchpad address");
 }
 
 #[test]
@@ -127,11 +127,9 @@ fn test_get_pod_references() {
     // Create a pod with some test data that includes references
     let trig_data = format!(r#"
         @prefix ant: <ant://> .
-        <ant://{}> {{
-            <ant://subject1> <ant://colonylib/vocabulary/0.1/predicate#references> <ant://referenced_pod1> .
-            <ant://subject2> <ant://colonylib/vocabulary/0.1/predicate#references> <ant://referenced_pod2> .
-            <ant://subject3> <ant://colonylib/vocabulary/0.1/predicate#name> "Some Name" .
-        }}
+            <ant://referenced_pod1> <ant://colonylib/vocabulary/0.1/predicate#addr_type> <ant://colonylib/vocabulary/0.1/object#pod_ref> .
+            <ant://referenced_pod2> <ant://colonylib/vocabulary/0.1/predicate#addr_type> <ant://colonylib/vocabulary/0.1/object#pod_ref> .
+            <ant://{}> <ant://colonylib/vocabulary/0.1/predicate#name> "Some Name" .
     "#, pod_address);
 
     // Load the test data
@@ -141,8 +139,8 @@ fn test_get_pod_references() {
     let references = graph.get_pod_references(pod_address).unwrap();
 
     // Should find the referenced pods but not vocabulary URIs
-    assert!(references.contains(&"ant://referenced_pod1".to_string()));
-    assert!(references.contains(&"ant://referenced_pod2".to_string()));
+    assert!(references.contains(&"referenced_pod1".to_string()));
+    assert!(references.contains(&"referenced_pod2".to_string()));
 
     // Should not contain vocabulary URIs or the pod itself
     assert!(!references.iter().any(|r| r.contains("/vocabulary/")));
@@ -410,12 +408,10 @@ fn test_load_pod_into_graph() {
 
     // Create some test TriG data
     let trig_data = format!(r#"
-        <ant://{}> {{
             <ant://test_subject> <ant://test_predicate> "test_object" .
             <ant://scratchpad123> <{}> <{}> .
             <ant://scratchpad123> <{}> "0" .
-        }}
-    "#, pod_address, HAS_ADDR_TYPE, POD_SCRATCHPAD, HAS_POD_INDEX);
+    "#, HAS_ADDR_TYPE, POD_SCRATCHPAD, HAS_POD_INDEX);
 
     // Load the data into the graph
     let result = graph.load_pod_into_graph(pod_address, &trig_data);

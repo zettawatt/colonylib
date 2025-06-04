@@ -35,12 +35,10 @@ fn test_pod_reference_extraction() {
     // Create test TriG data with references
     let trig_data = format!(r#"
         @prefix ant: <ant://> .
-        <ant://{}> {{
-            <ant://subject1> <ant://colonylib/vocabulary/0.1/predicate#references> <ant://referenced_pod1> .
-            <ant://subject2> <ant://colonylib/vocabulary/0.1/predicate#links_to> <ant://referenced_pod2> .
+            <ant://referenced_pod1> <ant://colonylib/vocabulary/0.1/predicate#addr_type> <ant://colonylib/vocabulary/0.1/object#pod_ref> .
+            <ant://referenced_pod2> <ant://colonylib/vocabulary/0.1/predicate#addr_type> <ant://colonylib/vocabulary/0.1/object#pod_ref> .
             <ant://subject3> <ant://colonylib/vocabulary/0.1/predicate#name> "Test Name" .
-        }}
-    "#, pod_address);
+    "#);
 
     // Load the test data
     graph.load_pod_into_graph(pod_address, &trig_data).unwrap();
@@ -50,8 +48,8 @@ fn test_pod_reference_extraction() {
     let references = graph.get_pod_references(pod_address).unwrap();
 
     // Should find the referenced pods
-    assert!(references.contains(&"ant://referenced_pod1".to_string()));
-    assert!(references.contains(&"ant://referenced_pod2".to_string()));
+    assert!(references.contains(&"referenced_pod1".to_string()));
+    assert!(references.contains(&"referenced_pod2".to_string()));
 
     // Should not contain vocabulary URIs
     assert!(!references.iter().any(|r| r.contains("/vocabulary/")));

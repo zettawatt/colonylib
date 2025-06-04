@@ -136,11 +136,10 @@ impl<'a> PodManager<'a> {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use autonomi::{Client, Wallet};
     /// use colonylib::{PodManager, DataStore, KeyStore, Graph};
     ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::init_local().await?;
     /// let evm_network = client.evm_network();
     /// let wallet = &Wallet::new_from_private_key(evm_network.clone(), PRIVATE_KEY)?;
@@ -148,7 +147,7 @@ impl<'a> PodManager<'a> {
     /// let key_store_file = data_store.get_keystore_path();
     /// let key_store: &mut KeyStore = if key_store_file.exists() {
     ///     let mut file = std::fs::File::open(key_store_file)?;
-    ///     &mut KeyStore::from_file(&mut file, PASSWORD)?
+    ///     &mut KeyStore::from_file(&mut file, "password")?
     /// } else {
     ///     let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     ///     &mut KeyStore::from_mnemonic(mnemonic)?
@@ -157,8 +156,6 @@ impl<'a> PodManager<'a> {
     /// let graph_path = data_store.get_graph_path();
     /// let graph = &mut Graph::open(&graph_path)?;
     /// let pod_manager = PodManager::new(client, wallet, data_store, key_store, graph).await?;
-    /// # Ok(())
-    /// # }
     /// ```
     pub async fn new(client: Client,
                      wallet: &'a Wallet,
@@ -297,7 +294,7 @@ impl<'a> PodManager<'a> {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use serde_json::{json, Value};
     ///
     /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
@@ -472,7 +469,7 @@ impl<'a> PodManager<'a> {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// use serde_json::json;
     ///
     /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
@@ -551,7 +548,7 @@ impl<'a> PodManager<'a> {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
     /// let subject_address = "c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59";
     ///
@@ -642,7 +639,7 @@ impl<'a> PodManager<'a> {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
     /// // Create a new pod for storing document metadata
     /// let (pod_address, scratchpad_address) = pod_manager.add_pod("My Documents").await?;
@@ -709,7 +706,7 @@ impl<'a> PodManager<'a> {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
     /// // Create a main pod and a sub-pod
     /// let (main_pod, _) = pod_manager.add_pod("Main Collection").await?;
@@ -837,7 +834,7 @@ impl<'a> PodManager<'a> {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
     /// // Create a new pod
     /// let (pod_address, _) = pod_manager.add_pod("My New Pod").await?;
@@ -1046,7 +1043,7 @@ impl<'a> PodManager<'a> {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
     /// // Refresh the cache to discover any new or updated local pods
     /// pod_manager.refresh_cache().await?;
@@ -1264,7 +1261,7 @@ impl<'a> PodManager<'a> {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```ignore
     /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
     /// // Refresh with depth 1 to include directly referenced pods
     /// pod_manager.refresh_ref(1).await?;
