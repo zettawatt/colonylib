@@ -37,8 +37,9 @@ async fn main() {
         let mut file = std::fs::File::open(key_store_file).unwrap();
         &mut KeyStore::from_file(&mut file, PASSWORD).unwrap()
     } else {
-        println!("Key store not found. Please run setup.rs first.");
-        return;
+        println!("Key store file does not exist, creating new key store");
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        &mut KeyStore::from_mnemonic(mnemonic).unwrap()
     };
     let _ = key_store.set_wallet_key(LOCAL_PRIVATE_KEY.to_string()).unwrap();
 
@@ -47,6 +48,9 @@ async fn main() {
 
     let mut podman = PodManager::new(client, wallet, data_store, key_store, graph).await.unwrap();
     println!("Connected to network");
+
+    println!("\n=== Refreshing Cache ===");
+    podman.refresh_cache().await.unwrap();
 
     println!("\n=== Colony Search Examples ===");
 
