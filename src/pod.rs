@@ -114,7 +114,52 @@ impl<'a> fmt::Debug for PodManager<'a> {
 
 impl<'a> PodManager<'a> {
 
-    /// Initialize the client and wallet
+    /// Creates a new PodManager instance with the provided components.
+    ///
+    /// This constructor initializes a PodManager that coordinates between the Autonomi network client,
+    /// wallet for payments, local data storage, cryptographic key management, and RDF graph database.
+    /// The PodManager serves as the main interface for pod operations including creation, modification,
+    /// synchronization, and querying.
+    ///
+    /// # Parameters
+    ///
+    /// * `client` - An Autonomi network client for communicating with the decentralized network
+    /// * `wallet` - A reference to a wallet for handling network transaction payments
+    /// * `data_store` - A mutable reference to the local data storage system
+    /// * `key_store` - A mutable reference to the cryptographic key management system
+    /// * `graph` - A mutable reference to the RDF graph database for semantic data storage
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(PodManager)` on successful initialization, or an `Error` if any component
+    /// fails to initialize properly.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use autonomi::{Client, Wallet};
+    /// use colonylib::{PodManager, DataStore, KeyStore, Graph};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::init_local().await?;
+    /// let evm_network = client.evm_network();
+    /// let wallet = &Wallet::new_from_private_key(evm_network.clone(), PRIVATE_KEY)?;
+    /// let data_store = &mut DataStore::create()?;
+    /// let key_store_file = data_store.get_keystore_path();
+    /// let key_store: &mut KeyStore = if key_store_file.exists() {
+    ///     let mut file = std::fs::File::open(key_store_file)?;
+    ///     &mut KeyStore::from_file(&mut file, PASSWORD)?
+    /// } else {
+    ///     let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    ///     &mut KeyStore::from_mnemonic(mnemonic)?
+    /// };
+    /// let _ = key_store.set_wallet_key(PRIVATE_KEY.to_string())?;
+    /// let graph_path = data_store.get_graph_path();
+    /// let graph = &mut Graph::open(&graph_path)?;
+    /// let pod_manager = PodManager::new(client, wallet, data_store, key_store, graph).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn new(client: Client,
                      wallet: &'a Wallet,
                      data_store: &'a mut DataStore,
@@ -184,7 +229,98 @@ impl<'a> PodManager<'a> {
     // Graph operations
     ///////////////////////////////////////////
 
-    // Search for content
+    /// Performs a comprehensive search across all pod data using various search strategies.
+    ///
+    /// This function provides a flexible search interface that supports multiple search types
+    /// including text search, type-based search, predicate-based search, and advanced SPARQL queries.
+    /// The search operates across all loaded pods in the graph database and returns enhanced
+    /// results with metadata.
+    ///
+    /// # Parameters
+    ///
+    /// * `query` - A JSON value containing the search parameters. Can be either:
+    ///   - A simple string for basic text search
+    ///   - A structured object with specific search type and parameters
+    ///
+    /// # Supported Query Types
+    ///
+    /// ## Text Search
+    /// ```json
+    /// {
+    ///   "type": "text",
+    ///   "text": "search term",
+    ///   "limit": 50
+    /// }
+    /// ```
+    ///
+    /// ## Type-based Search
+    /// ```json
+    /// {
+    ///   "type": "by_type",
+    ///   "type_uri": "http://example.org/MyType",
+    ///   "limit": 100
+    /// }
+    /// ```
+    ///
+    /// ## Predicate-based Search
+    /// ```json
+    /// {
+    ///   "type": "by_predicate",
+    ///   "predicate_uri": "http://example.org/hasProperty",
+    ///   "limit": 25
+    /// }
+    /// ```
+    ///
+    /// ## Advanced Search
+    /// ```json
+    /// {
+    ///   "type": "advanced",
+    ///   "sparql": "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"
+    /// }
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// Returns a JSON object containing:
+    /// - `sparql_results` - The raw SPARQL query results
+    /// - `result_count` - Number of results found
+    /// - `pods_found` - Array of pod addresses that contain matching data
+    /// - `search_timestamp` - ISO 8601 timestamp of when the search was performed
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The query format is invalid
+    /// - Required parameters are missing for the specified search type
+    /// - The underlying graph database query fails
+    /// - JSON parsing of results fails
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use serde_json::{json, Value};
+    ///
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // Simple text search
+    /// let results = pod_manager.search(json!("my search term")).await?;
+    ///
+    /// // Structured search for specific type
+    /// let type_search = json!({
+    ///     "type": "by_type",
+    ///     "type_uri": "http://schema.org/Person",
+    ///     "limit": 10
+    /// });
+    /// let results = pod_manager.search(type_search).await?;
+    ///
+    /// // Advanced SPARQL query
+    /// let advanced_search = json!({
+    ///     "type": "advanced",
+    ///     "sparql": "SELECT ?name WHERE { ?person <http://schema.org/name> ?name }"
+    /// });
+    /// let results = pod_manager.search(advanced_search).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn search(&mut self, query: Value) -> Result<Value, Error> {
         info!("Performing search with query: {}", query);
 
@@ -306,7 +442,66 @@ impl<'a> PodManager<'a> {
         Ok(Value::Object(enhanced))
     }
 
-    // Add/modify/remove file metadata in a pod
+    /// Adds, modifies, or removes semantic data for a specific subject within a pod.
+    ///
+    /// This function updates the RDF graph data associated with a subject (identified by its Autonomi address)
+    /// within a specific pod. The data is stored in the pod's graph entry in the database and automatically
+    /// synchronized to the associated scratchpad(s) for network storage. The operation is queued
+    /// for upload to the Autonomi network.
+    ///
+    /// # Parameters
+    ///
+    /// * `pod_address` - The hexadecimal Autonomi address of the pod to update
+    /// * `subject_address` - The hexadecimal Autonomi address of the object whose metadata is being updated
+    /// * `subject_data` - JSON-LD structured RDF data describing the subject. Use empty string to remove data.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful update, or an `Error` if:
+    /// - The pod address is invalid or doesn't exist
+    /// - The subject data is malformed
+    /// - Graph database update fails
+    /// - Local storage update fails
+    ///
+    /// # Side Effects
+    ///
+    /// - Updates the local graph database with the new subject data
+    /// - Writes updated graph data to associated scratchpad files
+    /// - Adds the pod and scratchpad addresses to the upload queue
+    /// - The changes will be uploaded to the network on the next `upload_all()` call
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use serde_json::json;
+    ///
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// let pod_address = "80e79010a13e7eee779f799d99a20b418436828269b18192d92940bc9ddbfe295a7e1823d7bff75c59cbacbdea101a0d"; // Pod Autonomi address
+    /// let subject_address = "c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59"; // Subject Autonomi address
+    ///
+    /// // Add metadata for a document
+    /// let metadata = json!({
+    ///     "@context": "http://schema.org/",
+    ///     "@type": "TextDigitalDocument",
+    ///     "name": "Important Document",
+    ///     "author": "John Doe",
+    ///     "dateCreated": "2024-01-15",
+    ///     "description": "A document containing important information"
+    /// }).to_string();
+    ///
+    /// pod_manager.put_subject_data(pod_address, subject_address, &metadata).await?;
+    ///
+    /// // Remove metadata by providing empty data
+    /// pod_manager.put_subject_data(pod_address, subject_address, "").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`get_subject_data`] - Retrieve data for a specific subject
+    /// - [`upload_all`] - Upload pending changes to the network
+    /// - [`search`] - Search for subjects across pods
     pub async fn put_subject_data(&mut self, pod_address: &str, subject_address: &str, subject_data: &str) -> Result<(), Error> {
         
         // Inject the JSON data into the graph using the pod address as the named graph
@@ -334,10 +529,61 @@ impl<'a> PodManager<'a> {
         Ok(())
     }
 
+    /// Retrieves all semantic data associated with a specific subject across all pods.
+    ///
+    /// This function queries the graph database to find all RDF triples where the specified
+    /// subject address appears as the subject. It returns the data in JSON format, aggregating
+    /// information from all pods that contain data about this subject.
+    ///
+    /// # Parameters
+    ///
+    /// * `subject_address` - The Autonomi address of the object to retrieve data for
+    ///
+    /// # Returns
+    ///
+    /// Returns a JSON string containing all metadata associated with the subject, or an `Error` if:
+    /// - The subject address is invalid
+    /// - The graph database query fails
+    /// - JSON serialization fails
+    ///
+    /// The returned JSON follows the SPARQL JSON Results format with bindings for each
+    /// predicate-object pair associated with the subject.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// let subject_address = "c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59";
+    ///
+    /// // Retrieve all metadata for the subject
+    /// let metadata_json = pod_manager.get_subject_data(subject_address).await?;
+    ///
+    /// // Parse the JSON to work with the data
+    /// let metadata: serde_json::Value = serde_json::from_str(&metadata_json)?;
+    ///
+    /// // Access the SPARQL results
+    /// if let Some(bindings) = metadata["results"]["bindings"].as_array() {
+    ///     for binding in bindings {
+    ///         if let (Some(predicate), Some(object)) = (
+    ///             binding["predicate"]["value"].as_str(),
+    ///             binding["object"]["value"].as_str()
+    ///         ) {
+    ///             println!("Property: {}, Value: {}", predicate, object);
+    ///         }
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`put_subject_data`] - Add or update data for a subject
+    /// - [`search`] - Search for subjects with specific criteria
     pub async fn get_subject_data(&mut self, subject_address: &str) -> Result<String, Error> {
         // Perform a SPARQL query with the Autonomi object address and return the metadata as JSON results
         let json_data = self.graph.get_subject_data(subject_address)?;
-        
+
         Ok(json_data)
     }
 
@@ -366,7 +612,65 @@ impl<'a> PodManager<'a> {
     ///////////////////////////////////////////
     
 
-    // Add a new pod to the local data store
+    /// Creates a new pod with the specified name in the local data store.
+    ///
+    /// This function creates a complete pod structure including:
+    /// - A new pointer address for the pod
+    /// - A new scratchpad address for data storage
+    /// - Initial graph data with pod metadata
+    /// - Local files for both pointer and scratchpad
+    /// - Adds the addresses to the upload queue
+    ///
+    /// The pod will be ready for use immediately and will be uploaded to the Autonomi network
+    /// on the next call to `upload_all()`.
+    ///
+    /// # Parameters
+    ///
+    /// * `pod_name` - A human-readable name for the pod (used in metadata)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok((pointer_address, scratchpad_address))` containing:
+    /// - `pointer_address` - The hexadecimal address of the pod's pointer
+    /// - `scratchpad_address` - The hexadecimal address of the pod's primary scratchpad
+    ///
+    /// Returns an `Error` if:
+    /// - Key generation fails
+    /// - File creation fails
+    /// - Graph database update fails
+    /// - Local storage operations fail
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // Create a new pod for storing document metadata
+    /// let (pod_address, scratchpad_address) = pod_manager.add_pod("My Documents").await?;
+    ///
+    /// println!("Created pod at address: {}", pod_address);
+    /// println!("Primary scratchpad at: {}", scratchpad_address);
+    ///
+    /// // The pod is now ready to store data
+    /// let subject_data = r#"{
+    ///     "@context": "http://schema.org/",
+    ///     "@type": "Collection",
+    ///     "name": "My Documents",
+    ///     "description": "A collection of important documents"
+    /// }"#;
+    ///
+    /// pod_manager.put_subject_data(&pod_address, &pod_address, subject_data).await?;
+    ///
+    /// // Upload the new pod to the network
+    /// pod_manager.upload_all().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`add_pod_ref`] - Add a reference to another pod
+    /// - [`upload_all`] - Upload the new pod to the network
+    /// - [`put_subject_data`] - Add data to the pod
     pub async fn add_pod(&mut self, pod_name: &str) -> Result<(String,String), Error> {
         let scratchpad_address = self.add_scratchpad().await?;
         let scratchpad_address = scratchpad_address.to_hex();
@@ -384,6 +688,50 @@ impl<'a> PodManager<'a> {
         Ok((pointer_address.to_string(), scratchpad_address.to_string()))
     }
 
+    /// Adds a reference from one pod to another pod in the graph database.
+    ///
+    /// This function creates a semantic link between two pods, allowing for the creation
+    /// of pod networks and hierarchies. The reference is stored in the graph database
+    /// and will be included when the referencing pod is uploaded to the network.
+    /// Referenced pods can be discovered and downloaded automatically using `refresh_ref()`.
+    ///
+    /// # Parameters
+    ///
+    /// * `pod_address` - The hexadecimal Autonomi address of the pod that will store the referenced pod address
+    /// * `pod_ref_address` - The hexadecimal Autonomi address of the pod being referenced
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an `Error` if:
+    /// - Either pod address is invalid
+    /// - The graph database update fails
+    /// - The referencing pod doesn't exist locally
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // Create a main pod and a sub-pod
+    /// let (main_pod, _) = pod_manager.add_pod("Main Collection").await?;
+    /// let (sub_pod, _) = pod_manager.add_pod("Sub Collection").await?;
+    ///
+    /// // Create a reference from main pod to sub pod
+    /// pod_manager.add_pod_ref(&main_pod, &sub_pod)?;
+    ///
+    /// // The reference will be included when uploading the main pod
+    /// pod_manager.upload_all().await?;
+    ///
+    /// // Later, when refreshing with references, the sub pod will be discovered
+    /// pod_manager.refresh_ref(2).await?; // Refresh up to depth 2
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`add_pod`] - Create a new pod
+    /// - [`refresh_ref`] - Download referenced pods from the network
+    /// - [`upload_all`] - Upload pod references to the network
     pub fn add_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
         // Add the pointer address to the graph
         self.graph.add_pod_ref_entry(pod_address, pod_ref_address)?;
@@ -456,6 +804,66 @@ impl<'a> PodManager<'a> {
         Ok((pod_type, create_mode))
     }
     
+    /// Uploads all pending changes to the Autonomi network.
+    ///
+    /// This function processes the update queue and uploads all modified pods and scratchpads
+    /// to the Autonomi network. It handles both creating new network objects and updating
+    /// existing ones based on their current state. The function automatically determines
+    /// whether each address needs to be created or updated.
+    ///
+    /// # Process
+    ///
+    /// 1. Reads the update list containing addresses that need uploading
+    /// 2. For each address, determines if it's a pointer or scratchpad
+    /// 3. Checks if the address exists on the network (create vs update)
+    /// 4. Performs the appropriate network operation
+    /// 5. Clears the update list upon successful completion
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful upload of all items, or an `Error` if:
+    /// - Network communication fails
+    /// - Payment processing fails
+    /// - Local file operations fail
+    /// - Address analysis fails
+    ///
+    /// # Network Costs
+    ///
+    /// This operation incurs network costs for:
+    /// - Creating new pointers and scratchpads (used to construct pods)
+    /// - Adding data to an existing pod that causes a new scratchpad to be required (each scratchpad's max size is 4MB)
+    ///
+    /// Costs are automatically paid using the configured wallet. Updates to existing pod components are free.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // Create a new pod
+    /// let (pod_address, _) = pod_manager.add_pod("My New Pod").await?;
+    ///
+    /// // Add some data to the pod for the subject
+    /// let subject_address = "c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59";
+    /// let metadata = r#"{
+    ///     "@context": "http://schema.org/",
+    ///     "@type": "Dataset",
+    ///     "name": "Research Data"
+    /// }"#;
+    /// pod_manager.put_subject_data(&pod_address, subject_address, metadata).await?;
+    ///
+    /// // Upload all changes to the network
+    /// pod_manager.upload_all().await?;
+    ///
+    /// println!("All changes uploaded successfully!");
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`add_pod`] - Creates pods that need uploading
+    /// - [`put_subject_data`] - Modifies pods that need uploading
+    /// - [`refresh_cache`] - Downloads updates from the network
     pub async fn upload_all(&mut self) -> Result<(), Error> {
         // open update list and walk through each line
         let file_path = self.data_store.get_update_list_path();
@@ -609,6 +1017,56 @@ impl<'a> PodManager<'a> {
         Ok(())
     }
 
+    /// Refreshes the local cache by discovering and downloading user created pods from the Autonomi network.
+    ///
+    /// This function performs a comprehensive refresh of the local pod cache by:
+    /// 1. Discovering new keys that may have been created on different devices
+    /// 2. Downloading any new or updated pods associated with known keys
+    /// 3. Updating the local graph database with fresh pod data
+    /// 4. Synchronizing pointer and scratchpad files that make up the pods
+    ///
+    /// The function automatically discovers pods that may have been created on other devices
+    /// using the same key derivation, ensuring synchronization across multiple clients.
+    ///
+    /// # Process
+    ///
+    /// 1. **Key Discovery**: Checks the next few derived keys for network activity
+    /// 2. **Pod Discovery**: Downloads any new pods found at discovered addresses
+    /// 3. **Update Check**: Compares local and remote versions of known pods
+    /// 4. **Data Sync**: Downloads updated pod data and updates the graph database
+    /// 5. **Depth Setting**: Marks all discovered pods with depth 0 (local pods)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful refresh, or an `Error` if:
+    /// - Network communication fails
+    /// - Key derivation fails
+    /// - Local file operations fail
+    /// - Graph database updates fail
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // Refresh the cache to discover any new or updated local pods
+    /// pod_manager.refresh_cache().await?;
+    ///
+    /// // The cache is now up to date with the network
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Performance Notes
+    ///
+    /// - This operation may take time proportional to the number of pods
+    /// - Network requests are made for each pod to check for updates
+    /// - Consider calling this periodically rather than on every operation
+    ///
+    /// # Related Functions
+    ///
+    /// - [`refresh_ref`] - Refresh cache including pod references
+    /// - [`upload_all`] - Upload local changes before refreshing
+    /// - [`search`] - Search across refreshed pod data
     pub async fn refresh_cache(&mut self) -> Result<(), Error> {
         // Loop through the next 3 derived keys and check if they contain data on the network
         // This is to ensure that we have all of the relevant keys in our key store
@@ -765,7 +1223,72 @@ impl<'a> PodManager<'a> {
         Ok(())
     }
  
-    // Refresh pod cache from the network
+    /// Refreshes the pod cache including referenced pods up to a specified depth.
+    ///
+    /// This function extends `refresh_cache()` by also discovering and downloading pods
+    /// that are referenced by local pods, creating a network of interconnected pods.
+    /// It processes pod references iteratively up to the specified depth to avoid
+    /// taking excessive time.
+    ///
+    /// # Parameters
+    ///
+    /// * `depth` - Maximum depth of pod references to follow:
+    ///   - `0`: Only refresh local pods (equivalent to `refresh_cache()`)
+    ///   - `1`: Include pods directly referenced by local pods
+    ///   - `2`: Include pods referenced by referenced pods, etc.
+    ///
+    /// # Process
+    ///
+    /// 1. **Initial Refresh**: Calls `refresh_cache()` to update local pods
+    /// 2. **Iterative Processing**: For each depth level:
+    ///    - Gets all pods at the current depth
+    ///    - Extracts pod references from their graph data
+    ///    - Downloads referenced pods that don't exist locally
+    ///    - Updates depth metadata for discovered pods
+    /// 3. **Depth Management**: Assigns appropriate depth values to maintain hierarchy
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful refresh, or an `Error` if:
+    /// - Network communication fails
+    /// - Referenced pods cannot be downloaded
+    /// - Graph database operations fail
+    /// - Local storage operations fail
+    ///
+    /// # Network Costs
+    ///
+    /// This operation is free in terms of cost, but can take a significant amount of time as it may download
+    /// many referenced pods. Consider the depth parameter carefully:
+    /// - Higher depths exponentially increase potential downloads
+    /// - Referenced pods may reference many other pods
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // Refresh with depth 1 to include directly referenced pods
+    /// pod_manager.refresh_ref(1).await?;
+    ///
+    /// // Search across all local and referenced pods
+    /// let results = pod_manager.search(serde_json::json!({
+    ///     "type": "text",
+    ///     "text": "research data",
+    ///     "limit": 100
+    /// })).await?;
+    ///
+    /// println!("Found data across {} pods", results["pods_found"].as_array().unwrap().len());
+    ///
+    /// // Refresh with deeper references (use cautiously)
+    /// pod_manager.refresh_ref(8).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`refresh_cache`] - Refresh only local pods
+    /// - [`add_pod_ref`] - Create pod references
+    /// - [`search`] - Search across all cached pods
     pub async fn refresh_ref(&mut self, depth: u64) -> Result<(), Error> {
         let _ = self.refresh_cache().await?;
 
