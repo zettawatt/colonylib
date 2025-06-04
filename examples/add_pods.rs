@@ -102,9 +102,37 @@ async fn main() {
     println!("Waiting for pod replication...");
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
+    // Updating pod 2 with an additional file metadata
+    println!("\n=== Updating Pod 2 ===");
+
+    let file_data2 = json!({
+        "@context": {"schema": "http://schema.org/"},
+        "@type": "schema:MediaObject",
+        "@id": "ant://01bd818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59",
+        "schema:name": "something.mp3",
+        "schema:description": "Some other song",
+        "schema:contentSize": "3MB"
+    });
+    let file_data2_str = serde_json::to_string(&file_data2).unwrap();
+    println!("Adding additional file data to Pod 2: {}", file_data2_str);
+    
+    let _ = podman.put_subject_data(
+        pointer_address2.trim(),
+        "01bd818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59",
+        &file_data2_str).await.unwrap();
+
+    // Upload both pods to the network
+    println!("\n=== Uploading Pods to Network ===");
+    let _ = podman.upload_all().await.unwrap();
+    println!("Successfully uploaded all pods to the network!");
+
+    // Wait for replication
+    println!("Waiting for pod replication...");
+    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
     println!("\n=== Summary ===");
     println!("Pod 1 (ant_girl.png): {}", pointer_address1);
-    println!("Pod 2 (BegBlag.mp3): {}", pointer_address2);
+    println!("Pod 2 (BegBlag.mp3 and something.mp3): {}", pointer_address2);
     println!("Both pods have been successfully created and uploaded to the network.");
 }
 
