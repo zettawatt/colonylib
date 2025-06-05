@@ -49,8 +49,8 @@ async fn main() {
     let mut podman = PodManager::new(client, wallet, data_store, key_store, graph).await.unwrap();
     println!("Connected to network");
 
-    println!("\n=== Refreshing Cache ===");
-    podman.refresh_cache().await.unwrap();
+    println!("\n=== Refreshing All Known Pods ===");
+    podman.refresh_ref(3).await.unwrap();
 
     println!("\n=== Colony Search Examples ===");
 
