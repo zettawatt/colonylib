@@ -69,7 +69,6 @@ const HAS_DATE: &str = PREDICATE!("date");
 /// Defines what kind of object the address is pointing to
 const POD: &str = OBJECT!("pod");
 const POD_REF: &str = OBJECT!("pod_ref");
-const POD_SCRATCHPAD: &str = OBJECT!("scratchpad");
 
 // Error handling
 #[derive(Debug, thiserror::Error)]
@@ -188,7 +187,6 @@ impl Graph {
         let _quad = self.put_quad(pod_iri,HAS_DEPTH,"0",None)?;
         let _quad = self.put_quad(pod_iri,HAS_DATE,date,Some(pod_iri))?;
         // Scratchpad metadata
-        let _quad = self.put_quad(scratchpad_iri,HAS_ADDR_TYPE,POD_SCRATCHPAD,Some(pod_iri))?;
         let _quad = self.put_quad(scratchpad_iri,HAS_POD_INDEX, "0", Some(pod_iri))?;
         debug!("Pod entries added");
 
@@ -199,7 +197,7 @@ impl Graph {
         Ok(buffer.into_iter().map(|b| b as char).collect())
     }
 
-    pub fn add_pod_ref_entry(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<Vec<u8>, Error> {
+    pub fn pod_ref_entry(&mut self, pod_address: &str, pod_ref_address: &str, add: bool) -> Result<Vec<u8>, Error> {
         let pod_ref_iri = format!("ant://{}", pod_ref_address);
         let pod_ref_iri = pod_ref_iri.as_str();
         let pod_iri = format!("ant://{}", pod_address);
@@ -223,10 +221,14 @@ impl Graph {
   
         self.store.update(update.as_str())?;
   
-        let _quad = self.put_quad(pod_ref_iri,HAS_DEPTH,"1",None)?;
-        let _quad = self.put_quad(pod_ref_iri, HAS_ADDR_TYPE, POD_REF, Some(pod_iri))?;
-
-        debug!("Pod ref {} added to pod {}", pod_ref_address, pod_address);
+        if add {
+            // Enter in pod ref quad
+            let _quad = self.put_quad(pod_ref_iri,HAS_DEPTH,"1",None)?;
+            let _quad = self.put_quad(pod_ref_iri, HAS_ADDR_TYPE, POD_REF, Some(pod_iri))?;
+            debug!("Pod ref {} added to pod {}", pod_ref_address, pod_address);
+        } else {
+            debug!("Pod ref {} removed from pod {}", pod_ref_address, pod_address);
+        }
 
         // Dump the updated graph in TriG format
         let pod = oxigraph::model::NamedNodeRef::new(pod_iri)?;

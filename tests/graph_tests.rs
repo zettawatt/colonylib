@@ -435,8 +435,8 @@ fn test_get_pod_references_with_add_ref() {
     graph.add_pod_entry("Test Pod with References", pod_address, "scratchpad_main").unwrap();
 
     // Add pod references
-    graph.add_pod_ref_entry(pod_address, ref_pod1).unwrap();
-    graph.add_pod_ref_entry(pod_address, ref_pod2).unwrap();
+    graph.pod_ref_entry(pod_address, ref_pod1, true).unwrap();
+    graph.pod_ref_entry(pod_address, ref_pod2, true).unwrap();
 
     // Test getting pod references
     let references = graph.get_pod_references(pod_address).unwrap();

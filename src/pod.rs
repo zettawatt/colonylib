@@ -701,6 +701,7 @@ impl<'a> PodManager<'a> {
     /// of pod networks and hierarchies. The reference is stored in the graph database
     /// and will be included when the referencing pod is uploaded to the network.
     /// Referenced pods can be discovered and downloaded automatically using `refresh_ref()`.
+    /// Use the associated `remove_pod_ref()` to remove a reference from a local pod.
     ///
     /// # Parameters
     ///
@@ -737,11 +738,81 @@ impl<'a> PodManager<'a> {
     /// # Related Functions
     ///
     /// - [`add_pod`] - Create a new pod
+    /// - [`remvoe_pod_ref`] - Remove a pod reference in a local pod
     /// - [`refresh_ref`] - Download referenced pods from the network
     /// - [`upload_all`] - Upload pod references to the network
     pub fn add_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
         // Add the pointer address to the graph
-        let graph = self.graph.add_pod_ref_entry(pod_address, pod_ref_address)?;
+        let graph = self.graph.pod_ref_entry(pod_address, pod_ref_address, true)?;
+        
+        // FIXME: implement pod scratchpad data splitting from what was done in put_subject_data
+
+        // Split the byte vector into 4MB chunks so that the data fits into scratchpads
+        // TODO
+
+        // Map the chunks to scratchpad addresses and update them with the new data
+        // TODO, for now just write the whole graph to the scratchpad
+        let pod_data: String = graph.into_iter().map(|b| b as char).collect();
+        let scratchpad_address = self.data_store.get_pointer_target(pod_address)?;
+        let _ = self.data_store.update_scratchpad_data(scratchpad_address.trim(), pod_data.as_str())?;
+
+        // Add the pod pointer address and scratchpad addresses to the update list
+        let _ = self.data_store.append_update_list(pod_address)?;
+
+        let addresses = self.get_pod_scratchpads(pod_address)?;
+        if let Some(addresses) = addresses {
+            for addr in addresses {
+                let _ = self.data_store.append_update_list(addr.trim())?;
+            }
+        }        
+        Ok(())
+    }
+
+    /// Removes a reference to a pod in a local pod in the graph database.
+    ///
+    /// This function removes a semantic link between two pods. It is the opposite of `add_pod_ref()`
+    ///
+    /// # Parameters
+    ///
+    /// * `pod_address` - The hexadecimal Autonomi address of the pod that will store the referenced pod address
+    /// * `pod_ref_address` - The hexadecimal Autonomi address of the pod being referenced
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an `Error` if:
+    /// - Either pod address is invalid
+    /// - The graph database update fails
+    /// - The referencing pod doesn't exist locally
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // Create a main pod and a sub-pod
+    /// let (main_pod, _) = pod_manager.add_pod("Main Collection").await?;
+    /// let (sub_pod, _) = pod_manager.add_pod("Sub Collection").await?;
+    ///
+    /// // Remove a reference from main pod to sub pod
+    /// pod_manager.remove_pod_ref(&main_pod, &sub_pod)?;
+    ///
+    /// // The reference will be included when uploading the main pod
+    /// pod_manager.upload_all().await?;
+    ///
+    /// // Later, when refreshing with references, the sub pod will be discovered
+    /// pod_manager.refresh_ref(2).await?; // Refresh up to depth 2
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`add_pod`] - Create a new pod
+    /// - [`add_pod_ref`] - Create a pod reference in a local pod
+    /// - [`refresh_ref`] - Download referenced pods from the network
+    /// - [`upload_all`] - Upload pod references to the network
+    pub fn remove_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
+        // Remove the pointer address to the graph
+        let graph = self.graph.pod_ref_entry(pod_address, pod_ref_address, false)?;
         
         // FIXME: implement pod scratchpad data splitting from what was done in put_subject_data
 
