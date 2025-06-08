@@ -7,13 +7,6 @@ macro_rules! PREDICATE {
     };
 }
 
-macro_rules! OBJECT {
-    ($e:expr) => {
-        concat!("ant://colonylib/vocabulary/", "0.1/", "object#", $e)
-    };
-}
-const HAS_ADDR_TYPE: &str = PREDICATE!("addr_type");
-const POD_SCRATCHPAD: &str = OBJECT!("scratchpad");
 const HAS_POD_INDEX: &str = PREDICATE!("pod_index");
 
 #[test]
@@ -362,7 +355,6 @@ fn test_get_pod_scratchpads() {
     // Add additional scratchpad to the pod
     let pod_iri = format!("ant://{}", pod_address);
     let scratchpad2_iri = format!("ant://{}", scratchpad2);
-    graph.put_quad(&scratchpad2_iri, HAS_ADDR_TYPE, POD_SCRATCHPAD, Some(&pod_iri)).unwrap();
     graph.put_quad(&scratchpad2_iri, HAS_POD_INDEX, "1", Some(&pod_iri)).unwrap();
 
     // Test getting scratchpads for the pod
@@ -409,9 +401,8 @@ fn test_load_pod_into_graph() {
     // Create some test TriG data
     let trig_data = format!(r#"
             <ant://test_subject> <ant://test_predicate> "test_object" .
-            <ant://scratchpad123> <{}> <{}> .
             <ant://scratchpad123> <{}> "0" .
-    "#, HAS_ADDR_TYPE, POD_SCRATCHPAD, HAS_POD_INDEX);
+    "#, HAS_POD_INDEX);
 
     // Load the data into the graph
     let result = graph.load_pod_into_graph(pod_address, &trig_data);

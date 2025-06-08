@@ -500,39 +500,14 @@ impl<'a> PodManager<'a> {
     /// - [`upload_all`] - Upload pending changes to the network
     /// - [`search`] - Search for subjects across pods
     pub async fn put_subject_data(&mut self, pod_address: &str, subject_address: &str, subject_data: &str) -> Result<(), Error> {
-        
+
         // Inject the JSON data into the graph using the pod address as the named graph
         // And return the resulting graph data as a TriG formatted byte vector
         let graph = self.graph.put_subject_data(pod_address, subject_address, subject_data)?;
 
-        // FIXME: implement pod scratchpad data splitting
+        // Process the pod data with proper scratchpad management
+        self.process_pod_data(pod_address, graph).await?;
 
-        // Sort the graph data so that all POD_SCRATCHPAD types are at the beginning
-
-        // Next sort the graph data so that all POD_REF types are next
-
-        // Split the byte vector into 4MB chunks so that the data fits into scratchpads
-
-        // Check if there are enough scratchpads associated with this pod for the data
-        // If there aren't enough scratchpads in this pod, call add_scratchpad to create new ones
-
-        // Map the chunks to scratchpad addresses and update them with the new data
-        // The first scratchpad is the one that the pod pointer targets
-
-        // TODO, for now just write the whole graph to the scratchpad
-        let pod_data: String = graph.into_iter().map(|b| b as char).collect();
-        let scratchpad_address = self.data_store.get_pointer_target(pod_address)?;
-        let _ = self.data_store.update_scratchpad_data(scratchpad_address.trim(), pod_data.as_str())?;
-
-        // Add the pod pointer address and scratchpad addresses to the update list
-        let _ = self.data_store.append_update_list(pod_address)?;
-
-        let addresses = self.get_pod_scratchpads(pod_address)?;
-        if let Some(addresses) = addresses {
-            for addr in addresses {
-                let _ = self.data_store.append_update_list(addr.trim())?;
-            }
-        }
         Ok(())
     }
 
@@ -594,7 +569,7 @@ impl<'a> PodManager<'a> {
         Ok(json_data)
     }
 
-    fn get_pod_scratchpads(&self, address: &str) -> Result<Option<Vec<String>>, Error> {
+    pub fn get_pod_scratchpads(&self, address: &str) -> Result<Option<Vec<String>>, Error> {
         // Get all scratchpad addresses for this pod from the graph database
         match self.graph.get_pod_scratchpads(address) {
             Ok(scratchpads) => {
@@ -612,6 +587,202 @@ impl<'a> PodManager<'a> {
                 Ok(Some(vec![target]))
             }
         }
+    }
+
+    /// Processes pod data by managing scratchpad allocation and data distribution.
+    ///
+    /// This function handles the complex task of distributing pod graph data across multiple
+    /// scratchpads, ensuring that each scratchpad stays within the 4MB size limit. It also
+    /// manages the creation of additional scratchpads when needed and properly sorts the
+    /// data to ensure pod_index and pod_ref entries are prioritized.
+    ///
+    /// # Parameters
+    ///
+    /// * `pod_address` - The hexadecimal address of the pod
+    /// * `graph_data` - The TriG-formatted graph data as a byte vector
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an `Error` if scratchpad operations fail.
+    async fn process_pod_data(&mut self, pod_address: &str, graph_data: Vec<u8>) -> Result<(), Error> {
+        const SCRATCHPAD_SIZE_LIMIT: usize = 4 * 1024 * 1024; // 4MB in bytes
+
+        // Convert graph data to string for processing
+        let graph_string: String = graph_data.into_iter().map(|b| b as char).collect();
+
+        // Check current scratchpads for this pod
+        let current_scratchpads = self.get_pod_scratchpads(pod_address)?
+            .unwrap_or_else(|| vec![]);
+
+        // Calculate how many scratchpads we need for the data
+        let data_size = graph_string.len();
+        let required_scratchpads = (data_size + SCRATCHPAD_SIZE_LIMIT - 1) / SCRATCHPAD_SIZE_LIMIT;
+        let required_scratchpads = std::cmp::max(1, required_scratchpads); // At least 1 scratchpad
+
+        // Create additional scratchpads if needed
+        let mut all_scratchpads = current_scratchpads.clone();
+        while all_scratchpads.len() < required_scratchpads {
+            let new_scratchpad = self.add_scratchpad().await?;
+            let new_address = new_scratchpad.to_hex();
+            all_scratchpads.push(new_address.clone());
+
+            // Add the new scratchpad to the graph with proper pod_index
+            let scratchpad_iri = format!("ant://{}", new_address);
+            let pod_iri = format!("ant://{}", pod_address);
+            let index = (all_scratchpads.len() - 1).to_string();
+
+            self.graph.put_quad(&scratchpad_iri, "ant://colonylib/vocabulary/0.1/predicate#pod_index", &index, Some(&pod_iri))?;
+        }
+
+        // Sort the graph data to prioritize pod_index and pod_ref entries
+        let sorted_data = self.sort_graph_data(&graph_string);
+
+        // Split the sorted data into chunks that fit in scratchpads
+        let chunks = self.split_data_into_chunks(&sorted_data, SCRATCHPAD_SIZE_LIMIT);
+
+        // Update scratchpads with the chunked data
+        for (i, chunk) in chunks.iter().enumerate() {
+            if i < all_scratchpads.len() {
+                let scratchpad_address = &all_scratchpads[i];
+                self.data_store.update_scratchpad_data(scratchpad_address.trim(), chunk)?;
+                self.data_store.append_update_list(scratchpad_address.trim())?;
+            }
+        }
+
+        // Clear any unused scratchpads
+        for i in chunks.len()..all_scratchpads.len() {
+            let scratchpad_address = &all_scratchpads[i];
+            self.data_store.update_scratchpad_data(scratchpad_address.trim(), "")?;
+            self.data_store.append_update_list(scratchpad_address.trim())?;
+        }
+
+        // Add the pod pointer address to the update list
+        self.data_store.append_update_list(pod_address)?;
+
+        Ok(())
+    }
+
+    /// Sorts graph data to prioritize pod_index and pod_ref entries.
+    ///
+    /// This function ensures that lines containing pod_index predicates appear first,
+    /// followed by lines containing pod_ref objects, with all other data following.
+    /// This ordering is important for proper scratchpad linking and pod reference handling.
+    ///
+    /// # Parameters
+    ///
+    /// * `data` - The TriG-formatted graph data as a string
+    ///
+    /// # Returns
+    ///
+    /// Returns the sorted data as a string with prioritized entries first.
+    pub fn sort_graph_data(&self, data: &str) -> String {
+        let mut lines: Vec<&str> = data.lines().collect();
+
+        // Sort lines with custom priority:
+        // 1. Lines containing pod_index predicate (highest priority)
+        // 2. Lines containing pod_ref object (medium priority)
+        // 3. All other lines (normal priority)
+        lines.sort_by(|a, b| {
+            let a_priority = self.get_line_priority(a);
+            let b_priority = self.get_line_priority(b);
+            a_priority.cmp(&b_priority)
+        });
+
+        lines.join("\n")
+    }
+
+    /// Determines the sorting priority for a line of TriG data.
+    ///
+    /// # Parameters
+    ///
+    /// * `line` - A single line from the TriG data
+    ///
+    /// # Returns
+    ///
+    /// Returns a priority value where lower numbers indicate higher priority.
+    fn get_line_priority(&self, line: &str) -> u8 {
+        if line.contains("ant://colonylib/vocabulary/0.1/predicate#pod_index") {
+            0 // Pod scratchpads should always be first in the scratchpad (pointer can only point to the first scratchpad)
+        } else if line.contains("ant://colonylib/vocabulary/0.1/object#pod_ref") {
+            1 // Pod references are next for future enhancement to thread the data fetches
+        } else {
+            2 // Everything else in the pod
+        }
+    }
+
+    /// Splits data into chunks that fit within the scratchpad size limit.
+    ///
+    /// This function intelligently splits the data while trying to preserve line boundaries
+    /// when possible. It ensures that no chunk exceeds the specified size limit.
+    ///
+    /// # Parameters
+    ///
+    /// * `data` - The data to split
+    /// * `chunk_size` - Maximum size for each chunk in bytes
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of string chunks, each within the size limit.
+    pub fn split_data_into_chunks(&self, data: &str, chunk_size: usize) -> Vec<String> {
+        let mut chunks = Vec::new();
+        let mut current_chunk = String::new();
+
+        // Handle the case where data doesn't end with newline
+        let data_with_newline = if data.ends_with('\n') {
+            data.to_string()
+        } else {
+            format!("{}\n", data)
+        };
+
+        for line in data_with_newline.lines() {
+            let line_with_newline = format!("{}\n", line);
+
+            // If adding this line would exceed the chunk size, start a new chunk
+            if !current_chunk.is_empty() &&
+               current_chunk.len() + line_with_newline.len() > chunk_size {
+                chunks.push(current_chunk.clone());
+                current_chunk.clear();
+            }
+
+            // If a single line is larger than chunk_size, we need to split it
+            if line_with_newline.len() > chunk_size {
+                // Add any existing chunk first
+                if !current_chunk.is_empty() {
+                    chunks.push(current_chunk.clone());
+                    current_chunk.clear();
+                }
+
+                // Split the large line into smaller pieces (without adding extra newlines)
+                let line_str = line; // Use the line without the newline we added
+                let line_bytes = line_str.as_bytes();
+                for chunk_start in (0..line_bytes.len()).step_by(chunk_size) {
+                    let chunk_end = std::cmp::min(chunk_start + chunk_size, line_bytes.len());
+                    let chunk_bytes = &line_bytes[chunk_start..chunk_end];
+                    if let Ok(chunk_str) = std::str::from_utf8(chunk_bytes) {
+                        // Only add newline to the last chunk of this line
+                        if chunk_end == line_bytes.len() {
+                            chunks.push(format!("{}\n", chunk_str));
+                        } else {
+                            chunks.push(chunk_str.to_string());
+                        }
+                    }
+                }
+            } else {
+                current_chunk.push_str(&line_with_newline);
+            }
+        }
+
+        // Add the final chunk if it has content
+        if !current_chunk.is_empty() {
+            chunks.push(current_chunk);
+        }
+
+        // Ensure we always have at least one chunk (even if empty)
+        if chunks.is_empty() {
+            chunks.push(String::new());
+        }
+
+        chunks
     }
 
     ///////////////////////////////////////////
@@ -724,7 +895,7 @@ impl<'a> PodManager<'a> {
     /// let (sub_pod, _) = pod_manager.add_pod("Sub Collection").await?;
     ///
     /// // Create a reference from main pod to sub pod
-    /// pod_manager.add_pod_ref(&main_pod, &sub_pod)?;
+    /// pod_manager.add_pod_ref(&main_pod, &sub_pod).await?;
     ///
     /// // The reference will be included when uploading the main pod
     /// pod_manager.upload_all().await?;
@@ -741,30 +912,13 @@ impl<'a> PodManager<'a> {
     /// - [`remvoe_pod_ref`] - Remove a pod reference in a local pod
     /// - [`refresh_ref`] - Download referenced pods from the network
     /// - [`upload_all`] - Upload pod references to the network
-    pub fn add_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
+    pub async fn add_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
         // Add the pointer address to the graph
         let graph = self.graph.pod_ref_entry(pod_address, pod_ref_address, true)?;
-        
-        // FIXME: implement pod scratchpad data splitting from what was done in put_subject_data
 
-        // Split the byte vector into 4MB chunks so that the data fits into scratchpads
-        // TODO
+        // Process the pod data with proper scratchpad management
+        self.process_pod_data(pod_address, graph).await?;
 
-        // Map the chunks to scratchpad addresses and update them with the new data
-        // TODO, for now just write the whole graph to the scratchpad
-        let pod_data: String = graph.into_iter().map(|b| b as char).collect();
-        let scratchpad_address = self.data_store.get_pointer_target(pod_address)?;
-        let _ = self.data_store.update_scratchpad_data(scratchpad_address.trim(), pod_data.as_str())?;
-
-        // Add the pod pointer address and scratchpad addresses to the update list
-        let _ = self.data_store.append_update_list(pod_address)?;
-
-        let addresses = self.get_pod_scratchpads(pod_address)?;
-        if let Some(addresses) = addresses {
-            for addr in addresses {
-                let _ = self.data_store.append_update_list(addr.trim())?;
-            }
-        }        
         Ok(())
     }
 
@@ -793,7 +947,7 @@ impl<'a> PodManager<'a> {
     /// let (sub_pod, _) = pod_manager.add_pod("Sub Collection").await?;
     ///
     /// // Remove a reference from main pod to sub pod
-    /// pod_manager.remove_pod_ref(&main_pod, &sub_pod)?;
+    /// pod_manager.remove_pod_ref(&main_pod, &sub_pod).await?;
     ///
     /// // The reference will be included when uploading the main pod
     /// pod_manager.upload_all().await?;
@@ -810,30 +964,13 @@ impl<'a> PodManager<'a> {
     /// - [`add_pod_ref`] - Create a pod reference in a local pod
     /// - [`refresh_ref`] - Download referenced pods from the network
     /// - [`upload_all`] - Upload pod references to the network
-    pub fn remove_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
+    pub async fn remove_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
         // Remove the pointer address to the graph
         let graph = self.graph.pod_ref_entry(pod_address, pod_ref_address, false)?;
-        
-        // FIXME: implement pod scratchpad data splitting from what was done in put_subject_data
 
-        // Split the byte vector into 4MB chunks so that the data fits into scratchpads
-        // TODO
+        // Process the pod data with proper scratchpad management
+        self.process_pod_data(pod_address, graph).await?;
 
-        // Map the chunks to scratchpad addresses and update them with the new data
-        // TODO, for now just write the whole graph to the scratchpad
-        let pod_data: String = graph.into_iter().map(|b| b as char).collect();
-        let scratchpad_address = self.data_store.get_pointer_target(pod_address)?;
-        let _ = self.data_store.update_scratchpad_data(scratchpad_address.trim(), pod_data.as_str())?;
-
-        // Add the pod pointer address and scratchpad addresses to the update list
-        let _ = self.data_store.append_update_list(pod_address)?;
-
-        let addresses = self.get_pod_scratchpads(pod_address)?;
-        if let Some(addresses) = addresses {
-            for addr in addresses {
-                let _ = self.data_store.append_update_list(addr.trim())?;
-            }
-        }        
         Ok(())
     }
 

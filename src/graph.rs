@@ -677,8 +677,8 @@ impl Graph {
         let mut scratchpads = Vec::new();
         for i in 0..triples.len() {
             if let Some(scratchpad) = triples.get(&(i as u64)) {
-                let address = scratchpad.as_str().strip_prefix("ant://").unwrap_or_default();
-                scratchpads.push(address.to_string());
+                // The address is already stripped of "ant://" prefix in line 661
+                scratchpads.push(scratchpad.clone());
             } else {
                 error!("Missing scratchpad at index {}", i);
             }

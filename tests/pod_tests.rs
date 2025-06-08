@@ -343,3 +343,99 @@ fn test_search_error_handling() {
     // Should return all triples (if any exist) since no filters are applied
     assert!(parsed_empty_advanced.get("results").is_some());
 }
+
+// NOTE: this test can only be run if there is a local testnet running, so ignoring by default
+#[ignore]
+#[test]
+fn test_data_splitting_helper_functions() {
+    use colonylib::PodManager;
+    use autonomi::{Client, Wallet};
+
+    let (mut data_store, mut key_store, mut graph, _temp_dir) = create_test_components();
+
+    // Create a mock PodManager for testing helper functions
+    // We'll use a dummy client and wallet since we're only testing the helper functions
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (client, wallet) = rt.block_on(async {
+        let client = Client::init_local().await.expect("Failed to create test client");
+        let evm_network = client.evm_network().clone();
+        let private_key = "0x1234567890123456789012345678901234567890123456789012345678901234";
+        let wallet = Wallet::new_from_private_key(evm_network, private_key)
+            .expect("Failed to create test wallet");
+        (client, wallet)
+    });
+
+    let pod_manager = rt.block_on(async {
+        PodManager::new(client, &wallet, &mut data_store, &mut key_store, &mut graph)
+            .await
+            .expect("Failed to create PodManager")
+    });
+
+    // Test sort_graph_data function
+    let test_data = r#"
+<ant://subject1> <http://schema.org/name> "Test Name" .
+<ant://scratchpad1> <ant://colonylib/vocabulary/0.1/predicate#pod_index> "0" .
+<ant://subject2> <http://schema.org/description> "Test Description" .
+<ant://pod_ref1> <ant://colonylib/vocabulary/0.1/object#pod_ref> "reference" .
+<ant://subject3> <http://schema.org/type> "Dataset" .
+<ant://scratchpad2> <ant://colonylib/vocabulary/0.1/predicate#pod_index> "1" .
+"#;
+
+    let sorted_data = pod_manager.sort_graph_data(test_data);
+    let lines: Vec<&str> = sorted_data.lines().collect();
+
+    // Verify that pod_index lines come first
+    let mut found_pod_index = false;
+    let mut found_pod_ref = false;
+    let mut found_other = false;
+
+    for line in &lines {
+        if line.contains("pod_index") {
+            assert!(!found_pod_ref && !found_other, "pod_index lines should come first");
+            found_pod_index = true;
+        } else if line.contains("pod_ref") {
+            assert!(!found_other, "pod_ref lines should come before other lines");
+            found_pod_ref = true;
+        } else if !line.trim().is_empty() {
+            found_other = true;
+        }
+    }
+
+    assert!(found_pod_index, "Should have found pod_index lines");
+
+    // Test split_data_into_chunks function
+    let chunk_size = 100; // Small chunk size for testing
+    let test_data_for_chunking = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6\nLine 7\nLine 8\nLine 9\nLine 10\n".repeat(10);
+
+    let chunks = pod_manager.split_data_into_chunks(&test_data_for_chunking, chunk_size);
+
+    // Verify that chunks were created
+    assert!(chunks.len() > 1, "Should have created multiple chunks");
+
+    // Verify that no chunk exceeds the size limit
+    for (i, chunk) in chunks.iter().enumerate() {
+        assert!(chunk.len() <= chunk_size,
+            "Chunk {} exceeds size limit: {} bytes", i, chunk.len());
+    }
+
+    // Verify that all data is preserved when chunks are concatenated
+    let reconstructed = chunks.join("");
+    assert_eq!(reconstructed.trim(), test_data_for_chunking.trim(),
+        "Reconstructed data should match original");
+
+    // Test with very large single line
+    let large_line = "A".repeat(200); // Larger than chunk size
+    let chunks_large = pod_manager.split_data_into_chunks(&large_line, chunk_size);
+
+    // Should split the large line into multiple chunks
+    assert!(chunks_large.len() > 1, "Should split large line into multiple chunks");
+
+    // Verify total size is preserved (accounting for the newline that gets added)
+    let total_size: usize = chunks_large.iter().map(|c| c.len()).sum();
+    let expected_size = large_line.len() + 1; // +1 for the newline that gets added
+    assert_eq!(total_size, expected_size, "Total size should be preserved (with newline)");
+
+    println!("Data splitting helper functions test completed successfully!");
+    println!("Created {} chunks from test data", chunks.len());
+    println!("Created {} chunks from large line", chunks_large.len());
+}
