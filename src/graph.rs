@@ -6,12 +6,14 @@ use oxigraph::sparql::{EvaluationError,QueryResults};
 use oxigraph::model::{NamedNodeRef, IriParseError, QuadRef, TermRef, GraphNameRef, LiteralRef, Quad};
 use oxigraph::store::{SerializerError, StorageError, Store, LoaderError};
 use oxigraph::sparql::results::QueryResultsFormat;
+use oxttl::TriGParser;
 use std::path::PathBuf;
 use serde_json::{Error as SerdeError};
 use alloc::string::FromUtf8Error;
 use chrono::Utc;
 use oxjsonld::{JsonLdProfile, JsonLdProfileSet};
 use std::io::Cursor;
+use std::collections::HashMap;
 
 //////////////////////////////////////////////
 // Vocabulary
@@ -640,12 +642,12 @@ impl Graph {
 
         // Query for all scratchpad addresses in the pod's named graph
         let query = format!(
-            "SELECT DISTINCT ?scratchpad WHERE {{ GRAPH <{}> {{ ?scratchpad <{}> <{}> . }} }}",
-            pod_iri, HAS_ADDR_TYPE, POD_SCRATCHPAD
+            "SELECT DISTINCT ?scratchpad ?index WHERE {{ GRAPH <{}> {{ ?scratchpad <{}> ?index . }} }}",
+            pod_iri, HAS_POD_INDEX
         );
         debug!("Pod scratchpads query: {}", query);
 
-        let mut scratchpads = Vec::new();
+        let mut triples = HashMap::new();
         let results = self.store.query(query.as_str())?;
         if let QueryResults::Solutions(solutions) = results {
             for solution in solutions {
@@ -655,7 +657,13 @@ impl Graph {
                             let scratchpad_iri = scratchpad_node.as_str();
                             // Extract the address from the ant:// URI
                             if let Some(address) = scratchpad_iri.strip_prefix("ant://") {
-                                scratchpads.push(address.to_string());
+                                if let Some(index_term) = solution.get("index") {
+                                    if let oxigraph::model::Term::Literal(literal) = index_term {
+                                        if let Ok(index) = literal.value().parse::<u64>() {
+                                            triples.insert(index, address.to_string());
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -663,7 +671,57 @@ impl Graph {
             }
         }
 
+        // take the ordered addresses from the hashmap and map them to the scratchpads vector
+        let mut scratchpads = Vec::new();
+        for i in 0..triples.len() {
+            if let Some(scratchpad) = triples.get(&(i as u64)) {
+                let address = scratchpad.as_str().strip_prefix("ant://").unwrap_or_default();
+                scratchpads.push(address.to_string());
+            } else {
+                error!("Missing scratchpad at index {}", i);
+            }
+        }
+
         debug!("Found {} scratchpads for pod {}", scratchpads.len(), pod_address);
+        Ok(scratchpads)
+    }
+
+    pub fn get_pod_scratchpads_from_string(&self, data: &str) -> Result<Vec<String>, Error> {
+        
+        // Parse the TriG data and return a hashmap of the scratchpad addresses and their pod index
+        let mut triples = HashMap::new();
+        for triple in TriGParser::new().for_reader(data.as_bytes()) {
+            // The last line will be garbage, so we just ignore it by passing a default quad
+            let triple = triple.unwrap_or_else(
+                |_e| Quad::new(
+                                            NamedNodeRef::new("http://example.org/subject").unwrap(),
+                                            NamedNodeRef::new("http://example.org/predicate").unwrap(), 
+                                            NamedNodeRef::new("http://example.org/object").unwrap(), 
+                                            GraphNameRef::DefaultGraph));
+            
+            if triple.predicate == HAS_POD_INDEX {
+                // Convert the triple.object into a u64
+                if let oxigraph::model::Term::Literal(literal) = triple.object {
+                    if let Ok(index) = literal.value().parse::<u64>() {
+                        if let oxigraph::model::Subject::NamedNode(scratchpad) = triple.subject {
+                            triples.insert(index, scratchpad.into_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // take the ordered addresses from the hashmap and map them to the scratchpads vector
+        let mut scratchpads = Vec::new();
+        for i in 0..triples.len() {
+            if let Some(scratchpad) = triples.get(&(i as u64)) {
+                let address = scratchpad.as_str().strip_prefix("ant://").unwrap_or_default();
+                scratchpads.push(address.to_string());
+            } else {
+                error!("Missing scratchpad at index {}", i);
+            }
+        }
+
         Ok(scratchpads)
     }
 

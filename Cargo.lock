@@ -1888,6 +1888,7 @@ dependencies = [
  "hex 0.4.3",
  "oxigraph",
  "oxjsonld",
+ "oxttl",
  "ruint",
  "serde",
  "serde_json",

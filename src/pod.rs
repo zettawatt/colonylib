@@ -505,10 +505,20 @@ impl<'a> PodManager<'a> {
         // And return the resulting graph data as a TriG formatted byte vector
         let graph = self.graph.put_subject_data(pod_address, subject_address, subject_data)?;
 
+        // FIXME: implement pod scratchpad data splitting
+
+        // Sort the graph data so that all POD_SCRATCHPAD types are at the beginning
+
+        // Next sort the graph data so that all POD_REF types are next
+
         // Split the byte vector into 4MB chunks so that the data fits into scratchpads
-        // TODO
+
+        // Check if there are enough scratchpads associated with this pod for the data
+        // If there aren't enough scratchpads in this pod, call add_scratchpad to create new ones
 
         // Map the chunks to scratchpad addresses and update them with the new data
+        // The first scratchpad is the one that the pod pointer targets
+
         // TODO, for now just write the whole graph to the scratchpad
         let pod_data: String = graph.into_iter().map(|b| b as char).collect();
         let scratchpad_address = self.data_store.get_pointer_target(pod_address)?;
@@ -733,6 +743,8 @@ impl<'a> PodManager<'a> {
         // Add the pointer address to the graph
         let graph = self.graph.add_pod_ref_entry(pod_address, pod_ref_address)?;
         
+        // FIXME: implement pod scratchpad data splitting from what was done in put_subject_data
+
         // Split the byte vector into 4MB chunks so that the data fits into scratchpads
         // TODO
 
@@ -1134,46 +1146,11 @@ impl<'a> PodManager<'a> {
                 self.data_store.create_pointer_file(address)?;
                 self.data_store.update_pointer_target(address, pointer.target().to_hex().as_str())?;
                 self.data_store.update_pointer_count(address, pointer.counter().into())?;
-
-                // Check if the scratchpad file exists
-                let target = pointer.target();
-                let target = match target {
-                    PointerTarget::ScratchpadAddress(scratchpad_address) => scratchpad_address,
-                    _ => {
-                        error!("Pointer target is not a scratchpad address, skipping");
-                        continue;
-                    }
-                };
-                if !self.data_store.address_is_scratchpad(target.to_hex().as_str())? {
-                    info!("Scratchpad file does not exist, creating it");
-                    self.data_store.create_scratchpad_file(target.to_hex().as_str())?;
-                }
-                // Download the scratchpad data
-                let scratchpad = self.client.scratchpad_get(target).await?;
-                let data = scratchpad.encrypted_data();
-                let data = String::from_utf8(data.to_vec())?;
-                self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
-
-                // Load the newly discovered pod data into the graph database
-                info!("Loading newly discovered pod into graph database: {}", address);
-                if !data.trim().is_empty() {
-                    if let Err(e) = self.load_pod_into_graph(address, data.trim()) {
-                        warn!("Failed to load newly discovered pod data into graph for {}: {}", address, e);
-                    }
-                }
-
-                // Set the depth attribute to 0 (local pod)
-                if let Err(e) = self.update_pod_depth(address, 0) {
-                    warn!("Failed to update pod depth for newly discovered pod {}: {}", address, e);
-                }
-
-                info!("Pointer and scratchpad files created successfully");
-                continue; // Skip to the next pointer if it was just created
             }
             // Check if the pointer is newer than the local cache
             let local_pointer_count = self.data_store.get_pointer_count(address)?;
-            if pointer.counter() as u64 > local_pointer_count {
-                info!("Pointer is newer, updating scratchpad");
+            if (pointer.counter() as u64 > local_pointer_count) || !pointer_exists {
+                info!("Pointer is newer, updating scratchpad(s)");
                 let target = pointer.target();
                 // get the scratchpad address from the pointer target
                 let target = match target {
@@ -1183,46 +1160,14 @@ impl<'a> PodManager<'a> {
                         continue;
                     }
                 };
-                let scratchpad = self.client.scratchpad_get(target).await?;
-                let data = scratchpad.encrypted_data();
-                let data = String::from_utf8(data.to_vec())?;
-                self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
-                self.data_store.update_pointer_target(address, target.to_hex().as_str())?;
-                self.data_store.update_pointer_count(address, pointer.counter().into())?;
 
-                // Update graph database with newly discovered or updated pod data
-                info!("Updating graph database for pod: {}", address);
+                let data = self.combine_scratchpad_data(target).await?;
 
-                // Clear existing pod graph if it exists
-                if let Err(e) = self.graph.clear_pod_graph(address) {
-                    warn!("Failed to clear existing pod graph for {}: {}", address, e);
-                }
-
-                // Get all scratchpads that are part of this pod
-                let scratchpad_addresses = self.get_pod_scratchpads(address)?;
-                if let Some(addresses) = scratchpad_addresses {
-                    // Collect all scratchpad data
-                    let mut combined_data = String::new();
-
-                    for scratchpad_addr in addresses {
-                        match self.data_store.get_scratchpad_data(scratchpad_addr.trim()) {
-                            Ok(scratchpad_data) => {
-                                if !scratchpad_data.trim().is_empty() {
-                                    combined_data.push_str(scratchpad_data.trim());
-                                    combined_data.push('\n');
-                                }
-                            }
-                            Err(e) => {
-                                warn!("Failed to read scratchpad data for {}: {}", scratchpad_addr, e);
-                            }
-                        }
-                    }
-
-                    // Load the combined pod data into the graph database
-                    if !combined_data.trim().is_empty() {
-                        if let Err(e) = self.load_pod_into_graph(address, combined_data.trim()) {
-                            warn!("Failed to load pod data into graph for {}: {}", address, e);
-                        }
+                // Load the newly discovered pod data into the graph database
+                info!("Loading newly discovered pod into graph database: {}", address);
+                if !data.trim().is_empty() {
+                    if let Err(e) = self.load_pod_into_graph(address, data.trim()) {
+                        warn!("Failed to load newly discovered pod data into graph for {}: {}", address, e);
                     }
                 }
 
@@ -1237,6 +1182,52 @@ impl<'a> PodManager<'a> {
             }
         }
         Ok(())
+    }
+
+    async fn combine_scratchpad_data(&self, target: &ScratchpadAddress) -> Result<String, Error> {
+        if !self.data_store.address_is_scratchpad(target.to_hex().as_str())? {
+            info!("Scratchpad file does not exist, creating it");
+            self.data_store.create_scratchpad_file(target.to_hex().as_str())?;
+        }
+        // Download the scratchpad data
+        let scratchpad = self.client.scratchpad_get(target).await?;
+        let data = scratchpad.encrypted_data();
+        let mut data_bytes = data.to_vec();
+        let mut data = String::from_utf8(data.to_vec())?;
+        self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
+
+        //FIXME: implement pod scratchpad data splitting
+
+        // Manually parse the scratchpad data and get a vector of the scratchpad addresses
+        let scratchpads = self.graph.get_pod_scratchpads_from_string(data.trim())?;
+        // If 1, load the file directly as it is a standalone TriG formatted file
+        // Else, if more than 1, download the other scratchpads
+        if scratchpads.len() > 1 {
+            let mut count = 0;
+
+            // Create new scratchpad files and download them from the network
+            for scratchpad_address in scratchpads {
+                if count == 0 {
+                    count += 1;
+                    continue;
+                }
+                if !self.data_store.address_is_scratchpad(scratchpad_address.trim())? {
+                    info!("Scratchpad file does not exist, creating it");
+                    self.data_store.create_scratchpad_file(scratchpad_address.trim())?;
+                }
+                let scratchpad = self.client.scratchpad_get(&ScratchpadAddress::from_hex(scratchpad_address.trim())?).await?;
+                let data = scratchpad.encrypted_data();
+                let mut bytes = data.to_vec();
+                data_bytes.append(&mut bytes);
+                let data = String::from_utf8(data.to_vec())?;
+                self.data_store.update_scratchpad_data(scratchpad_address.trim(), data.trim())?;
+                count += 1;
+            }
+
+            // Convert the data bytes into a string
+            data = String::from_utf8(data_bytes)?;
+        }
+        Ok(data)
     }
  
     /// Refreshes the pod cache including referenced pods up to a specified depth.
@@ -1424,16 +1415,19 @@ impl<'a> PodManager<'a> {
                         }
                     };
 
-                    // Create scratchpad file if it doesn't exist
-                    if !self.data_store.address_is_scratchpad(target.to_hex().as_str())? {
-                        self.data_store.create_scratchpad_file(target.to_hex().as_str())?;
-                    }
+                    // ///////////////////////////////
+                    // // Create scratchpad file if it doesn't exist
+                    // if !self.data_store.address_is_scratchpad(target.to_hex().as_str())? {
+                    //     self.data_store.create_scratchpad_file(target.to_hex().as_str())?;
+                    // }
 
-                    // Download the scratchpad data
-                    let scratchpad = self.client.scratchpad_get(target).await?;
-                    let data = scratchpad.encrypted_data();
-                    let data = String::from_utf8(data.to_vec())?;
-                    self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
+                    // // Download the scratchpad data
+                    // let scratchpad = self.client.scratchpad_get(target).await?;
+                    // let data = scratchpad.encrypted_data();
+                    // let data = String::from_utf8(data.to_vec())?;
+                    // self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
+                    // ///////////////////////////////
+                    let data = self.combine_scratchpad_data(target).await?;
 
                     // Load the downloaded pod data into the graph database
                     self.load_pod_into_graph(pod_address, data.trim())?;

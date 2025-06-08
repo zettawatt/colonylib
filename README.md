@@ -47,9 +47,8 @@ Colonylib focuses on **metadata management** and **semantic search**. It does no
 
 - Improve Autonomi error handling (auto retry on certain failures, library specific errors)
 - Automatic scratchpad overflow handling for large metadata collections (>4MB)
-- Advanced search features (faceted search, relevance ranking, fuzzy matching)
+- Advanced search features (faceted search, relevance ranking by pod depth, fuzzy matching)
 - Performance optimizations for large-scale pod networks (threading Autonomi fetch operations)
-- Integration with additional semantic web standards
 
 ## Library Architecture
 
