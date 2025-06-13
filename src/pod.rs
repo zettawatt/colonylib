@@ -998,6 +998,15 @@ impl<'a> PodManager<'a> {
         Ok(pointer_address)
     }
 
+    pub fn get_pods(&self) -> Result<Vec<String>, Error> {
+        let mut addresses = Vec::new();
+        // Local pods are just the addresses of the pointers
+        for (address, _key) in self.key_store.get_pointers() {
+            addresses.push(address);
+        }
+        Ok(addresses)
+    }
+
     ///////////////////////////////////////////
     // Autonomi network operations
     ///////////////////////////////////////////
@@ -1013,26 +1022,25 @@ impl<'a> PodManager<'a> {
                     // check if address is a directory (pointer) or a file (scratchpad)
                     // and return a dummy analysis type for processing, else
                     // return a chunk to indicate an error
-                    // The unwraps in this section are OK because we're just making some default objects for analysis purposes. There aren't any unknowns here
                     if self.data_store.address_is_pointer(address).unwrap_or(false) {
                         Analysis::Pointer(Pointer::new(
-                            &SecretKey::from_hex(self.key_store.get_pointer_key(address.to_string()).unwrap().trim()).unwrap(),
+                            &SecretKey::random(),
                             0,
-                            PointerTarget::ScratchpadAddress(ScratchpadAddress::new(SecretKey::from_hex(self.key_store.get_pointer_key(address.to_string()).unwrap().trim()).unwrap().public_key())),
+                            PointerTarget::ScratchpadAddress(ScratchpadAddress::new(SecretKey::random().public_key())),
                         ))
                     } else if self.data_store.address_is_scratchpad(address).unwrap_or(false) {
                         Analysis::Scratchpad(Scratchpad::new(
-                            &SecretKey::from_hex(self.key_store.get_scratchpad_key(address.to_string()).unwrap().trim()).unwrap(),
+                            &SecretKey::random(),
                             0,
                             &Bytes::new(),
                             0))
                     } else {
-                        error!("Address is neither a pointer nor a scratchpad: {}", address);
+                        warn!("Address is neither a pointer nor a scratchpad: {}", address);
                         Analysis::Chunk(Chunk::new(Bytes::new()))
                     }
                 }
                 _ => {
-                    error!("Address error: {}", e);
+                    warn!("Address error: {}", e);
                     Analysis::Chunk(Chunk::new(Bytes::new()))
                 }
             }
