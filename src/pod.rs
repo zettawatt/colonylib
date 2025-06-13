@@ -3,6 +3,7 @@ use autonomi::client::pointer::{Pointer, PointerTarget, PointerError, PointerAdd
 use autonomi::client::ConnectError;
 use autonomi::client::scratchpad::{Scratchpad, ScratchpadError, ScratchpadAddress};
 use autonomi::client::payment::PaymentOption;
+use ant_networking::{NetworkError, GetRecordError};
 use autonomi;
 use std::fs::File;
 use std::io::{BufReader, BufRead};
@@ -645,7 +646,7 @@ impl<'a> PodManager<'a> {
             if i < all_scratchpads.len() {
                 let scratchpad_address = &all_scratchpads[i];
                 self.data_store.update_scratchpad_data(scratchpad_address.trim(), chunk)?;
-                self.data_store.append_update_list(scratchpad_address.trim())?;
+                //self.data_store.append_update_list(scratchpad_address.trim())?;
             }
         }
 
@@ -653,7 +654,7 @@ impl<'a> PodManager<'a> {
         for i in chunks.len()..all_scratchpads.len() {
             let scratchpad_address = &all_scratchpads[i];
             self.data_store.update_scratchpad_data(scratchpad_address.trim(), "")?;
-            self.data_store.append_update_list(scratchpad_address.trim())?;
+            //self.data_store.append_update_list(scratchpad_address.trim())?;
         }
 
         // Add the pod pointer address to the update list
@@ -981,7 +982,7 @@ impl<'a> PodManager<'a> {
 
         // Create a new file in the pod directory from the address
         let _ = self.data_store.create_scratchpad_file(scratchpad_address.clone().to_hex().as_str())?;
-        self.data_store.append_update_list(scratchpad_address.clone().to_hex().as_str())?;
+        //self.data_store.append_update_list(scratchpad_address.clone().to_hex().as_str())?;
 
         Ok(scratchpad_address)
     }
@@ -1118,46 +1119,91 @@ impl<'a> PodManager<'a> {
             let line = line?;
             let address = line.trim();
             debug!("Uploading pod: {}", address);
-            
-            // get the type stored on the network
-            let (address_type, create_mode) = self.get_address_type(address).await?;
-            debug!("Pod type: {:?}", address_type);
-
-            match address_type {
-                Analysis::Pointer(_) => {
-                    let target = self.data_store.get_pointer_target(address)?;
-                    if create_mode {
-                        // Create new pointer
-                        info!("Nothing stored at address, creating new pointer");
-                        let _ = self.create_pointer(address, target.trim()).await?;
-                    } else {
-                        // Update existing pointer
-                        info!("Object stored at address is a pointer");
-                        let _ = self.update_pointer(address, target.trim()).await?;
-                    }
-                }
-                Analysis::Scratchpad(_) => {
-                    let data = self.data_store.get_scratchpad_data(address)?;
-                    if create_mode {
-                        // Create new scratchpad
-                        info!("Nothing stored at address, creating new scratchpad");
-                        let _ = self.create_scratchpad(address, data.trim()).await?;
-                    } else {
-                        // Update existing scratchpad
-                        info!("Object stored at address is a scratchpad");
-                        let _ = self.update_scratchpad(address, data.trim()).await?;
-                    }
-                }
-                _ => {
-                    error!("Pod type is unknown, skipping upload");
-                    continue;
-                }
-            }
+            self.upload_pod(address).await?;
             
         }
 
         // Clear out the update list
         let _ = File::create(file_path)?;
+        Ok(())
+    }
+
+    pub async fn upload_pod(&mut self, address: &str) -> Result<(), Error> {
+        let mut create_mode = false;
+
+        // check if there is a pointer stored at this address on the network by trying to download it
+        let target = self.data_store.get_pointer_target(address)?;
+        let target = target.trim();
+        match self.update_pointer(address, target).await {
+            Ok(_) => {}
+            Err(e) => {
+                match e {
+                    Error::Pointer(PointerError::CannotUpdateNewPointer) => {
+                        info!("Pointer not found on network, creating new pointer: {}", address);
+                        create_mode = true;
+                    }
+                    // Catch Pointer(Network(GetRecordError(RecordNotFound))) error when there is nothing on the network
+                    Error::Pointer(PointerError::Network(NetworkError::GetRecordError(GetRecordError::RecordNotFound))) => {
+                        info!("Pointer not found on network, creating new pointer: {}", address);
+                        create_mode = true;
+                    }
+                    _ => {
+                        error!("Error occurred: {:?}", e); // Log the error
+                        return Err(e); // Propagate the error to the higher-level function
+                    }
+                }
+            }
+        }        
+
+        // If the pointer didn't exist, call create_pointer()
+        if !create_mode {
+            self.create_pointer(address, target).await?;
+        }
+
+        create_mode = false;
+
+        // Get all of the scratchpads for the pod
+        let data = self.data_store.get_scratchpad_data(target)?;
+        let scratchpads = self.graph.get_pod_scratchpads_from_string(data.trim())?;
+
+        // Loop through each scratchpad address
+        for scratchpad_address in scratchpads {
+
+            let address = scratchpad_address.trim();
+            let data = self.data_store.get_scratchpad_data(address)?;
+            let data = data.trim();
+
+            match self.update_scratchpad(address, data).await {
+                Ok(_) => {}
+                Err(e) => {
+                    match e {
+                        Error::Scratchpad(ScratchpadError::CannotUpdateNewScratchpad) => {
+                            info!("Scratchpad not found on network, creating new scratchpad: {}", address);
+                            create_mode = true;
+                        }
+                        // Catch Scratchpad(Network(GetRecordError(RecordNotFound))) error when there is nothing on the network
+                        Error::Scratchpad(ScratchpadError::Network(NetworkError::GetRecordError(GetRecordError::RecordNotFound))) => {
+                            info!("Pointer not found on network, creating new pointer: {}", address);
+                            create_mode = true;
+                        }
+                        _ => {
+                            error!("Error occurred: {:?}", e); // Log the error
+                            return Err(e); // Propagate the error to the higher-level function
+                        }
+                    }
+                }
+            }        
+    
+            // If the pointer didn't exist, call create_pointer()
+            if !create_mode {
+                self.create_scratchpad(address, data).await?;
+            }
+
+        }
+
+        //FIXME: clear out the line in the update list that matches the input address here so that upload
+        // doesn't run again on the same pod when unnecessary
+
         Ok(())
     }
 
@@ -1214,7 +1260,6 @@ impl<'a> PodManager<'a> {
         let key_string = self.key_store.get_pointer_key(address.to_string())?;
         let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
 
-        // get pointer to make sure it exists
         let pointer_address = PointerAddress::from_hex(address)?;
         let pointer = self.client.pointer_get(&pointer_address).await?;
 
@@ -1411,8 +1456,6 @@ impl<'a> PodManager<'a> {
         let mut data_bytes = data.to_vec();
         let mut data = String::from_utf8(data.to_vec())?;
         self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
-
-        //FIXME: implement pod scratchpad data splitting
 
         // Manually parse the scratchpad data and get a vector of the scratchpad addresses
         let scratchpads = self.graph.get_pod_scratchpads_from_string(data.trim())?;

@@ -1878,6 +1878,7 @@ dependencies = [
 name = "colonylib"
 version = "0.2.2"
 dependencies = [
+ "ant-networking",
  "autonomi",
  "bip39",
  "blsttc",
