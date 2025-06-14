@@ -6,7 +6,7 @@ use autonomi::client::payment::PaymentOption;
 use ant_networking::{NetworkError, GetRecordError};
 use autonomi;
 use std::fs::File;
-use std::io::{BufReader, BufRead};
+use std::io::{BufReader, BufRead, Write};
 use thiserror;
 use tracing::{debug, error, info, warn};
 use std::fmt;
@@ -1183,7 +1183,7 @@ impl<'a> PodManager<'a> {
                         }
                         // Catch Scratchpad(Network(GetRecordError(RecordNotFound))) error when there is nothing on the network
                         Error::Scratchpad(ScratchpadError::Network(NetworkError::GetRecordError(GetRecordError::RecordNotFound))) => {
-                            info!("Pointer not found on network, creating new pointer: {}", address);
+                            info!("Scratchpad not found on network, creating new scratchpad: {}", address);
                             create_mode = true;
                         }
                         _ => {
@@ -1201,8 +1201,21 @@ impl<'a> PodManager<'a> {
 
         }
 
-        //FIXME: clear out the line in the update list that matches the input address here so that upload
-        // doesn't run again on the same pod when unnecessary
+        // Delete the line in the update list file that matches the address
+        let file_path = self.data_store.get_update_list_path();
+        let file = File::open(file_path.clone())?;
+        let lines: Vec<String> = BufReader::new(file)
+            .lines()
+            .filter_map(Result::ok)
+            .filter(|line| line.trim() != address)
+            .collect();
+
+        // Write the remaining lines back to the file
+        let mut file = File::create(file_path)?;
+        for line in lines {
+            writeln!(file, "{}", line)?;
+        }
+        debug!("Pod {} uploaded successfully", address);
 
         Ok(())
     }
