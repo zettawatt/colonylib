@@ -169,58 +169,22 @@ impl<'a> PodManager<'a> {
 
     // Create a new pointer key, make sure it is empty, and add it to the key store
     async fn create_pointer_key(&mut self) -> Result<SecretKey, Error> {
-        loop {
-            // Derive a new key
-            info!("Deriving a new key");
-            let key_string = self.key_store.add_pointer_key()?;
-            info!("Newly derived key: {}", key_string);
-            let derived_key: SecretKey = SecretKey::from_hex(key_string.trim())?;
-            
-            // Check if the key is empty
-            match self.client.analyze_address(&derived_key.public_key().to_hex().as_str(), false).await {
-                Ok(_) => continue, // If analysis succeeds, there is data at the address already, continue the loop
-                Err(AnalysisError::FailedGet) => {
-                    info!("Address is empty, using it for the pod");
-                    return Ok(derived_key); // Exit the loop and return the key
-                }
-                Err(AnalysisError::UnrecognizedInput) => {
-                    warn!("Unrecognized input, generating a new key");
-                    continue; // Continue the loop for this error
-                }
-                Err(AnalysisError::GetError(get_error)) => {
-                    warn!("Get error: {:?}", get_error);
-                    continue; // Continue the loop for this error
-                }
-            }
-        }
+        // Derive a new key
+        info!("Deriving a new key");
+        let key_string = self.key_store.add_pointer_key()?;
+        info!("Newly derived key: {}", key_string);
+        let derived_key: SecretKey = SecretKey::from_hex(key_string.trim())?;
+        Ok(derived_key)
     }
 
     // Create a new scratchpad key, make sure it is empty, and add it to the key store
     async fn create_scratchpad_key(&mut self) -> Result<SecretKey, Error> {
-        loop {
-            // Derive a new key
-            info!("Deriving a new key");
-            let key_string = self.key_store.add_scratchpad_key()?;
-            info!("Newly derived key: {}", key_string);
-            let derived_key: SecretKey = SecretKey::from_hex(key_string.trim())?;
-            
-            // Check if the key is empty
-            match self.client.analyze_address(&derived_key.public_key().to_hex().as_str(), false).await {
-                Ok(_) => continue, // If analysis succeeds, there is data at the address already, continue the loop
-                Err(AnalysisError::FailedGet) => {
-                    info!("Address is empty, using it for the pod");
-                    return Ok(derived_key); // Exit the loop and return the key
-                }
-                Err(AnalysisError::UnrecognizedInput) => {
-                    warn!("Unrecognized input, generating a new key");
-                    continue; // Continue the loop for this error
-                }
-                Err(AnalysisError::GetError(get_error)) => {
-                    warn!("Get error: {:?}", get_error);
-                    continue; // Continue the loop for this error
-                }
-            }
-        }
+        // Derive a new key
+        info!("Deriving a new key");
+        let key_string = self.key_store.add_scratchpad_key()?;
+        info!("Newly derived key: {}", key_string);
+        let derived_key: SecretKey = SecretKey::from_hex(key_string.trim())?;
+        Ok(derived_key)
     }
 
     ///////////////////////////////////////////
