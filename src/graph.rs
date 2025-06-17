@@ -56,10 +56,15 @@ const HAS_DEPTH: &str = PREDICATE!("depth");
 /// Object is a literal representing the index
 const HAS_POD_INDEX: &str = PREDICATE!("pod_index");
 
-/// Date
-/// The date when the resource was created or modified
+/// Creation Date
+/// The date when the pod was created
 /// Object is a literal representing the date
-const HAS_DATE: &str = PREDICATE!("date");
+const HAS_CREATION_DATE: &str = PREDICATE!("creation");
+
+/// Modified Date
+/// The date when the pod was modified
+/// Object is a literal representing the date
+const HAS_MODIFIED_DATE: &str = PREDICATE!("modified");
 
 //////////////////////////////////////////////
 // Objects
@@ -185,7 +190,8 @@ impl Graph {
         let _quad = self.put_quad(pod_iri,HAS_ADDR_TYPE,POD,None)?;
         let _quad = self.put_quad(pod_iri,HAS_NAME,pod_name,None)?;
         let _quad = self.put_quad(pod_iri,HAS_DEPTH,"0",None)?;
-        let _quad = self.put_quad(pod_iri,HAS_DATE,date,Some(pod_iri))?;
+        let _quad = self.put_quad(pod_iri,HAS_CREATION_DATE,date,Some(pod_iri))?;
+        let _quad = self.put_quad(pod_iri,HAS_MODIFIED_DATE,date,Some(pod_iri))?;
         // Scratchpad metadata
         let _quad = self.put_quad(scratchpad_iri,HAS_POD_INDEX, "0", Some(pod_iri))?;
         debug!("Pod entries added");
@@ -274,6 +280,11 @@ impl Graph {
             .with_default_graph(pod), // we put the file default graph inside of a named graph
             data_reader,
         )?;
+
+        // Update modified date
+        let date = Utc::now().to_rfc3339();
+        let date = date.as_str();
+        let _quad = self.put_quad(pod_iri,HAS_MODIFIED_DATE,date,Some(pod_iri))?;
 
         // Dump newly created graph in TriG format
         let mut buffer = Vec::new();
