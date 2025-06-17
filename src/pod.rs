@@ -963,13 +963,21 @@ impl<'a> PodManager<'a> {
         Ok(pointer_address)
     }
 
-    pub fn get_all_pods(&self) -> Result<Vec<String>, Error> {
+    /// Lists all pods owned by the user.
+    pub fn list_my_pods(&self) -> Result<Vec<String>, Error> {
         let mut addresses = Vec::new();
         // Local pods are just the addresses of the pointers
         for (address, _key) in self.key_store.get_pointers() {
             addresses.push(address);
         }
         Ok(addresses)
+    }
+
+    /// Lists all subjects in a pod.
+    pub fn list_pod_subjects(&self, pod_address: &str) -> Result<Vec<String>, Error> {
+        // Get all subjects in the pod from the graph database
+        let subjects = self.graph.get_pod_subjects(pod_address)?;
+        Ok(subjects)
     }
 
     ///////////////////////////////////////////

@@ -121,6 +121,22 @@ async fn main() {
         "01bd818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59",
         &file_data2_str).await.unwrap();
 
+    println!("\n=== Get Pod Subjects ===");
+    // Get subjects from Pod 2
+    let subjects = podman.list_pod_subjects(pointer_address2.trim()).unwrap();
+    println!("Subjects in Pod 2:");
+    for subject in subjects {
+        println!("Subject ID: {}", subject);
+    }
+
+    println!("\n=== List My Pods ===");
+    // List all pods in the wallet
+    let my_pods = podman.list_my_pods().unwrap();
+    println!("My Pods:");
+    for pod in my_pods {
+        println!("Pod Address: {}", pod);
+    }
+
     // Upload both pods to the network
     println!("\n=== Uploading Pods to Network ===");
     let _ = podman.upload_all().await.unwrap();

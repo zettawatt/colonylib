@@ -453,6 +453,46 @@ impl Graph {
         Ok(references)
     }
 
+    // Get all subjects in a pod
+    pub fn get_pod_subjects(&self, pod_address: &str) -> Result<Vec<String>, Error> {
+        let pod_iri = format!("ant://{}", pod_address);
+
+        // Query for all objects in the pod's named graph that are ant:// URIs
+        let query = format!(
+            r#"
+            SELECT DISTINCT ?subject WHERE {{
+                GRAPH <{}> {{
+                    ?subject ?p ?o .
+                    FILTER(STRSTARTS(STR(?subject), "ant://"))
+                }}
+            }}
+            "#,
+            pod_iri
+        );
+        debug!("Pod subjects query: {}", query);
+
+        let mut subjects = Vec::new();
+        let results = self.store.query(query.as_str())?;
+        if let QueryResults::Solutions(solutions) = results {
+            for solution in solutions {
+                if let Ok(solution) = solution {
+                    if let Some(ref_term) = solution.get("subject") {
+                        if let oxigraph::model::Term::NamedNode(ref_node) = ref_term {
+                            let ref_iri = ref_node.as_str();
+                            // Extract the address from the ant:// URI
+                            if let Some(address) = ref_iri.strip_prefix("ant://") {
+                                subjects.push(address.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        debug!("Found {} subjects in pod {}", subjects.len(), pod_address);
+        Ok(subjects)
+    }    
+
     // Load TriG data into the graph database
     pub fn load_pod_into_graph(&mut self, pod_address: &str,trig_data: &str) -> Result<(), Error> {
         if !trig_data.trim().is_empty() {
