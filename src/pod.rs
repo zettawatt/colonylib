@@ -963,7 +963,7 @@ impl<'a> PodManager<'a> {
         Ok(pointer_address)
     }
 
-    pub fn get_pods(&self) -> Result<Vec<String>, Error> {
+    pub fn get_all_pods(&self) -> Result<Vec<String>, Error> {
         let mut addresses = Vec::new();
         // Local pods are just the addresses of the pointers
         for (address, _key) in self.key_store.get_pointers() {
@@ -1374,7 +1374,27 @@ impl<'a> PodManager<'a> {
             let address = address.trim();
             info!("Checking pointer: {}", address);
             let pointer_address = PointerAddress::from_hex(address)?;
-            let pointer = self.client.pointer_get(&pointer_address).await?;
+            let pointer = match self.client.pointer_get(&pointer_address).await {
+                Ok(pointer) => pointer,
+                Err(e) => {
+                    match e {
+                        PointerError::CannotUpdateNewPointer => {
+                            warn!("Pointer not found on network, skipping: {}", address);
+                            continue; // Skip to the next pointer
+                        }
+                        // Catch Pointer(Network(GetRecordError(RecordNotFound))) error when there is nothing on the network
+                        PointerError::Network(NetworkError::GetRecordError(GetRecordError::RecordNotFound)) => {
+                            warn!("Pointer not found on network, skipping: {}", address);
+                            continue; // Skip to the next pointer
+                        }
+                        _ => {
+                            error!("Error occurred: {:?}", e); // Log the error
+                            return Err(Error::Pointer(e)); // Propagate the error to the higher-level function
+                        }
+                    }
+                }
+            };
+
             info!("Pointer found: {:?}", pointer);
 
             // Check if the pointer file exists in the local data store
@@ -1476,7 +1496,7 @@ impl<'a> PodManager<'a> {
     /// # Parameters
     ///
     /// * `depth` - Maximum depth of pod references to follow:
-    ///   - `0`: Only refresh local pods (equivalent to `refresh_cache()`)
+    ///   - `0`: Recurse through all pods until there is nothing left to download
     ///   - `1`: Include pods directly referenced by local pods
     ///   - `2`: Include pods referenced by referenced pods, etc.
     ///
@@ -1536,7 +1556,10 @@ impl<'a> PodManager<'a> {
         let _ = self.refresh_cache().await?;
 
         // Process pods iteratively up to the specified depth to avoid async recursion
-        for current_depth in 0..=depth {
+        let mut all_referenced_pods = Vec::new();
+        let mut graph_depth = self.graph.get_max_pod_depth()?;
+        let mut current_depth: u64 = 0;
+        loop {
             info!("Processing pod references at depth {}", current_depth);
 
             // Get all pods at the current depth
@@ -1549,7 +1572,12 @@ impl<'a> PodManager<'a> {
                 let pod_refs = self.get_pod_references(&pod_address)?;
 
                 for pod_ref in pod_refs {
-                    referenced_pods.push(pod_ref.to_string());
+                    // Check if the pod_ref has already been processed or is in the current list
+                    if all_referenced_pods.contains(&pod_ref) || referenced_pods.contains(&pod_ref) {
+                        info!("Pod reference {} already processed, skipping", pod_ref);
+                        continue;
+                    }
+                    referenced_pods.push(pod_ref);
                 }
             }
 
@@ -1557,20 +1585,32 @@ impl<'a> PodManager<'a> {
             for ref_address in referenced_pods {
                 info!("Processing referenced pod: {}", ref_address);
 
-                // Check if we already have this pod locally
-                if !self.data_store.address_is_pointer(&ref_address)? {
-                    info!("Referenced pod {} not found locally, attempting to download", ref_address);
+                all_referenced_pods.push(ref_address.clone());
+                info!("Referenced pod {} not found locally, attempting to download", ref_address);
 
-                    // Try to download the referenced pod
-                    if let Err(e) = self.download_referenced_pod(&ref_address, current_depth + 1).await {
-                        warn!("Failed to download referenced pod {}: {}", ref_address, e);
-                        continue;
-                    }
-                } else {
-                    // Update the depth if this pod is found at a shallower depth
-                    self.update_pod_depth(&ref_address, current_depth + 1)?;
+                // Try to download the referenced pod
+                if let Err(e) = self.download_referenced_pod(&ref_address, current_depth + 1).await {
+                    warn!("Failed to download referenced pod {}: {}", ref_address, e);
+                    continue;
                 }
             }
+
+            // Update the graph depth if we found new deeper pods
+            if current_depth >= graph_depth {
+                graph_depth = self.graph.get_max_pod_depth()?;
+            }
+
+            if depth > 0 && current_depth >= depth {
+                info!("Reached specified depth {}, stopping processing", depth);
+                break;
+            }
+
+            if current_depth >= graph_depth {
+                info!("Reached maximum graph depth, stopping processing");
+                break;
+            }
+
+            current_depth += 1;
         }
 
         Ok(())
@@ -1599,85 +1639,76 @@ impl<'a> PodManager<'a> {
     async fn download_referenced_pod(&mut self, pod_address: &str, depth: u64) -> Result<(), Error> {
         info!("Attempting to download referenced pod: {} at depth {}", pod_address, depth);
 
-        // Try to analyze the address to see if it exists on the network
-        let (address_type, create_mode) = self.get_address_type(pod_address).await?;
-
-        if create_mode {
-            warn!("Referenced pod {} does not exist on the network", pod_address);
-            return Ok(()); // Not an error, just means the reference is invalid
-        }
-
-        match address_type {
-            Analysis::Pointer(_) => {
-                // This is a pointer (pod), download it
-                let pointer_address = PointerAddress::from_hex(pod_address)?;
-                let pointer = self.client.pointer_get(&pointer_address).await?;
-                
-                // Check if we already have this pod locally
-                let pod_exists = self.data_store.address_is_pointer(pod_address)?;
-                let should_download = if pod_exists {
-                    // Check if the remote version is newer than our local version
-                    let local_pointer_count = self.data_store.get_pointer_count(pod_address)?;
-                    let remote_counter = pointer.counter() as u64;
-                    if remote_counter > local_pointer_count {
-                        info!("Remote pod is newer (counter: {} > {}), downloading update", 
-                              remote_counter, local_pointer_count);
-                        true
-                    } else {
-                        info!("Local pod is up to date (counter: {} >= {}), skipping download", 
-                              local_pointer_count, remote_counter);
-                        false
+        let pointer_address = PointerAddress::from_hex(pod_address)?;
+        let pointer: Pointer = match self.client.pointer_get(&pointer_address).await {
+            Ok(pointer) => pointer,
+            Err(e) => {
+                match e {
+                    PointerError::CannotUpdateNewPointer => {
+                        warn!("Referenced pod not found on network: {}", pod_address);
+                        return Ok(()); // Skip this pod if it doesn't exist
                     }
-                } else {
-                    // Pod doesn't exist locally, download it
-                    info!("Pod doesn't exist locally, downloading for the first time");
-                    // Create local pointer file
-                    self.data_store.create_pointer_file(pod_address)?;
-                    true
-                };
-
-                if should_download {
-                    // Update pointer information
-                    self.data_store.update_pointer_target(pod_address, pointer.target().to_hex().as_str())?;
-                    self.data_store.update_pointer_count(pod_address, pointer.counter().into())?;
-
-                    // Download the scratchpad data
-                    let target = pointer.target();
-                    let target = match target {
-                        PointerTarget::ScratchpadAddress(scratchpad_address) => scratchpad_address,
-                        _ => {
-                            error!("Pointer target is not a scratchpad address");
-                            return Ok(());
-                        }
-                    };
-
-                    // ///////////////////////////////
-                    // // Create scratchpad file if it doesn't exist
-                    // if !self.data_store.address_is_scratchpad(target.to_hex().as_str())? {
-                    //     self.data_store.create_scratchpad_file(target.to_hex().as_str())?;
-                    // }
-
-                    // // Download the scratchpad data
-                    // let scratchpad = self.client.scratchpad_get(target).await?;
-                    // let data = scratchpad.encrypted_data();
-                    // let data = String::from_utf8(data.to_vec())?;
-                    // self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
-                    // ///////////////////////////////
-                    let data = self.combine_scratchpad_data(target).await?;
-
-                    // Load the downloaded pod data into the graph database
-                    self.load_pod_into_graph(pod_address, data.trim())?;
-
-                    info!("Successfully downloaded referenced pod: {}", pod_address);
+                    // Catch Pointer(Network(GetRecordError(RecordNotFound))) error when there is nothing on the network
+                    PointerError::Network(NetworkError::GetRecordError(GetRecordError::RecordNotFound)) => {
+                        warn!("Referenced pod not found on network: {}", pod_address);
+                        return Ok(()); // Skip this pod if it doesn't exist
+                    }
+                    _ => {
+                        error!("Error occurred: {:?}", e); // Log the error
+                        return Err(Error::Pointer(e)); // Propagate the error to the higher-level function
+                    }
                 }
+            }            
+        };
+        
+        // Check if we already have this pod locally
+        let pod_exists = self.data_store.address_is_pointer(pod_address)?;
+        let should_download = if pod_exists {
+            // Check if the remote version is newer than our local version
+            let local_pointer_count = self.data_store.get_pointer_count(pod_address)?;
+            let remote_counter = pointer.counter() as u64;
+            if remote_counter > local_pointer_count {
+                info!("Remote pod is newer (counter: {} > {}), downloading update", 
+                      remote_counter, local_pointer_count);
+                true
+            } else {
+                info!("Local pod is up to date (counter: {} >= {}), skipping download", 
+                      local_pointer_count, remote_counter);
+                false
+            }
+        } else {
+            // Pod doesn't exist locally, download it
+            info!("Pod doesn't exist locally, downloading for the first time");
+            // Create local pointer file
+            self.data_store.create_pointer_file(pod_address)?;
+            true
+        };
 
-                // Always update the depth in the graph database, even if we didn't download
-                self.update_pod_depth(pod_address, depth)?;
-            }
-            _ => {
-                warn!("Referenced address {} is not a pod pointer", pod_address);
-            }
+        if should_download {
+            // Download the scratchpad data
+            let target = pointer.target();
+            let target = match target {
+                PointerTarget::ScratchpadAddress(scratchpad_address) => scratchpad_address,
+                _ => {
+                    error!("Pointer target is not a scratchpad address");
+                    return Ok(());
+                }
+            };
+
+            let data = self.combine_scratchpad_data(target).await?;
+
+            // Load the downloaded pod data into the graph database
+            self.load_pod_into_graph(pod_address, data.trim())?;
+
+            // Update pointer information
+            self.data_store.update_pointer_target(pod_address, pointer.target().to_hex().as_str())?;
+            self.data_store.update_pointer_count(pod_address, pointer.counter().into())?;
+
+            info!("Successfully downloaded referenced pod: {}", pod_address);
         }
+
+        // Always update the depth in the graph database, even if we didn't download
+        self.update_pod_depth(pod_address, depth)?;
 
         Ok(())
     }

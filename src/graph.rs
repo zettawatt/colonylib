@@ -361,6 +361,35 @@ impl Graph {
         Ok(())
     }
 
+    // Get the largest pod depth in the graph database
+    pub fn get_max_pod_depth(&self) -> Result<u64, Error> {
+        let query = format!(
+            "SELECT (MAX(?depth) AS ?max_depth) WHERE {{ ?pod <{}> ?depth . }}",
+            HAS_DEPTH
+        );
+        debug!("Max depth query: {}", query);
+
+        let results = self.store.query(query.as_str())?;
+        if let QueryResults::Solutions(solutions) = results {
+            for solution in solutions {
+                if let Ok(solution) = solution {
+                    if let Some(max_depth_term) = solution.get("max_depth") {
+                        if let oxigraph::model::Term::Literal(literal) = max_depth_term {
+                            if let Ok(max_depth_value) = literal.value().parse::<u64>() {
+                                debug!("Max pod depth found: {}", max_depth_value);
+                                return Ok(max_depth_value);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no pods found, return 0
+        debug!("No pods found, returning depth 0");
+        Ok(0)
+    }
+
     // Get all pods at a specific depth
     pub fn get_pods_at_depth(&self, depth: u64) -> Result<Vec<String>, Error> {
         let query = format!(
