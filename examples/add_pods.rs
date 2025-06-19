@@ -132,10 +132,7 @@ async fn main() {
     println!("\n=== List My Pods ===");
     // List all pods in the wallet
     let my_pods = podman.list_my_pods().unwrap();
-    println!("My Pods:");
-    for pod in my_pods {
-        println!("Pod Address: {}", pod);
-    }
+    println!("My pods results: {}", serde_json::to_string_pretty(&my_pods).unwrap());
 
     // Upload both pods to the network
     println!("\n=== Uploading Pods to Network ===");

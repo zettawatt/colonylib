@@ -187,9 +187,10 @@ impl Graph {
         let date = Utc::now().to_rfc3339();
         let date = date.as_str();
         // Pod metadata
+        //FIXME: change the None to the default configuration graph 
         let _quad = self.put_quad(pod_iri,HAS_ADDR_TYPE,POD,None)?;
-        let _quad = self.put_quad(pod_iri,HAS_NAME,pod_name,None)?;
         let _quad = self.put_quad(pod_iri,HAS_DEPTH,"0",None)?;
+        let _quad = self.put_quad(pod_iri,HAS_NAME,pod_name,Some(pod_iri))?;
         let _quad = self.put_quad(pod_iri,HAS_CREATION_DATE,date,Some(pod_iri))?;
         let _quad = self.put_quad(pod_iri,HAS_MODIFIED_DATE,date,Some(pod_iri))?;
         // Scratchpad metadata
@@ -502,6 +503,45 @@ impl Graph {
 
         debug!("Found {} subjects in pod {}", subjects.len(), pod_address);
         Ok(subjects)
+    }    
+
+    // Get all of the user's pods
+    pub fn get_my_pods(&self) -> Result<String, Error> {
+
+        // Query for all subjects that have HAS_ADDR_TYPE predicate with POD object
+        // Returns all information stored in all graphs for these subjects
+        let query = format!(
+// FIXME: Bring this back when the refactor to add a configuration named graph is complete            
+//            SELECT DISTINCT ?subject ?predicate ?object ?graph WHERE {{
+//                GRAPH ?graph {{
+//                    ?subject <{}> <{}> .
+//                    ?subject ?predicate ?object .
+//                }}
+//            }}
+//            ORDER BY ?subject ?predicate
+            r#"
+            SELECT DISTINCT ?subject ?predicate ?object WHERE {{
+                    ?subject <{}> <{}> .
+                    ?subject ?predicate ?object .
+            }}
+            ORDER BY ?subject ?predicate
+            "#,
+            HAS_ADDR_TYPE, POD
+        );
+        debug!("My pods query: {}", query);
+        let results = self.store.query(query.as_str()).unwrap_or_else(|e| {
+            error!("Error executing advanced search query: {}", e);
+            QueryResults::Solutions(QuerySolutionIter::new(
+                std::sync::Arc::new([]),
+                std::iter::empty()
+            ))
+        });
+        let buffer = results.write(Vec::new(), QueryResultsFormat::Json)?;
+        let json_str = String::from_utf8(buffer)?;
+
+        debug!("My pods results: {}", json_str);
+
+        Ok(json_str)
     }    
 
     // Load TriG data into the graph database

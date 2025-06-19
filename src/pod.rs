@@ -972,13 +972,13 @@ impl<'a> PodManager<'a> {
     }
 
     /// Lists all pods owned by the user.
-    pub fn list_my_pods(&self) -> Result<Vec<String>, Error> {
-        let mut addresses = Vec::new();
-        // Local pods are just the addresses of the pointers
-        for (address, _key) in self.key_store.get_pointers() {
-            addresses.push(address);
-        }
-        Ok(addresses)
+    pub fn list_my_pods(&self) -> Result<Value, Error> {
+        let search_results = self.graph.get_my_pods()?;
+
+        // Parse the SPARQL JSON results and return them
+        let results: Value = serde_json::from_str(&search_results)?;
+
+        Ok(results)
     }
 
     /// Lists all subjects in a pod.
