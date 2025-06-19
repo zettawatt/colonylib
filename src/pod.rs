@@ -326,7 +326,13 @@ impl<'a> PodManager<'a> {
                     },
                     "advanced" => {
                         // Advanced search with multiple criteria
-                        self.graph.advanced_search(&query)?
+                        if let Some(sparql) = query_obj.get("sparql").and_then(|v| v.as_str()) {
+                            self.graph.advanced_search(sparql)?
+                        } else {
+                            return Ok(Value::Object(serde_json::Map::from_iter([
+                                ("error".to_string(), Value::String("Missing 'sparql' parameter for advanced search".to_string()))
+                            ])));
+                        }
                     },
                     _ => {
                         return Ok(Value::Object(serde_json::Map::from_iter([
@@ -336,7 +342,9 @@ impl<'a> PodManager<'a> {
                 }
             } else {
                 // No explicit type, treat as advanced search
-                self.graph.advanced_search(&query)?
+                return Ok(Value::Object(serde_json::Map::from_iter([
+                    ("error".to_string(), Value::String(format!("No search type provided: none")))
+                ])));
             }
         } else if let Some(text) = query.as_str() {
             // Simple text search if query is just a string

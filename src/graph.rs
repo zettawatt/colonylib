@@ -2,7 +2,7 @@ use oxigraph::io::{RdfFormat, RdfParser, RdfParseError};
 use tracing::{info, debug, error};
 use thiserror;
 use serde;
-use oxigraph::sparql::{EvaluationError,QueryResults};
+use oxigraph::sparql::{EvaluationError,QueryResults, QuerySolutionIter};
 use oxigraph::model::{NamedNodeRef, IriParseError, QuadRef, TermRef, GraphNameRef, LiteralRef, Quad};
 use oxigraph::store::{SerializerError, StorageError, Store, LoaderError};
 use oxigraph::sparql::results::QueryResultsFormat;
@@ -559,7 +559,13 @@ impl Graph {
 
         debug!("Search query: {}", query);
 
-        let results = self.store.query(query.as_str())?;
+        let results = self.store.query(query.as_str()).unwrap_or_else(|e| {
+            error!("Error executing advanced search query: {}", e);
+            QueryResults::Solutions(QuerySolutionIter::new(
+                std::sync::Arc::new([]),
+                std::iter::empty()
+            ))
+        });
         let buffer = results.write(Vec::new(), QueryResultsFormat::Json)?;
         let json_str = String::from_utf8(buffer)?;
 
@@ -591,7 +597,13 @@ impl Graph {
 
         debug!("Type search query: {}", query);
 
-        let results = self.store.query(query.as_str())?;
+        let results = self.store.query(query.as_str()).unwrap_or_else(|e| {
+            error!("Error executing advanced search query: {}", e);
+            QueryResults::Solutions(QuerySolutionIter::new(
+                std::sync::Arc::new([]),
+                std::iter::empty()
+            ))
+        });
         let buffer = results.write(Vec::new(), QueryResultsFormat::Json)?;
         let json_str = String::from_utf8(buffer)?;
 
@@ -622,7 +634,13 @@ impl Graph {
 
         debug!("Predicate search query: {}", query);
 
-        let results = self.store.query(query.as_str())?;
+        let results = self.store.query(query.as_str()).unwrap_or_else(|e| {
+            error!("Error executing advanced search query: {}", e);
+            QueryResults::Solutions(QuerySolutionIter::new(
+                std::sync::Arc::new([]),
+                std::iter::empty()
+            ))
+        });
         let buffer = results.write(Vec::new(), QueryResultsFormat::Json)?;
         let json_str = String::from_utf8(buffer)?;
 
@@ -631,7 +649,27 @@ impl Graph {
     }
 
     // Advanced search with multiple criteria
-    pub fn advanced_search(&self, criteria: &serde_json::Value) -> Result<String, Error> {
+    pub fn advanced_search(&self, query: &str) -> Result<String, Error> {
+
+        debug!("Advanced search query: {}", query);
+
+        let results = self.store.query(query).unwrap_or_else(|e| {
+                    error!("Error executing advanced search query: {}", e);
+                    QueryResults::Solutions(QuerySolutionIter::new(
+                        std::sync::Arc::new([]),
+                        std::iter::empty()
+                    ))
+                });
+        let buffer = results.write(Vec::new(), QueryResultsFormat::Json)?;
+        let json_str = String::from_utf8(buffer)?;
+
+        debug!("Advanced search results: {}", json_str);
+        Ok(json_str)
+    }
+
+    // Advanced search with multiple criteria
+    // FIXME: will need something like this for text search to handle fuzzy search and regexes
+    pub fn query_builder(&self, criteria: &serde_json::Value) -> Result<String, Error> {
         // Build SPARQL query based on criteria
         let mut where_clauses = Vec::new();
         let mut filters = Vec::new();

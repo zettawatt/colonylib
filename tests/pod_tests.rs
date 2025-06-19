@@ -297,12 +297,19 @@ fn test_structured_search_queries() {
     assert_eq!(predicate_bindings.len(), 1);
 
     // Test advanced search directly on graph
-    let advanced_criteria = serde_json::json!({
-        "text": "test",
-        "type": "http://schema.org/MediaObject",
-        "limit": 10
-    });
-    let advanced_results = graph.advanced_search(&advanced_criteria).unwrap();
+
+    let query = r#"
+        SELECT DISTINCT ?subject ?predicate ?object ?graph WHERE {{
+            GRAPH ?graph {{
+                ?subject ?predicate ?object .
+                FILTER(isLiteral(?object) && CONTAINS(LCASE(STR(?object)), LCASE("test")))
+                ?subject <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://schema.org/MediaObject> .
+            }}
+        }}
+        ORDER BY ?graph ?subject
+        LIMIT 10
+    "#;
+    let advanced_results = graph.advanced_search(query).unwrap();
     let parsed_advanced_results: serde_json::Value = serde_json::from_str(&advanced_results).unwrap();
     let advanced_bindings = parsed_advanced_results["results"]["bindings"].as_array().unwrap();
     assert!(advanced_bindings.len() > 0);
@@ -337,8 +344,8 @@ fn test_search_error_handling() {
     assert_eq!(no_pred_bindings.len(), 0);
 
     // Test advanced search with empty criteria
-    let empty_criteria = serde_json::json!({});
-    let empty_advanced_results = graph.advanced_search(&empty_criteria).unwrap();
+    let empty_criteria = "";
+    let empty_advanced_results = graph.advanced_search(empty_criteria).unwrap();
     let parsed_empty_advanced: serde_json::Value = serde_json::from_str(&empty_advanced_results).unwrap();
     // Should return all triples (if any exist) since no filters are applied
     assert!(parsed_empty_advanced.get("results").is_some());

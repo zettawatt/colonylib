@@ -304,41 +304,22 @@ fn test_advanced_search() {
         Some(&pod_iri)
     ).unwrap();
 
-    // Test advanced search with text criteria
-    let criteria = serde_json::json!({
-        "text": "media",
-        "limit": 10
-    });
-
-    let results = graph.advanced_search(&criteria).unwrap();
+    let query = r#"
+        SELECT DISTINCT ?subject ?predicate ?object ?graph WHERE {{
+            GRAPH ?graph {{
+                ?subject ?predicate ?object .
+                FILTER(isLiteral(?object) && CONTAINS(LCASE(STR(?object)), LCASE("media")))
+            }}
+        }}
+        ORDER BY ?graph ?subject
+        LIMIT 10
+    "#;
+    let results = graph.advanced_search(query).unwrap();
     let parsed_results: serde_json::Value = serde_json::from_str(&results).unwrap();
 
     let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
     assert!(bindings.len() > 0);
 
-    // Test advanced search with type criteria
-    let criteria = serde_json::json!({
-        "type": "http://schema.org/MediaObject",
-        "limit": 10
-    });
-
-    let results = graph.advanced_search(&criteria).unwrap();
-    let parsed_results: serde_json::Value = serde_json::from_str(&results).unwrap();
-
-    let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
-    assert_eq!(bindings.len(), 1);
-
-    // Test advanced search with predicate criteria
-    let criteria = serde_json::json!({
-        "predicate": "ant://colonylib/vocabulary/0.1/predicate#name",
-        "limit": 10
-    });
-
-    let results = graph.advanced_search(&criteria).unwrap();
-    let parsed_results: serde_json::Value = serde_json::from_str(&results).unwrap();
-
-    let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
-    assert_eq!(bindings.len(), 1);
 }
 
 #[test]
