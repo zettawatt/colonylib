@@ -428,7 +428,7 @@ fn test_enhanced_search_content() {
     let pod_address = "test_pod_search";
 
     // Add a pod with some searchable content
-    graph.add_pod_entry("Searchable Pod", pod_address, "search_scratchpad").unwrap();
+    graph.add_pod_entry("Searchable Pod", pod_address, "search_scratchpad", "search_config", "search_config_scratchpad").unwrap();
 
     // Add some content to search for
     let pod_iri = format!("ant://{}", pod_address);
@@ -449,4 +449,71 @@ fn test_enhanced_search_content() {
         binding["object"]["value"].as_str().unwrap_or("").contains("important")
     });
     assert!(found_important, "Search should find content containing 'important'");
+}
+
+#[test]
+fn test_enhanced_word_based_search() {
+    let (mut graph, _temp_dir) = create_test_graph();
+
+    // Create pods with different depths
+    let pod1_address = "test_pod_depth_0";
+    let pod2_address = "test_pod_depth_1";
+    let pod3_address = "test_pod_depth_2";
+
+    // Add pods with different depths
+    graph.add_pod_entry("Pod at Depth 0", pod1_address, "scratchpad1", "config1", "config_scratchpad1").unwrap();
+    graph.add_pod_entry("Pod at Depth 1", pod2_address, "scratchpad2", "config2", "config_scratchpad2").unwrap();
+    graph.add_pod_entry("Pod at Depth 2", pod3_address, "scratchpad3", "config3", "config_scratchpad3").unwrap();
+
+    // Set different depths for the pods
+    graph.update_pod_depth(pod1_address, "config1", 0).unwrap();
+    graph.update_pod_depth(pod2_address, "config2", 1).unwrap();
+    graph.update_pod_depth(pod3_address, "config3", 2).unwrap();
+
+    // Add content with varying match counts
+    let pod1_iri = format!("ant://{}", pod1_address);
+    let pod2_iri = format!("ant://{}", pod2_address);
+    let pod3_iri = format!("ant://{}", pod3_address);
+
+    // Pod 1 (depth 0): Contains "beatles" and "abbey" (2 matches)
+    graph.put_quad("ant://album1", "ant://title", "The Beatles Abbey Road", Some(&pod1_iri)).unwrap();
+
+    // Pod 2 (depth 1): Contains "beatles", "abbey", and "road" (3 matches)
+    graph.put_quad("ant://album2", "ant://description", "The Beatles recorded Abbey Road album", Some(&pod2_iri)).unwrap();
+
+    // Pod 3 (depth 2): Contains only "beatles" (1 match)
+    graph.put_quad("ant://album3", "ant://artist", "The Beatles", Some(&pod3_iri)).unwrap();
+
+    // Search for "beatles abbey road" - should return results ordered by match count, then by depth
+    let search_results = graph.search_content("beatles abbey road", Some(10)).unwrap();
+    assert!(!search_results.is_empty(), "Search results should not be empty");
+
+    // Parse the JSON to verify ordering
+    let json_result: serde_json::Value = serde_json::from_str(&search_results).unwrap();
+    let bindings = json_result["results"]["bindings"].as_array().unwrap();
+    assert!(bindings.len() >= 3, "Should have at least 3 search results");
+
+    // Verify that results are ordered by match count (descending) then by depth (ascending)
+    // The result with 3 matches (pod2) should come first
+    // Then the result with 2 matches (pod1) should come second
+    // Finally the result with 1 match (pod3) should come last
+
+    let first_result_text = bindings[0]["object"]["value"].as_str().unwrap_or("");
+    assert!(first_result_text.contains("recorded"), "First result should be the one with most matches");
+
+    // Test single word search
+    let single_word_results = graph.search_content("beatles", Some(10)).unwrap();
+    let single_json: serde_json::Value = serde_json::from_str(&single_word_results).unwrap();
+    let single_bindings = single_json["results"]["bindings"].as_array().unwrap();
+    assert!(single_bindings.len() >= 3, "Single word search should find all Beatles references");
+
+    // Test empty search
+    let empty_results = graph.search_content("", Some(10)).unwrap();
+    assert_eq!(empty_results, "[]", "Empty search should return empty array");
+
+    // Test search with no matches
+    let no_match_results = graph.search_content("nonexistent", Some(10)).unwrap();
+    let no_match_json: serde_json::Value = serde_json::from_str(&no_match_results).unwrap();
+    let no_match_bindings = no_match_json["results"]["bindings"].as_array().unwrap();
+    assert_eq!(no_match_bindings.len(), 0, "Search with no matches should return empty results");
 }

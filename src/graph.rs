@@ -596,27 +596,57 @@ impl Graph {
             None => "".to_string(),
         };
 
-        // Search for literal values containing the search text (case-insensitive)
-        //FIXME: order the results by pod depth
+        // Split search text into individual words and create search conditions
+        let words: Vec<&str> = search_text.split_whitespace().collect();
+
+        if words.is_empty() {
+            return Ok("[]".to_string()); // Return empty results for empty search
+        }
+
+        // Create filter conditions for each word (OR logic)
+        let mut word_filters = Vec::new();
+        for word in &words {
+            let escaped_word = word.replace("\"", "\\\"");
+            word_filters.push(format!("CONTAINS(LCASE(STR(?object)), LCASE(\"{}\"))", escaped_word));
+        }
+        let combined_filter = word_filters.join(" || ");
+
+        // Create individual word match expressions for counting
+        let mut match_expressions = Vec::new();
+        for word in &words {
+            let escaped_word = word.replace("\"", "\\\"");
+            match_expressions.push(format!("IF(CONTAINS(LCASE(STR(?object)), LCASE(\"{}\")), 1, 0)", escaped_word));
+        }
+        let match_count_expr = match_expressions.join(" + ");
+
         let query = format!(
             r#"
-            SELECT DISTINCT ?subject ?predicate ?object ?graph WHERE {{
+            SELECT ?subject ?predicate ?object ?graph ?depth
+                   (({}) AS ?match_count) WHERE {{
                 GRAPH ?graph {{
                     ?subject ?predicate ?object .
-                    FILTER(isLiteral(?object) && CONTAINS(LCASE(STR(?object)), LCASE("{}")))
+                    FILTER(isLiteral(?object) && ({}))
+                }}
+                OPTIONAL {{
+                    # Look for depth in any graph (typically configuration graphs)
+                    GRAPH ?config_graph {{
+                        ?graph <{}> ?depth .
+                    }}
                 }}
             }}
-            ORDER BY ?graph ?subject
+            ORDER BY DESC(?match_count) ASC(COALESCE(?depth, 999999)) ?graph ?subject
             {}
             "#,
-            search_text.replace("\"", "\\\""), // Escape quotes in search text
+            match_count_expr,
+            combined_filter,
+            HAS_DEPTH,
             limit_clause
         );
 
-        debug!("Search query: {}", query);
+        debug!("Enhanced search query: {}", query);
 
         let results = self.store.query(query.as_str()).unwrap_or_else(|e| {
-            error!("Error executing advanced search query: {}", e);
+            error!("Error executing enhanced search query: {}", e);
             QueryResults::Solutions(QuerySolutionIter::new(
                 std::sync::Arc::new([]),
                 std::iter::empty()
@@ -625,9 +655,11 @@ impl Graph {
         let buffer = results.write(Vec::new(), QueryResultsFormat::Json)?;
         let json_str = String::from_utf8(buffer)?;
 
-        debug!("Search results: {}", json_str);
+        debug!("Enhanced search results: {}", json_str);
         Ok(json_str)
     }
+
+
 
     // Search for subjects by type
     //FIXME: order the results by pod depth
