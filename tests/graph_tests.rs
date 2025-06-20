@@ -22,14 +22,20 @@ fn test_add_pod_entry() {
 
     let pod_address = "1234567890abcdef";
     let scratchpad_address = "abcdef1234567890";
+    let configuration_address = "config1234567890";
+    let configuration_scratchpad_address = "config_scratchpad1234567890";
     let pod_name = "Test Pod";
 
-    let result = graph.add_pod_entry(pod_name, pod_address, scratchpad_address);
+    let result = graph.add_pod_entry(pod_name, pod_address, scratchpad_address, configuration_address, configuration_scratchpad_address);
     assert!(result.is_ok(), "Failed to add pod entry: {:?}", result.err());
 
-    let trig_data = result.unwrap();
+    let (trig_data, config_data) = result.unwrap();
     assert!(!trig_data.is_empty(), "TriG data should not be empty");
-    assert!(trig_data.contains(scratchpad_address), "TriG data should contain the scratchpad address");
+    assert!(!config_data.is_empty(), "Configuration data should not be empty");
+
+    // Convert Vec<u8> to String for checking contents
+    let trig_string = String::from_utf8(trig_data).unwrap();
+    assert!(trig_string.contains(scratchpad_address), "TriG data should contain the scratchpad address");
 }
 
 #[test]
@@ -37,47 +43,49 @@ fn test_pod_depth_operations() {
     let (mut graph, _temp_dir) = create_test_graph();
 
     let pod_address = "test_pod_123";
+    let configuration_address = "test_config_123";
 
     // Initially, pod should have no depth (returns u64::MAX)
     let initial_depth = graph.get_pod_depth(pod_address).unwrap();
     assert_eq!(initial_depth, u64::MAX);
 
     // Set depth to 0
-    graph.update_pod_depth(pod_address, 0).unwrap();
+    graph.update_pod_depth(pod_address, configuration_address, 0).unwrap();
     let depth = graph.get_pod_depth(pod_address).unwrap();
     assert_eq!(depth, 0);
 
     // Try to set depth to 2 (should NOT work since 2 > 0, depth should remain 0)
-    graph.update_pod_depth(pod_address, 2).unwrap();
+    graph.update_pod_depth(pod_address, configuration_address, 2).unwrap();
     let depth = graph.get_pod_depth(pod_address).unwrap();
     assert_eq!(depth, 0); // Should still be 0 since we only update to smaller depths
 
     // Try to set depth to 1 (should NOT work since 1 > 0, depth should remain 0)
-    graph.update_pod_depth(pod_address, 1).unwrap();
+    graph.update_pod_depth(pod_address, configuration_address, 1).unwrap();
     let depth = graph.get_pod_depth(pod_address).unwrap();
     assert_eq!(depth, 0); // Should still be 0
 
     // Now let's test with a higher initial depth
     // First set depth to 5
-    graph.update_pod_depth(pod_address, 5).unwrap(); // This won't work since 5 > 0
+    graph.update_pod_depth(pod_address, configuration_address, 5).unwrap(); // This won't work since 5 > 0
     let depth = graph.get_pod_depth(pod_address).unwrap();
     assert_eq!(depth, 0); // Should still be 0
 
     // Let's start fresh with a new pod to test the depth logic properly
     let pod_address2 = "test_pod_456";
+    let configuration_address2 = "test_config_456";
 
     // Set initial depth to 5 (this should work since no depth exists)
-    graph.update_pod_depth(pod_address2, 5).unwrap();
+    graph.update_pod_depth(pod_address2, configuration_address2, 5).unwrap();
     let depth = graph.get_pod_depth(pod_address2).unwrap();
     assert_eq!(depth, 5);
 
     // Try to set depth to 3 (should work since 3 < 5)
-    graph.update_pod_depth(pod_address2, 3).unwrap();
+    graph.update_pod_depth(pod_address2, configuration_address2, 3).unwrap();
     let depth = graph.get_pod_depth(pod_address2).unwrap();
     assert_eq!(depth, 3);
 
     // Try to set depth to 7 (should not change since 7 > 3)
-    graph.update_pod_depth(pod_address2, 7).unwrap();
+    graph.update_pod_depth(pod_address2, configuration_address2, 7).unwrap();
     let depth = graph.get_pod_depth(pod_address2).unwrap();
     assert_eq!(depth, 3); // Should still be 3
 }
@@ -89,11 +97,14 @@ fn test_get_pods_at_depth() {
     let pod1 = "pod1_address";
     let pod2 = "pod2_address";
     let pod3 = "pod3_address";
+    let config1 = "config1_address";
+    let config2 = "config2_address";
+    let config3 = "config3_address";
 
     // Set different depths
-    graph.update_pod_depth(pod1, 0).unwrap();
-    graph.update_pod_depth(pod2, 1).unwrap();
-    graph.update_pod_depth(pod3, 0).unwrap();
+    graph.update_pod_depth(pod1, config1, 0).unwrap();
+    graph.update_pod_depth(pod2, config2, 1).unwrap();
+    graph.update_pod_depth(pod3, config3, 0).unwrap();
 
     // Get pods at depth 0
     let pods_at_depth_0 = graph.get_pods_at_depth(0).unwrap();
@@ -329,9 +340,11 @@ fn test_get_pod_scratchpads() {
     let pod_address = "test_pod_123";
     let scratchpad1 = "scratchpad_addr_1";
     let scratchpad2 = "scratchpad_addr_2";
+    let configuration_address = "test_config_123";
+    let configuration_scratchpad_address = "test_config_scratchpad_123";
 
     // First create a pod entry to establish the named graph
-    graph.add_pod_entry("Test Pod", pod_address, scratchpad1).unwrap();
+    graph.add_pod_entry("Test Pod", pod_address, scratchpad1, configuration_address, configuration_scratchpad_address).unwrap();
 
     // Add additional scratchpad to the pod
     let pod_iri = format!("ant://{}", pod_address);
@@ -355,9 +368,11 @@ fn test_clear_pod_graph() {
 
     let pod_address = "test_pod_clear";
     let scratchpad_address = "test_scratchpad_clear";
+    let configuration_address = "test_config_clear";
+    let configuration_scratchpad_address = "test_config_scratchpad_clear";
 
     // Add a pod entry
-    let result = graph.add_pod_entry("Test Pod for Clearing", pod_address, scratchpad_address);
+    let result = graph.add_pod_entry("Test Pod for Clearing", pod_address, scratchpad_address, configuration_address, configuration_scratchpad_address);
     assert!(result.is_ok(), "Failed to add pod entry");
 
     // Verify the pod has data
@@ -402,13 +417,15 @@ fn test_get_pod_references_with_add_ref() {
     let pod_address = "test_pod_refs";
     let ref_pod1 = "referenced_pod_1";
     let ref_pod2 = "referenced_pod_2";
+    let configuration_address = "test_config_refs";
+    let configuration_scratchpad_address = "test_config_scratchpad_refs";
 
     // Create a pod entry first
-    graph.add_pod_entry("Test Pod with References", pod_address, "scratchpad_main").unwrap();
+    graph.add_pod_entry("Test Pod with References", pod_address, "scratchpad_main", configuration_address, configuration_scratchpad_address).unwrap();
 
     // Add pod references
-    graph.pod_ref_entry(pod_address, ref_pod1, true).unwrap();
-    graph.pod_ref_entry(pod_address, ref_pod2, true).unwrap();
+    graph.pod_ref_entry(pod_address, ref_pod1, configuration_address, true).unwrap();
+    graph.pod_ref_entry(pod_address, ref_pod2, configuration_address, true).unwrap();
 
     // Test getting pod references
     let references = graph.get_pod_references(pod_address).unwrap();
@@ -465,10 +482,15 @@ fn test_enhanced_word_based_search() {
     graph.add_pod_entry("Pod at Depth 1", pod2_address, "scratchpad2", "config2", "config_scratchpad2").unwrap();
     graph.add_pod_entry("Pod at Depth 2", pod3_address, "scratchpad3", "config3", "config_scratchpad3").unwrap();
 
-    // Set different depths for the pods
-    graph.update_pod_depth(pod1_address, "config1", 0).unwrap();
-    graph.update_pod_depth(pod2_address, "config2", 1).unwrap();
-    graph.update_pod_depth(pod3_address, "config3", 2).unwrap();
+    // Set different depths for the pods (using force_set for testing)
+    graph.force_set_pod_depth(pod1_address, "config1", 0).unwrap();
+    graph.force_set_pod_depth(pod2_address, "config2", 1).unwrap();
+    graph.force_set_pod_depth(pod3_address, "config3", 2).unwrap();
+
+    // Verify that depths were set correctly
+    assert_eq!(graph.get_pod_depth(pod1_address).unwrap(), 0);
+    assert_eq!(graph.get_pod_depth(pod2_address).unwrap(), 1);
+    assert_eq!(graph.get_pod_depth(pod3_address).unwrap(), 2);
 
     // Add content with varying match counts
     let pod1_iri = format!("ant://{}", pod1_address);
@@ -498,8 +520,27 @@ fn test_enhanced_word_based_search() {
     // Then the result with 2 matches (pod1) should come second
     // Finally the result with 1 match (pod3) should come last
 
+
+
+    // Verify that results are ordered by match count (descending) then by depth (ascending)
+    // Both pod1 and pod2 have 3 matches, so pod1 (depth 0) should come before pod2 (depth 1)
+    // Then pod3 with 1 match (depth 2) should come last
+
     let first_result_text = bindings[0]["object"]["value"].as_str().unwrap_or("");
-    assert!(first_result_text.contains("recorded"), "First result should be the one with most matches");
+    let second_result_text = bindings[1]["object"]["value"].as_str().unwrap_or("");
+    let third_result_text = bindings[2]["object"]["value"].as_str().unwrap_or("");
+
+    // First result should be pod1 (depth 0, 3 matches)
+    assert!(first_result_text.contains("Abbey Road") && !first_result_text.contains("recorded"),
+            "First result should be pod1 with depth 0");
+
+    // Second result should be pod2 (depth 1, 3 matches)
+    assert!(second_result_text.contains("recorded"),
+            "Second result should be pod2 with depth 1");
+
+    // Third result should be pod3 (depth 2, 1 match)
+    assert!(third_result_text == "The Beatles" && !third_result_text.contains("Abbey"),
+            "Third result should be pod3 with depth 2");
 
     // Test single word search
     let single_word_results = graph.search_content("beatles", Some(10)).unwrap();

@@ -7,12 +7,12 @@ fn test_key_store_from_mnemonic() {
 
     assert_eq!(key_store.get_seed_phrase(), mnemonic);
 
-    // Initially, no pointers should exist
-    assert_eq!(key_store.get_pointers().len(), 0);
+    // Initially, one configuration pointer key should exist
+    assert_eq!(key_store.get_pointers().len(), 1);
 
-    // Add a pointer key and verify it exists
+    // Add another pointer key and verify it exists
     key_store.add_pointer_key().unwrap();
-    assert!(key_store.get_pointers().len() > 0);
+    assert_eq!(key_store.get_pointers().len(), 2);
 }
 
 #[test]

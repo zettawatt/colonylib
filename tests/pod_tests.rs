@@ -11,9 +11,9 @@ fn test_get_pods_at_depth() {
     let pod3 = "pod3_address";
 
     // Set up depths in the graph
-    graph.update_pod_depth(pod1, 0).unwrap();
-    graph.update_pod_depth(pod2, 1).unwrap();
-    graph.update_pod_depth(pod3, 0).unwrap();
+    graph.force_set_pod_depth(pod1, "config1", 0).unwrap();
+    graph.force_set_pod_depth(pod2, "config2", 1).unwrap();
+    graph.force_set_pod_depth(pod3, "config3", 0).unwrap();
 
     // Test getting pods at different depths
     let pods_at_depth_0 = graph.get_pods_at_depth(0).unwrap();
@@ -66,19 +66,19 @@ fn test_depth_update_logic() {
     assert_eq!(initial_depth, u64::MAX);
 
     // Set initial depth to 5
-    graph.update_pod_depth(pod_address, 5).unwrap();
+    graph.update_pod_depth(pod_address, "test_config", 5).unwrap();
     assert_eq!(graph.get_pod_depth(pod_address).unwrap(), 5);
 
     // Try to set depth to 3 (should work since 3 < 5)
-    graph.update_pod_depth(pod_address, 3).unwrap();
+    graph.update_pod_depth(pod_address, "test_config", 3).unwrap();
     assert_eq!(graph.get_pod_depth(pod_address).unwrap(), 3);
 
     // Try to set depth to 7 (should not change since 7 > 3)
-    graph.update_pod_depth(pod_address, 7).unwrap();
+    graph.update_pod_depth(pod_address, "test_config", 7).unwrap();
     assert_eq!(graph.get_pod_depth(pod_address).unwrap(), 3);
 
     // Try to set depth to 1 (should work since 1 < 3)
-    graph.update_pod_depth(pod_address, 1).unwrap();
+    graph.update_pod_depth(pod_address, "test_config", 1).unwrap();
     assert_eq!(graph.get_pod_depth(pod_address).unwrap(), 1);
 }
 
@@ -144,14 +144,20 @@ fn test_graph_pod_entry_creation() {
     let scratchpad_address = "test_scratchpad_entry";
 
     // Create pod entry
-    let trig_data = graph.add_pod_entry("test pod", pod_address, scratchpad_address).unwrap();
+    let (trig_data, config_data) = graph.add_pod_entry("test pod", pod_address, scratchpad_address, "test_config", "test_config_scratchpad").unwrap();
 
     // Verify the TriG data contains expected elements
     assert!(!trig_data.is_empty());
+    assert!(!config_data.is_empty());
+
+    // Convert Vec<u8> to String for checking contents
+    let trig_string = String::from_utf8(trig_data).unwrap();
+    let config_string = String::from_utf8(config_data).unwrap();
+
     // The function creates data about the scratchpad, not the pod address directly
-    assert!(trig_data.contains(&format!("ant://{}", scratchpad_address)));
+    assert!(trig_string.contains(&format!("ant://{}", scratchpad_address)));
     // Check for the actual predicate URIs
-    assert!(trig_data.contains("colonylib/vocabulary"));
+    assert!(trig_string.contains("colonylib/vocabulary") || config_string.contains("colonylib/vocabulary"));
     // Note: depth is stored in the default graph, not in the pod's named graph
     // so it won't appear in the TriG output for the specific pod graph
 
@@ -168,16 +174,16 @@ fn test_keystore_integration() {
     let expected_mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     assert_eq!(key_store.get_seed_phrase(), expected_mnemonic);
 
-    // Initially, no pointers or scratchpads should exist
-    assert!(key_store.get_pointers().is_empty());
-    assert!(key_store.get_scratchpads().is_empty());
+    // Initially, one configuration pointer and one configuration scratchpad should exist
+    assert_eq!(key_store.get_pointers().len(), 1);
+    assert_eq!(key_store.get_scratchpads().len(), 1);
 
-    // Add keys and test that they exist
+    // Add additional keys and test that they exist
     key_store.add_pointer_key().unwrap();
     key_store.add_scratchpad_key().unwrap();
 
-    assert!(!key_store.get_pointers().is_empty());
-    assert!(!key_store.get_scratchpads().is_empty());
+    assert_eq!(key_store.get_pointers().len(), 2);
+    assert_eq!(key_store.get_scratchpads().len(), 2);
 }
 
 #[test]
@@ -319,11 +325,9 @@ fn test_structured_search_queries() {
 fn test_search_error_handling() {
     let (_data_store, _key_store, graph, _temp_dir) = create_test_components();
 
-    // Test search with empty text (should return no results)
+    // Test search with empty text (should return empty array)
     let empty_results = graph.search_content("", Some(10)).unwrap();
-    let parsed_empty_results: serde_json::Value = serde_json::from_str(&empty_results).unwrap();
-    let empty_bindings = parsed_empty_results["results"]["bindings"].as_array().unwrap();
-    assert_eq!(empty_bindings.len(), 0);
+    assert_eq!(empty_results, "[]", "Empty search should return empty array");
 
     // Test search with non-existent text
     let no_results = graph.search_content("nonexistent_text_12345", Some(10)).unwrap();

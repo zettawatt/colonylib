@@ -340,7 +340,7 @@ impl Graph {
         let pod_iri = format!("ant://{}", pod_address);
 
         let query = format!(
-            "SELECT ?depth WHERE {{ <{}> <{}> ?depth . }}",
+            "SELECT ?depth WHERE {{ GRAPH ?graph {{ <{}> <{}> ?depth . }} }}",
             pod_iri, HAS_DEPTH
         );
         debug!("Depth query: {}", query);
@@ -368,18 +368,28 @@ impl Graph {
 
     // Update or set the depth of a pod in the graph database
     pub fn update_pod_depth(&mut self, pod_address: &str, configuration_address: &str, new_depth: u64) -> Result<(), Error> {
+        self.update_pod_depth_internal(pod_address, configuration_address, new_depth, false)
+    }
+
+    // Force set the depth of a pod in the graph database (for testing)
+    pub fn force_set_pod_depth(&mut self, pod_address: &str, configuration_address: &str, new_depth: u64) -> Result<(), Error> {
+        self.update_pod_depth_internal(pod_address, configuration_address, new_depth, true)
+    }
+
+    // Internal method to update pod depth with optional force parameter
+    fn update_pod_depth_internal(&mut self, pod_address: &str, configuration_address: &str, new_depth: u64, force: bool) -> Result<(), Error> {
         let pod_iri = format!("ant://{}", pod_address);
         let configuration_iri = format!("ant://{}", configuration_address);
 
         // First, check if there's an existing depth
         let current_depth = self.get_pod_depth(pod_address)?;
 
-        // Only update if the new depth is smaller (closer to root) or if no depth exists
-        if new_depth < current_depth {
+        // Only update if the new depth is smaller (closer to root), if no depth exists, or if forced
+        if force || new_depth < current_depth {
             info!("Updating depth for pod {} from {} to {}", pod_address, current_depth, new_depth);
 
             let delete_query = format!(
-                "DELETE WHERE {{ <{}> <{}> ?depth . }}",
+                "DELETE WHERE {{ GRAPH ?graph {{ <{}> <{}> ?depth . }} }}",
                 pod_iri, HAS_DEPTH
             );
             debug!("Delete depth query: {}", delete_query);
@@ -398,7 +408,7 @@ impl Graph {
     // Get the largest pod depth in the graph database
     pub fn get_max_pod_depth(&self) -> Result<u64, Error> {
         let query = format!(
-            "SELECT (MAX(?depth) AS ?max_depth) WHERE {{ ?pod <{}> ?depth . }}",
+            "SELECT (MAX(?depth) AS ?max_depth) WHERE {{ GRAPH ?graph {{ ?pod <{}> ?depth . }} }}",
             HAS_DEPTH
         );
         debug!("Max depth query: {}", query);
@@ -427,7 +437,7 @@ impl Graph {
     // Get all pods at a specific depth
     pub fn get_pods_at_depth(&self, depth: u64) -> Result<Vec<String>, Error> {
         let query = format!(
-            "SELECT ?pod WHERE {{ ?pod <{}> \"{}\" . }}",
+            "SELECT ?pod WHERE {{ GRAPH ?graph {{ ?pod <{}> \"{}\" . }} }}",
             HAS_DEPTH, depth
         );
         debug!("Pods at depth query: {}", query);
