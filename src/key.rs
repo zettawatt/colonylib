@@ -140,12 +140,22 @@ impl KeyStore {
         //let main_pk: MainPubkey = main_sk.public_key();
 
         // Create a new pods hashmap
-        let pointers: HashMap<PublicKey, SecretKey> = HashMap::new();
-        let scratchpads: HashMap<PublicKey, SecretKey> = HashMap::new();
+        let mut pointers: HashMap<PublicKey, SecretKey> = HashMap::new();
+        let mut scratchpads: HashMap<PublicKey, SecretKey> = HashMap::new();
         let bad_keys: HashMap<PublicKey, SecretKey> = HashMap::new();
         //let pod_key: SecretKey = main_sk.derive_key(&index(0)).into();
         //let pod_pubkey: PublicKey = pod_key.public_key();
         //pods.insert(pod_pubkey, pod_key.clone());
+
+        // Add configuratino pod pointer key
+        let pointer_key: SecretKey = main_sk.derive_key(&index(0)).into();
+        let pointer_pubkey: PublicKey = pointer_key.clone().public_key();
+        pointers.insert(pointer_pubkey, pointer_key);
+
+        // Add configuration pod scratchpad key
+        let scratchpad_key: SecretKey = main_sk.derive_key(&index(1)).into();
+        let scratchpad_pubkey: PublicKey = scratchpad_key.clone().public_key();
+        scratchpads.insert(scratchpad_pubkey, scratchpad_key);
 
         Ok(KeyStore {
             wallet_key: SecretKey::default().to_bytes().to_vec(),
@@ -172,6 +182,20 @@ impl KeyStore {
     pub fn get_wallet_key(&self) -> String {
         debug!("Wallet key: {}", hex::encode(self.wallet_key.clone()));
         hex::encode(self.wallet_key.clone())
+    }
+
+    pub fn get_configuration_address(&self) -> String {
+        // Get the first public key in the pointer map
+        let key = self.pointers.iter().next().unwrap().0;
+        debug!("Configuration pod address: {}", hex::encode(key));
+        hex::encode(key)
+    }
+
+    pub fn get_configuration_scratchpad_address(&self) -> String {
+        // Get the first public key in the pointer map
+        let key = self.scratchpads.iter().next().unwrap().0;
+        debug!("Configuration target address: {}", hex::encode(key));
+        hex::encode(key)
     }
 
     pub fn get_pointer_key(&self, pod_pubkey: String) -> Result<String, Error> {

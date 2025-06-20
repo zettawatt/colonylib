@@ -174,48 +174,64 @@ impl Graph {
         Ok(quad.into_owned())
     }
 
-    pub fn add_pod_entry(&mut self, pod_name: &str, pod_address: &str, scratchpad_address: &str) -> Result<String, Error> {
+    pub fn add_pod_entry(&mut self, pod_name: &str, pod_address: &str, scratchpad_address: &str, configuration_address: &str, configuration_scratchpad_address: &str) -> Result<(Vec<u8>, Vec<u8>), Error> {
         // Add a new pod
         let pod_iri = format!("ant://{}", pod_address);
         let pod_iri = pod_iri.as_str();
         let pod = NamedNodeRef::new(pod_iri)?;
         self.store.insert_named_graph(pod)?;
 
+        // Get the configuration IRI and create a configuration graph if it doesn't exist
+        let configuration_iri = format!("ant://{}", configuration_address);
+        let configuration_iri = configuration_iri.as_str();
+        let config = NamedNodeRef::new(configuration_iri)?;
+        self.store.insert_named_graph(config)?;
+
         // Enter in scratchpad quad
         let scratchpad_iri = format!("ant://{}", scratchpad_address);
         let scratchpad_iri = scratchpad_iri.as_str();
+        let configuration_scratchpad_iri = format!("ant://{}", configuration_scratchpad_address);
+        let configuration_scratchpad_iri = configuration_scratchpad_iri.as_str();
         let date = Utc::now().to_rfc3339();
         let date = date.as_str();
         // Pod metadata
-        //FIXME: change the None to the default configuration graph 
-        let _quad = self.put_quad(pod_iri,HAS_ADDR_TYPE,POD,None)?;
-        let _quad = self.put_quad(pod_iri,HAS_DEPTH,"0",None)?;
+        let _quad = self.put_quad(pod_iri,HAS_ADDR_TYPE,POD,Some(configuration_iri))?;
+        let _quad = self.put_quad(pod_iri,HAS_DEPTH,"0",Some(configuration_iri))?;
         let _quad = self.put_quad(pod_iri,HAS_NAME,pod_name,Some(pod_iri))?;
         let _quad = self.put_quad(pod_iri,HAS_CREATION_DATE,date,Some(pod_iri))?;
         let _quad = self.put_quad(pod_iri,HAS_MODIFIED_DATE,date,Some(pod_iri))?;
         // Scratchpad metadata
         let _quad = self.put_quad(scratchpad_iri,HAS_POD_INDEX, "0", Some(pod_iri))?;
+        let _quad = self.put_quad(configuration_scratchpad_iri,HAS_POD_INDEX, "0", Some(configuration_iri))?;
         debug!("Pod entries added");
 
         // Dump newly created graph in TriG format
         let mut buffer = Vec::new();
         self.store.dump_graph_to_writer(pod, RdfFormat::TriG, &mut buffer)?;
 
-        Ok(buffer.into_iter().map(|b| b as char).collect())
+        // Dump the updated configuration graph in TriG format
+        let mut configuration = Vec::new();
+        self.store.dump_graph_to_writer(config, RdfFormat::TriG, &mut configuration)?;
+
+        Ok((buffer, configuration))
     }
 
-    pub fn pod_ref_entry(&mut self, pod_address: &str, pod_ref_address: &str, add: bool) -> Result<Vec<u8>, Error> {
+    pub fn pod_ref_entry(&mut self, pod_address: &str, pod_ref_address: &str, configuration_address: &str, add: bool) -> Result<(Vec<u8>, Vec<u8>), Error> {
         let pod_ref_iri = format!("ant://{}", pod_ref_address);
         let pod_ref_iri = pod_ref_iri.as_str();
         let pod_iri = format!("ant://{}", pod_address);
         let pod_iri = pod_iri.as_str();
 
-        // Remove the depth object if it already exists in the default graph
+        // Get the configuration IRI
+        let configuration_iri = format!("ant://{}", configuration_address);
+        let configuration_iri = configuration_iri.as_str();
+
+        // Remove the depth object if it already exists in the configuration graph
         let update = format!(
-            "DELETE WHERE {{ <{}> <{}> ?o . }}",
-            pod_ref_iri, HAS_DEPTH
+            "DELETE WHERE {{ GRAPH <{}> {{ <{}> ?p ?o . }} }}",
+            configuration_iri, pod_ref_iri
         );
-        debug!("Delete pod_ref from default graph string: {}", update);
+        debug!("Delete pod_ref from configuration graph string: {}", update);
         self.store.update(update.as_str())?;
 
         // Delete existing data for the subject in the pod graph
@@ -230,7 +246,7 @@ impl Graph {
   
         if add {
             // Enter in pod ref quad
-            let _quad = self.put_quad(pod_ref_iri,HAS_DEPTH,"1",None)?;
+            let _quad = self.put_quad(pod_ref_iri,HAS_DEPTH,"1",Some(configuration_iri))?;
             let _quad = self.put_quad(pod_ref_iri, HAS_ADDR_TYPE, POD_REF, Some(pod_iri))?;
             debug!("Pod ref {} added to pod {}", pod_ref_address, pod_address);
         } else {
@@ -242,7 +258,12 @@ impl Graph {
         let mut buffer = Vec::new();
         self.store.dump_graph_to_writer(pod, RdfFormat::TriG, &mut buffer)?;
 
-        Ok(buffer)
+        // Dump the updated configuration graph in TriG format
+        let pod = oxigraph::model::NamedNodeRef::new(configuration_iri)?;
+        let mut configuration = Vec::new();
+        self.store.dump_graph_to_writer(pod, RdfFormat::TriG, &mut configuration)?;
+
+        Ok((buffer, configuration))
     }
         
     // Input is a JSON-LD string
@@ -346,8 +367,9 @@ impl Graph {
     }
 
     // Update or set the depth of a pod in the graph database
-    pub fn update_pod_depth(&mut self, pod_address: &str, new_depth: u64) -> Result<(), Error> {
+    pub fn update_pod_depth(&mut self, pod_address: &str, configuration_address: &str, new_depth: u64) -> Result<(), Error> {
         let pod_iri = format!("ant://{}", pod_address);
+        let configuration_iri = format!("ant://{}", configuration_address);
 
         // First, check if there's an existing depth
         let current_depth = self.get_pod_depth(pod_address)?;
@@ -364,7 +386,7 @@ impl Graph {
             self.store.update(delete_query.as_str())?;
 
             // Insert new depth
-            let _quad = self.put_quad(&pod_iri, HAS_DEPTH, &new_depth.to_string(), None)?;
+            let _quad = self.put_quad(&pod_iri, HAS_DEPTH, &new_depth.to_string(), Some(&configuration_iri))?;
             info!("Set depth {} for pod {}", new_depth, pod_address);
         } else {
             debug!("Not updating depth for pod {} (current: {}, new: {})", pod_address, current_depth, new_depth);
@@ -511,18 +533,12 @@ impl Graph {
         // Query for all subjects that have HAS_ADDR_TYPE predicate with POD object
         // Returns all information stored in all graphs for these subjects
         let query = format!(
-// FIXME: Bring this back when the refactor to add a configuration named graph is complete            
-//            SELECT DISTINCT ?subject ?predicate ?object ?graph WHERE {{
-//                GRAPH ?graph {{
-//                    ?subject <{}> <{}> .
-//                    ?subject ?predicate ?object .
-//                }}
-//            }}
-//            ORDER BY ?subject ?predicate
             r#"
-            SELECT DISTINCT ?subject ?predicate ?object WHERE {{
+            SELECT DISTINCT ?subject ?predicate ?object ?graph WHERE {{
+                GRAPH ?graph {{
                     ?subject <{}> <{}> .
                     ?subject ?predicate ?object .
+                }}
             }}
             ORDER BY ?subject ?predicate
             "#,

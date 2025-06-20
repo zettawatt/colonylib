@@ -826,17 +826,27 @@ impl<'a> PodManager<'a> {
         let scratchpad_address = self.add_scratchpad().await?;
         let scratchpad_address = scratchpad_address.to_hex();
         let scratchpad_address = scratchpad_address.as_str();
-        let pointer_address = self.add_pointer().await?;
-        let pointer_address = pointer_address.to_hex();
-        let pointer_address = pointer_address.as_str();
+        let pod_address = self.add_pointer().await?;
+        let pod_address = pod_address.to_hex();
+        let pod_address = pod_address.as_str();
 
-        // Add the scratchpad address to the pointer file
-        let _ = self.data_store.update_pointer_target(pointer_address, scratchpad_address)?;
+        // Add the scratchpad address to the pointer files
+        let _ = self.data_store.update_pointer_target(pod_address, scratchpad_address)?;
 
-        // Add initial data to the scratchpad
-        let pod_data = self.graph.add_pod_entry(pod_name, pointer_address, scratchpad_address)?;
-        let _ = self.data_store.update_scratchpad_data(scratchpad_address, pod_data.as_str())?;
-        Ok((pointer_address.to_string(), scratchpad_address.to_string()))
+        let configuration_address = self.key_store.get_configuration_address();
+        let configuration_address = configuration_address.as_str();
+        let configuration_scratchpad_address = self.key_store.get_configuration_scratchpad_address();
+        let configuration_scratchpad_address = configuration_scratchpad_address.as_str();
+        let _ = self.data_store.update_pointer_target(configuration_address, configuration_scratchpad_address)?;
+
+        // Add the pointer address to the graph
+        let (graph, configuration) = self.graph.add_pod_entry(pod_name, pod_address, scratchpad_address, configuration_address, configuration_scratchpad_address)?;
+
+        // Process the pod data with proper scratchpad management
+        self.process_pod_data(pod_address, graph).await?;
+        self.process_pod_data(configuration_address, configuration).await?;
+
+        Ok((pod_address.to_string(), scratchpad_address.to_string()))
     }
 
     /// Adds a reference from one pod to another pod in the graph database.
@@ -886,11 +896,15 @@ impl<'a> PodManager<'a> {
     /// - [`refresh_ref`] - Download referenced pods from the network
     /// - [`upload_all`] - Upload pod references to the network
     pub async fn add_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
+        let configuration_address = self.key_store.get_configuration_address();
+        let configuration_address = configuration_address.as_str();
+
         // Add the pointer address to the graph
-        let graph = self.graph.pod_ref_entry(pod_address, pod_ref_address, true)?;
+        let (graph, configuration) = self.graph.pod_ref_entry(pod_address, pod_ref_address, configuration_address, true)?;
 
         // Process the pod data with proper scratchpad management
         self.process_pod_data(pod_address, graph).await?;
+        self.process_pod_data(configuration_address, configuration).await?;
 
         Ok(())
     }
@@ -938,11 +952,15 @@ impl<'a> PodManager<'a> {
     /// - [`refresh_ref`] - Download referenced pods from the network
     /// - [`upload_all`] - Upload pod references to the network
     pub async fn remove_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
+        let configuration_address = self.key_store.get_configuration_address();
+        let configuration_address = configuration_address.as_str();
+
         // Remove the pointer address to the graph
-        let graph = self.graph.pod_ref_entry(pod_address, pod_ref_address, false)?;
+        let (graph, configuration) = self.graph.pod_ref_entry(pod_address, pod_ref_address, configuration_address, false)?;
 
         // Process the pod data with proper scratchpad management
         self.process_pod_data(pod_address, graph).await?;
+        self.process_pod_data(configuration_address, configuration).await?;
 
         Ok(())
     }
@@ -1731,8 +1749,12 @@ impl<'a> PodManager<'a> {
 
     // Update the depth attribute of a pod in the graph database
     fn update_pod_depth(&mut self, pod_address: &str, depth: u64) -> Result<(), Error> {
+        // Get the configuration address
+        let configuration_address = self.key_store.get_configuration_address();
+        let configuration_address = configuration_address.as_str();
+
         // Use the graph database to update the pod depth
-        self.graph.update_pod_depth(pod_address, depth)?;
+        self.graph.update_pod_depth(pod_address, configuration_address, depth)?;
         Ok(())
     }
 
