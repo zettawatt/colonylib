@@ -833,9 +833,9 @@ impl<'a> PodManager<'a> {
         // Add the scratchpad address to the pointer files
         let _ = self.data_store.update_pointer_target(pod_address, scratchpad_address)?;
 
-        let configuration_address = self.key_store.get_configuration_address();
+        let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
-        let configuration_scratchpad_address = self.key_store.get_configuration_scratchpad_address();
+        let configuration_scratchpad_address = self.key_store.get_configuration_scratchpad_address()?;
         let configuration_scratchpad_address = configuration_scratchpad_address.as_str();
         let _ = self.data_store.update_pointer_target(configuration_address, configuration_scratchpad_address)?;
 
@@ -896,7 +896,7 @@ impl<'a> PodManager<'a> {
     /// - [`refresh_ref`] - Download referenced pods from the network
     /// - [`upload_all`] - Upload pod references to the network
     pub async fn add_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
-        let configuration_address = self.key_store.get_configuration_address();
+        let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
 
         // Add the pointer address to the graph
@@ -952,7 +952,7 @@ impl<'a> PodManager<'a> {
     /// - [`refresh_ref`] - Download referenced pods from the network
     /// - [`upload_all`] - Upload pod references to the network
     pub async fn remove_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
-        let configuration_address = self.key_store.get_configuration_address();
+        let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
 
         // Remove the pointer address to the graph
@@ -1750,7 +1750,7 @@ impl<'a> PodManager<'a> {
     // Update the depth attribute of a pod in the graph database
     fn update_pod_depth(&mut self, pod_address: &str, depth: u64) -> Result<(), Error> {
         // Get the configuration address
-        let configuration_address = self.key_store.get_configuration_address();
+        let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
 
         // Use the graph database to update the pod depth

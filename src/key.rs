@@ -184,18 +184,26 @@ impl KeyStore {
         hex::encode(self.wallet_key.clone())
     }
 
-    pub fn get_configuration_address(&self) -> String {
-        // Get the first public key in the pointer map
-        let key = self.pointers.iter().next().unwrap().0;
-        debug!("Configuration pod address: {}", hex::encode(key));
-        hex::encode(key)
+    pub fn get_configuration_address(&self) -> Result<String, Error> {
+        // Get the first derived key
+        let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
+        let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
+        let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
+        let key: SecretKey = main_sk.derive_key(&index(0)).into();
+        let pubkey: PublicKey = key.clone().public_key();
+        debug!("Configuration pod address: {}", pubkey.to_hex());
+        Ok(pubkey.to_hex())
     }
 
-    pub fn get_configuration_scratchpad_address(&self) -> String {
-        // Get the first public key in the pointer map
-        let key = self.scratchpads.iter().next().unwrap().0;
-        debug!("Configuration target address: {}", hex::encode(key));
-        hex::encode(key)
+    pub fn get_configuration_scratchpad_address(&self) -> Result<String, Error> {
+        // Get the first derived key
+        let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
+        let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
+        let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
+        let key: SecretKey = main_sk.derive_key(&index(1)).into();
+        let pubkey: PublicKey = key.clone().public_key();
+        debug!("Configuration pod address: {}", pubkey.to_hex());
+        Ok(pubkey.to_hex())
     }
 
     pub fn get_pointer_key(&self, pod_pubkey: String) -> Result<String, Error> {
