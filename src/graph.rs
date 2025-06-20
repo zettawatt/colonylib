@@ -596,26 +596,26 @@ impl Graph {
             None => "".to_string(),
         };
 
-        // Split search text into individual words and create search conditions
-        let words: Vec<&str> = search_text.split_whitespace().collect();
+        // Parse search text to handle quoted phrases and individual words
+        let search_terms = Self::parse_search_terms(search_text);
 
-        if words.is_empty() {
+        if search_terms.is_empty() {
             return Ok("[]".to_string()); // Return empty results for empty search
         }
 
-        // Create filter conditions for each word (OR logic)
-        let mut word_filters = Vec::new();
-        for word in &words {
-            let escaped_word = word.replace("\"", "\\\"");
-            word_filters.push(format!("CONTAINS(LCASE(STR(?object)), LCASE(\"{}\"))", escaped_word));
+        // Create filter conditions for each search term (OR logic)
+        let mut term_filters = Vec::new();
+        for term in &search_terms {
+            let escaped_term = term.replace("\"", "\\\"");
+            term_filters.push(format!("CONTAINS(LCASE(STR(?object)), LCASE(\"{}\"))", escaped_term));
         }
-        let combined_filter = word_filters.join(" || ");
+        let combined_filter = term_filters.join(" || ");
 
-        // Create individual word match expressions for counting
+        // Create individual term match expressions for counting
         let mut match_expressions = Vec::new();
-        for word in &words {
-            let escaped_word = word.replace("\"", "\\\"");
-            match_expressions.push(format!("IF(CONTAINS(LCASE(STR(?object)), LCASE(\"{}\")), 1, 0)", escaped_word));
+        for term in &search_terms {
+            let escaped_term = term.replace("\"", "\\\"");
+            match_expressions.push(format!("IF(CONTAINS(LCASE(STR(?object)), LCASE(\"{}\")), 1, 0)", escaped_term));
         }
         let match_count_expr = match_expressions.join(" + ");
 
@@ -660,6 +660,73 @@ impl Graph {
     }
 
 
+
+    // Helper function to parse search terms, handling quoted phrases
+    fn parse_search_terms(search_text: &str) -> Vec<String> {
+        let mut terms = Vec::new();
+        let mut chars = search_text.chars().peekable();
+        let mut current_term = String::new();
+        let mut in_quotes = false;
+
+        while let Some(ch) = chars.next() {
+            match ch {
+                '"' => {
+                    if in_quotes {
+                        // End of quoted phrase
+                        if !current_term.is_empty() {
+                            terms.push(current_term.trim().to_string());
+                            current_term.clear();
+                        }
+                        in_quotes = false;
+                    } else {
+                        // Start of quoted phrase - save any current term first
+                        if !current_term.trim().is_empty() {
+                            // Split any accumulated unquoted text into individual words
+                            for word in current_term.split_whitespace() {
+                                if !word.is_empty() {
+                                    terms.push(word.to_string());
+                                }
+                            }
+                            current_term.clear();
+                        }
+                        in_quotes = true;
+                    }
+                }
+                ' ' | '\t' | '\n' | '\r' => {
+                    if in_quotes {
+                        // Inside quotes, preserve spaces
+                        current_term.push(ch);
+                    } else {
+                        // Outside quotes, space separates terms
+                        if !current_term.trim().is_empty() {
+                            terms.push(current_term.trim().to_string());
+                            current_term.clear();
+                        }
+                    }
+                }
+                _ => {
+                    current_term.push(ch);
+                }
+            }
+        }
+
+        // Handle any remaining term
+        if !current_term.trim().is_empty() {
+            if in_quotes {
+                // Unclosed quote - treat as quoted phrase anyway
+                terms.push(current_term.trim().to_string());
+            } else {
+                // Split remaining unquoted text into words
+                for word in current_term.split_whitespace() {
+                    if !word.is_empty() {
+                        terms.push(word.to_string());
+                    }
+                }
+            }
+        }
+
+        terms
+    }
 
     // Search for subjects by type
     //FIXME: order the results by pod depth
