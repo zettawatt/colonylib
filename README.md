@@ -2,7 +2,10 @@
 
 A Rust library implementing the Colony metadata framework for the [Autonomi](https://autonomi.com) decentralized network. This library provides the core infrastructure for creating, managing, and searching metadata about files stored on Autonomi using a semantic RDF-based approach.
 
-> **Note**: This is a library for developers. If you're looking for an end-user application to easily upload/download/search files from Autonomi, see [Colony](https://github.com/zettawatt/colony)(IN PROGRESS) or [Mutant](https://github.com/champii/mutant).
+> **Note**: This is a library for developers. If you're looking for an end-user application to easily upload/download/search files from Autonomi, look at the following applications based on your needs:
+> - [Colony](https://github.com/zettawatt/colony)(IN PROGRESS) - Cross platform GUI applications
+> - [Colony Daemon and CLI](https://github.com/zettawatt/colony-utils) - Command line interface and background daemon for headless servers
+> - [Mutant](https://github.com/champii/mutant) - Rust GUI application
 
 ## Overview
 
@@ -11,7 +14,7 @@ A Rust library implementing the Colony metadata framework for the [Autonomi](htt
 **Pods** are the fundamental building blocks of colonylib. A pod consists of:
 - An **Autonomi pointer** that serves as the pod's address
 - A **scratchpad** containing RDF metadata about files and other pods
-- **Semantic metadata** written in a standardized [RDF](https://www.w3.org/RDF/) schema
+- **Semantic metadata** written in [RDF](https://www.w3.org/RDF/) in the [TriG format](https://www.w3.org/TR/trig/) using [schema.org](https://schema.org/) schema
 
 This architecture enables:
 - **Rich metadata storage**: File types, sizes, names, descriptions, and custom properties
@@ -42,12 +45,12 @@ Colonylib focuses on **metadata management** and **semantic search**. It does no
 - **RDF graph database**: Store and query semantic metadata using oxigraph with SPARQL support
 - **Pod references**: Create interconnected networks of pods with configurable traversal depth
 - **Semantic search**: Query pods by content, type, properties, and relationships
+- **Advanced search features**: Relevance ranking by number of matches and pod depth, fuzzy matching
+- **Automatic scratchpad overflow**: Automatically splits up pod data into multiple scratchpads for large metadata collections (>4MB)
 
 ### Roadmap 🚧
 
 - Improve Autonomi error handling (auto retry on certain failures, library specific errors)
-- Automatic scratchpad overflow handling for large metadata collections (>4MB)
-- Advanced search features (faceted search, relevance ranking by pod depth, fuzzy matching)
 - Performance optimizations for large-scale pod networks (threading Autonomi fetch operations)
 
 ## Library Architecture
@@ -113,11 +116,24 @@ async fn get_subject_data(&mut self, subject_address: &str) -> Result<String, Er
 // Upload all local changes to the Autonomi network
 async fn upload_all(&mut self) -> Result<(), Error>
 
+// Upload a specific pod to the Autonomi network
+async fn upload_pod(&mut self, address: &str) -> Result<(), Error>
+
 // Download updates for user-created pods
 async fn refresh_cache(&mut self) -> Result<(), Error>
 
 // Download referenced pods up to specified depth
 async fn refresh_ref(&mut self, depth: u64) -> Result<(), Error>
+```
+
+### Pod Discovery and Listing
+
+```rust
+// List all pods owned by the user
+fn list_my_pods(&self) -> Result<serde_json::Value, Error>
+
+// List all subjects (resources) within a specific pod
+fn list_pod_subjects(&self, pod_address: &str) -> Result<Vec<String>, Error>
 ```
 
 ### Search and Query
@@ -146,7 +162,7 @@ Add colonylib to your Rust project:
 
 ```toml
 [dependencies]
-colonylib = "0.1.0"
+colonylib = "0.3.0"
 autonomi = "0.4.6"
 tokio = "1.44"
 serde_json = "1.0"
@@ -257,6 +273,7 @@ cargo run --example search
 3. **Predicate search**: Find resources with specific properties
 4. **Advanced search**: Combine multiple criteria
 5. **Subject retrieval**: Get complete metadata for specific resources
+6. **Pod listing**: Enumerate all user pods and their contents
 
 ### Running the Examples
 
@@ -357,6 +374,89 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### Advanced Pod Operations
+
+#### Uploading Individual Pods
+
+For more granular control over network operations, you can upload specific pods instead of all pending changes:
+
+```rust
+// Create and populate a pod
+let (pod_addr, _) = pod_manager.add_pod("Research Data").await?;
+
+let metadata = json!({
+    "@context": "http://schema.org/",
+    "@type": "Dataset",
+    "name": "Climate Research",
+    "description": "Temperature data from weather stations"
+});
+
+pod_manager.put_subject_data(&pod_addr, subject_address, &metadata.to_string()).await?;
+
+// Upload only this specific pod
+pod_manager.upload_pod(&pod_addr).await?;
+```
+
+#### Discovering and Managing Pods
+
+List all your pods and explore their contents:
+
+```rust
+// Get all user pods
+let pods_result = pod_manager.list_my_pods()?;
+
+if let Some(bindings) = pods_result["results"]["bindings"].as_array() {
+    for pod in bindings {
+        let pod_address = pod["pod"]["value"].as_str().unwrap();
+        let pod_name = pod["name"]["value"].as_str().unwrap();
+
+        println!("Pod: {} ({})", pod_name, pod_address);
+
+        // List all subjects in this pod
+        let subjects = pod_manager.list_pod_subjects(pod_address)?;
+        println!("  Contains {} subjects:", subjects.len());
+
+        for subject_address in subjects {
+            // Get detailed metadata for each subject
+            let metadata = pod_manager.get_subject_data(&subject_address).await?;
+            let metadata_json: serde_json::Value = serde_json::from_str(&metadata)?;
+
+            // Extract subject name from metadata
+            if let Some(bindings) = metadata_json["results"]["bindings"].as_array() {
+                for binding in bindings {
+                    if binding["predicate"]["value"].as_str() == Some("http://schema.org/name") {
+                        if let Some(name) = binding["object"]["value"].as_str() {
+                            println!("    - {} ({})", name, subject_address);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+#### Working with Pod References
+
+Create interconnected pod networks:
+
+```rust
+// Create related pods
+let (main_pod, _) = pod_manager.add_pod("Research Collection").await?;
+let (data_pod, _) = pod_manager.add_pod("Raw Data").await?;
+let (analysis_pod, _) = pod_manager.add_pod("Analysis Results").await?;
+
+// Create references between pods
+pod_manager.add_pod_ref(&main_pod, &data_pod).await?;
+pod_manager.add_pod_ref(&main_pod, &analysis_pod).await?;
+
+// Upload all pods
+pod_manager.upload_all().await?;
+
+// Later, refresh with references to discover connected pods
+pod_manager.refresh_ref(2).await?; // Depth 2 to include referenced pods
+```
+
 ### Offline-First User Support
 
 Colonylib supports offline usage - you can create, reference, and search pods without performing any
@@ -414,3 +514,4 @@ This project is licensed under the GPL-3.0-only License - see the [LICENSE](LICE
 - **Issues**: [github.com/zettawatt/colonylib/issues](https://github.com/zettawatt/colonylib/issues)
 - **Autonomi Network**: [autonomi.com](https://autonomi.com)
 - **Colony App**: [github.com/zettawatt/colony](https://github.com/zettawatt/colony)
+- **Colony Daemon and CLI**: [github.com/zettawatt/colony-utils](https://github.com/zettawatt/colony-utils)

@@ -996,6 +996,55 @@ impl<'a> PodManager<'a> {
     }
 
     /// Lists all pods owned by the user.
+    ///
+    /// This function retrieves a comprehensive list of all pods that belong to the current user,
+    /// including both locally created pods and pods downloaded from the network. The results
+    /// include pod metadata such as names, addresses, creation information, and reference counts.
+    ///
+    /// # Returns
+    ///
+    /// Returns a JSON object containing SPARQL query results with the following structure:
+    /// - `results.bindings` - Array of pod objects, each containing:
+    ///   - `pod.value` - The pod's Autonomi address
+    ///   - `name.value` - The human-readable pod name
+    ///   - `created.value` - ISO 8601 timestamp of pod creation
+    ///   - Additional metadata fields as available
+    ///
+    /// Returns an `Error` if:
+    /// - The graph database query fails
+    /// - JSON parsing fails
+    /// - Local storage access fails
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // Get all user pods
+    /// let pods_result = pod_manager.list_my_pods()?;
+    ///
+    /// // Parse the results
+    /// if let Some(bindings) = pods_result["results"]["bindings"].as_array() {
+    ///     println!("Found {} pods:", bindings.len());
+    ///
+    ///     for pod in bindings {
+    ///         let pod_address = pod["pod"]["value"].as_str().unwrap_or("unknown");
+    ///         let pod_name = pod["name"]["value"].as_str().unwrap_or("unnamed");
+    ///         let created = pod["created"]["value"].as_str().unwrap_or("unknown");
+    ///
+    ///         println!("Pod: {} ({})", pod_name, pod_address);
+    ///         println!("Created: {}", created);
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`add_pod`] - Create new pods
+    /// - [`list_pod_subjects`] - List subjects within a specific pod
+    /// - [`search`] - Search across all pods
+    /// - [`refresh_cache`] - Update the list with network changes
     pub fn list_my_pods(&self) -> Result<Value, Error> {
         let search_results = self.graph.get_my_pods()?;
 
@@ -1005,7 +1054,65 @@ impl<'a> PodManager<'a> {
         Ok(results)
     }
 
-    /// Lists all subjects in a pod.
+    /// Lists all subjects (resources) contained within a specific pod.
+    ///
+    /// This function retrieves all subject addresses that have metadata stored in the specified pod.
+    /// Subjects typically represent files, documents, or other resources that have been catalogued
+    /// with semantic metadata. The function returns the Autonomi addresses of these subjects,
+    /// which can then be used to retrieve detailed metadata or the actual files.
+    ///
+    /// # Parameters
+    ///
+    /// * `pod_address` - The hexadecimal Autonomi address of the pod to query
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of subject addresses (as hex strings) found in the pod, or an `Error` if:
+    /// - The pod address is invalid or doesn't exist locally
+    /// - The graph database query fails
+    /// - Local storage access fails
+    ///
+    /// The returned addresses can be used with [`get_subject_data`] to retrieve full metadata
+    /// for each subject.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// let pod_address = "80e79010a13e7eee779f799d99a20b418436828269b18192d92940bc9ddbfe295a7e1823d7bff75c59cbacbdea101a0d";
+    ///
+    /// // Get all subjects in the pod
+    /// let subjects = pod_manager.list_pod_subjects(pod_address)?;
+    ///
+    /// println!("Found {} subjects in pod:", subjects.len());
+    /// for subject_address in subjects {
+    ///     println!("Subject: {}", subject_address);
+    ///
+    ///     // Get detailed metadata for each subject
+    ///     let metadata = pod_manager.get_subject_data(&subject_address).await?;
+    ///     let metadata_json: serde_json::Value = serde_json::from_str(&metadata)?;
+    ///
+    ///     // Extract subject name if available
+    ///     if let Some(bindings) = metadata_json["results"]["bindings"].as_array() {
+    ///         for binding in bindings {
+    ///             if let Some(name) = binding["object"]["value"].as_str() {
+    ///                 if binding["predicate"]["value"].as_str() == Some("http://schema.org/name") {
+    ///                     println!("  Name: {}", name);
+    ///                 }
+    ///             }
+    ///         }
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`list_my_pods`] - List all user pods
+    /// - [`get_subject_data`] - Get detailed metadata for a subject
+    /// - [`put_subject_data`] - Add metadata for subjects to pods
+    /// - [`search`] - Search for subjects across all pods
     pub fn list_pod_subjects(&self, pod_address: &str) -> Result<Vec<String>, Error> {
         let pod_address = self.graph.check_pod_exists(pod_address)?;
         let pod_address = pod_address.trim();
@@ -1134,6 +1241,75 @@ impl<'a> PodManager<'a> {
         Ok(())
     }
 
+    /// Uploads a specific pod to the Autonomi network.
+    ///
+    /// This function uploads a single pod and all its associated scratchpads to the Autonomi network.
+    /// It handles both creating new network objects and updating existing ones based on their current
+    /// state. The function automatically determines whether each address needs to be created or updated
+    /// by checking the network state.
+    ///
+    /// # Parameters
+    ///
+    /// * `address` - The hexadecimal Autonomi address of the pod to upload
+    ///
+    /// # Process
+    ///
+    /// 1. Validates that the pod exists locally
+    /// 2. Attempts to update the pod's pointer on the network
+    /// 3. If the pointer doesn't exist, creates a new pointer
+    /// 4. Retrieves all scratchpads associated with the pod
+    /// 5. For each scratchpad, attempts to update or create as needed
+    /// 6. Removes the pod address from the upload queue upon success
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful upload, or an `Error` if:
+    /// - The pod address is invalid or doesn't exist locally
+    /// - Network communication fails
+    /// - Payment processing fails
+    /// - Local file operations fail
+    /// - Address analysis fails
+    ///
+    /// # Network Costs
+    ///
+    /// This operation incurs network costs for:
+    /// - Creating new pointers (if the pod is new)
+    /// - Creating new scratchpads (if additional storage is needed)
+    /// - Updates to existing pointers and scratchpads are free
+    ///
+    /// Costs are automatically paid using the configured wallet.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // Create a new pod
+    /// let (pod_address, _) = pod_manager.add_pod("My Documents").await?;
+    ///
+    /// // Add some metadata to the pod
+    /// let subject_address = "c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59";
+    /// let metadata = r#"{
+    ///     "@context": "http://schema.org/",
+    ///     "@type": "Dataset",
+    ///     "name": "Research Data",
+    ///     "description": "Important research findings"
+    /// }"#;
+    /// pod_manager.put_subject_data(&pod_address, subject_address, metadata).await?;
+    ///
+    /// // Upload the specific pod to the network
+    /// pod_manager.upload_pod(&pod_address).await?;
+    ///
+    /// println!("Pod {} uploaded successfully!", pod_address);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`upload_all`] - Upload all pending pods at once
+    /// - [`add_pod`] - Create pods that need uploading
+    /// - [`put_subject_data`] - Modify pods that need uploading
+    /// - [`refresh_cache`] - Download updates from the network
     pub async fn upload_pod(&mut self, address: &str) -> Result<(), Error> {
         let mut create_mode = false;
         let address = self.graph.check_pod_exists(address)?;
