@@ -582,15 +582,6 @@ impl Graph {
         // Query for all subjects that have HAS_ADDR_TYPE predicate with POD object
         // Returns all information stored in all graphs for these subjects
         let query = format!(
-//            r#"
-//            SELECT DISTINCT ?subject ?predicate ?object ?graph WHERE {{
-//                GRAPH ?graph {{
-//                    ?subject <{}> <{}> .
-//                    ?subject ?predicate ?object .
-//                }}
-//            }}
-//            ORDER BY ?subject ?predicate
-//            "#,
             r#"
             SELECT DISTINCT ?subject ?predicate ?object ?graph WHERE {{
                 {{
@@ -667,13 +658,13 @@ impl Graph {
             return Ok("[]".to_string()); // Return empty results for empty search
         }
 
-        // Create filter conditions for each search term (OR logic)
-        let mut term_filters = Vec::new();
+        // Create filter conditions for subquery (OR logic)
+        let mut subquery_term_filters = Vec::new();
         for term in &search_terms {
             let escaped_term = term.replace("\"", "\\\"");
-            term_filters.push(format!("CONTAINS(LCASE(STR(?object)), LCASE(\"{}\"))", escaped_term));
+            subquery_term_filters.push(format!("CONTAINS(LCASE(STR(?filter_object)), LCASE(\"{}\"))", escaped_term));
         }
-        let combined_filter = term_filters.join(" || ");
+        let subquery_combined_filter = subquery_term_filters.join(" || ");
 
         // Create individual term match expressions for counting
         let mut match_expressions = Vec::new();
@@ -687,9 +678,16 @@ impl Graph {
             r#"
             SELECT ?subject ?predicate ?object ?graph ?depth
                    (({}) AS ?match_count) WHERE {{
+                {{
+                    SELECT DISTINCT ?subject WHERE {{
+                        GRAPH ?filter_graph {{
+                            ?subject ?filter_predicate ?filter_object .
+                            FILTER(isLiteral(?filter_object) && ({}))
+                        }}
+                    }}
+                }}
                 GRAPH ?graph {{
                     ?subject ?predicate ?object .
-                    FILTER(isLiteral(?object) && ({}))
                 }}
                 OPTIONAL {{
                     # Look for depth in any graph (typically configuration graphs)
@@ -702,7 +700,7 @@ impl Graph {
             {}
             "#,
             match_count_expr,
-            combined_filter,
+            subquery_combined_filter,
             HAS_DEPTH,
             limit_clause
         );
