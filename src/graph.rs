@@ -593,8 +593,14 @@ impl Graph {
 //            "#,
             r#"
             SELECT DISTINCT ?subject ?predicate ?object ?graph WHERE {{
+                {{
+                    SELECT DISTINCT ?subject WHERE {{
+                        GRAPH ?filter_graph {{
+                            ?subject <{}> <{}> .
+                        }}
+                    }}
+                }}
                 GRAPH ?graph {{
-                    ?subject <{}> <{}> .
                     ?subject ?predicate ?object .
                 }}
             }}
