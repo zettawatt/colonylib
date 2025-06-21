@@ -473,6 +473,8 @@ impl<'a> PodManager<'a> {
     /// - [`upload_all`] - Upload pending changes to the network
     /// - [`search`] - Search for subjects across pods
     pub async fn put_subject_data(&mut self, pod_address: &str, subject_address: &str, subject_data: &str) -> Result<(), Error> {
+        let pod_address = self.graph.check_pod_exists(pod_address)?;
+        let pod_address = pod_address.trim();
 
         // Inject the JSON data into the graph using the pod address as the named graph
         // And return the resulting graph data as a TriG formatted byte vector
@@ -896,6 +898,8 @@ impl<'a> PodManager<'a> {
     /// - [`refresh_ref`] - Download referenced pods from the network
     /// - [`upload_all`] - Upload pod references to the network
     pub async fn add_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
+        let pod_address = self.graph.check_pod_exists(pod_address)?;
+        let pod_address = pod_address.trim();
         let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
 
@@ -952,6 +956,8 @@ impl<'a> PodManager<'a> {
     /// - [`refresh_ref`] - Download referenced pods from the network
     /// - [`upload_all`] - Upload pod references to the network
     pub async fn remove_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
+        let pod_address = self.graph.check_pod_exists(pod_address)?;
+        let pod_address = pod_address.trim();
         let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
 
@@ -1001,6 +1007,8 @@ impl<'a> PodManager<'a> {
 
     /// Lists all subjects in a pod.
     pub fn list_pod_subjects(&self, pod_address: &str) -> Result<Vec<String>, Error> {
+        let pod_address = self.graph.check_pod_exists(pod_address)?;
+        let pod_address = pod_address.trim();
         // Get all subjects in the pod from the graph database
         let subjects = self.graph.get_pod_subjects(pod_address)?;
         Ok(subjects)
