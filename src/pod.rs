@@ -1128,6 +1128,8 @@ impl<'a> PodManager<'a> {
 
     pub async fn upload_pod(&mut self, address: &str) -> Result<(), Error> {
         let mut create_mode = false;
+        let address = self.graph.check_pod_exists(address)?;
+        let address = address.trim();
 
         // check if there is a pointer stored at this address on the network by trying to download it
         let target = self.data_store.get_pointer_target(address)?;

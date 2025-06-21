@@ -216,7 +216,46 @@ impl Graph {
         Ok((buffer, configuration))
     }
 
+    pub fn check_pod_exists(&self, pod_address: &str) -> Result<String, Error> {
+        // check if the given pod_address is actually the NAME of a pod
+        // if so, get the pod's address from the graph
+        let query = format!(
+            "SELECT ?pod WHERE {{ GRAPH ?graph {{ ?pod <{}> \"{}\" . }} }}",
+            HAS_NAME, pod_address
+        );
+        debug!("Pod exists query: {}", query);
+
+        let results = self.store.query(query.as_str())?;
+        if let QueryResults::Solutions(solutions) = results {
+            for solution in solutions {
+                if let Ok(solution) = solution {
+                    if let Some(pod_term) = solution.get("pod") {
+                        if let oxigraph::model::Term::NamedNode(pod_node) = pod_term {
+                            let pod_iri = pod_node.as_str();
+                            // Extract the address from the ant:// URI
+                            if let Some(address) = pod_iri.strip_prefix("ant://") {
+                                return Ok(address.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Otherwise check to make sure the pod graph exists and pass it through
+        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = pod_iri.as_str();
+        let pod = NamedNodeRef::new(pod_iri)?;
+        if self.store.contains_named_graph(pod)? {
+            return Ok(pod_address.to_string());
+        } else {
+            return Err(Error::Graph(StorageError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Pod not found"))));
+        }
+    }
+
     pub fn pod_ref_entry(&mut self, pod_address: &str, pod_ref_address: &str, configuration_address: &str, add: bool) -> Result<(Vec<u8>, Vec<u8>), Error> {
+        let pod_address = self.check_pod_exists(pod_address)?;
+
         let pod_ref_iri = format!("ant://{}", pod_ref_address);
         let pod_ref_iri = pod_ref_iri.as_str();
         let pod_iri = format!("ant://{}", pod_address);
@@ -268,6 +307,8 @@ impl Graph {
         
     // Input is a JSON-LD string
     pub fn put_subject_data(&mut self, pod_address: &str, subject_address: &str, data: &str) -> Result<Vec<u8>, Error> {
+        let pod_address = self.check_pod_exists(pod_address)?;
+
         let pod_iri = format!("ant://{}", pod_address);
         let pod_iri = pod_iri.as_str();
         let pod = NamedNodeRef::new(pod_iri)?;
@@ -499,6 +540,7 @@ impl Graph {
 
     // Get all subjects in a pod
     pub fn get_pod_subjects(&self, pod_address: &str) -> Result<Vec<String>, Error> {
+        let pod_address = self.check_pod_exists(pod_address)?;
         let pod_iri = format!("ant://{}", pod_address);
 
         // Query for all objects in the pod's named graph that are ant:// URIs
