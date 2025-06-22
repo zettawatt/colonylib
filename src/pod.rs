@@ -1340,7 +1340,7 @@ impl<'a> PodManager<'a> {
         }        
 
         // If the pointer didn't exist, call create_pointer()
-        if !create_mode {
+        if create_mode {
             self.create_pointer(address, target).await?;
         }
 
@@ -1379,7 +1379,7 @@ impl<'a> PodManager<'a> {
             }        
     
             // If the pointer didn't exist, call create_pointer()
-            if !create_mode {
+            if create_mode {
                 self.create_scratchpad(address, data).await?;
             }
 
