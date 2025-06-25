@@ -97,9 +97,6 @@ fn test_path_getters() {
     assert!(datastore.get_keystore_path().starts_with(temp_dir.path()));
     assert!(datastore.get_graph_path().starts_with(temp_dir.path()));
     assert!(datastore.get_update_list_path().starts_with(temp_dir.path()));
-
-    let test_address = "test_address";
-    assert!(datastore.get_pod_ref_path(test_address).starts_with(temp_dir.path()));
 }
 
 #[test]

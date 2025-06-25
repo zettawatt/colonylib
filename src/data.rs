@@ -38,7 +38,6 @@ impl serde::Serialize for Error {
 pub struct DataStore {
     data_dir: PathBuf,
     pods_dir: PathBuf,
-    pod_refs_dir: PathBuf,
     downloads_dir: PathBuf,
 }
 
@@ -53,13 +52,10 @@ impl DataStore {
         let mut pods_dir = data_dir.clone();
         pods_dir.push("pods");
   
-        let mut pod_refs_dir = data_dir.clone();
-        pod_refs_dir.push("pod_refs");
-  
-        Ok(Self::from_paths(data_dir, pods_dir, pod_refs_dir, downloads_dir)?)
+        Ok(Self::from_paths(data_dir, pods_dir, downloads_dir)?)
     }
 
-    pub fn from_paths(data_dir: PathBuf, pods_dir: PathBuf, pod_refs_dir: PathBuf, downloads_dir: PathBuf) -> Result<Self, Error> {
+    pub fn from_paths(data_dir: PathBuf, pods_dir: PathBuf, downloads_dir: PathBuf) -> Result<Self, Error> {
         if !data_dir.exists() {
             create_dir_all(&data_dir)?;
             info!("Created data directory: {:?}", data_dir);
@@ -80,15 +76,11 @@ impl DataStore {
             create_dir_all(&pointers_dir)?;
             info!("Created pointers directory: {:?}", pointers_dir);
         }
-        if !pod_refs_dir.exists() {
-            create_dir_all(&pod_refs_dir)?;
-            info!("Created pod reference directory: {:?}", pod_refs_dir);
-        }
         if !downloads_dir.exists() {
             create_dir_all(&downloads_dir)?;
             info!("Created downloads directory: {:?}", downloads_dir);
         }
-        Ok(DataStore { data_dir, pods_dir, pod_refs_dir, downloads_dir })
+        Ok(DataStore { data_dir, pods_dir, downloads_dir })
     }
 
     pub fn get_pods_dir(&self) -> PathBuf {
@@ -105,12 +97,6 @@ impl DataStore {
         let mut scratchpads_dir = self.pods_dir.clone();
         scratchpads_dir.push("scratchpads");
         scratchpads_dir
-    }
-
-    pub fn get_pod_ref_path(&self, address: &str) -> PathBuf {
-        let mut pod_ref_path = self.pod_refs_dir.clone();
-        pod_ref_path.push(address);
-        pod_ref_path
     }
 
     pub fn get_downloads_path(&self) -> PathBuf {
