@@ -1558,34 +1558,151 @@ impl<'a> PodManager<'a> {
         // This is to ensure that we have all of the relevant keys in our key store
         let mut count: u64 = 0;
         let base_count = count.clone();
+
+        // Collect addresses to check concurrently
+        let mut addresses_to_check = Vec::new();
+        let mut current_count = count;
+
+        // Pre-generate a batch of addresses to check (up to 10 at a time to avoid excessive memory usage)
         loop {
-            let address = self.key_store.get_address_at_index(self.key_store.get_num_keys() as u64 + count)?;
-            info!("Checking address: {}", address);
-            let (address_type, create_mode) = self.get_address_type(address.as_str()).await?;
-            if create_mode {
-                info!("Address is empty, increment count!");
-                count += 1;
-            } else {
-                info!("Address is not empty, processing type: {:?}", address_type);
-                match address_type {
-                    Analysis::Pointer(_) => {
-                        info!("Address is a pointer, adding key");
-                        self.key_store.add_pointer_key()?;
+            let address = self.key_store.get_address_at_index(self.key_store.get_num_keys() as u64 + current_count)?;
+            addresses_to_check.push((address, current_count));
+            current_count += 1;
+
+            // Process in batches of 10 or when we've checked enough empty addresses
+            if addresses_to_check.len() >= 10 || current_count > count + 10 {
+                break;
+            }
+        }
+
+        loop {
+            if addresses_to_check.is_empty() {
+                break;
+            }
+
+            info!("Checking {} addresses concurrently", addresses_to_check.len());
+
+            // Create tasks for concurrent address analysis
+            let mut tasks = Vec::new();
+            for (address, addr_count) in &addresses_to_check {
+                let address_clone = address.clone();
+                let addr_count_clone = *addr_count;
+                let client_clone = self.client.clone();
+                let data_store_address_check = self.data_store.address_is_pointer(&address_clone);
+
+                let task = tokio::spawn(async move {
+                    // Perform the network call concurrently
+                    let analysis_result = client_clone.analyze_address(&address_clone, false).await;
+                    (addr_count_clone, address_clone, analysis_result, data_store_address_check)
+                });
+                tasks.push(task);
+            }
+
+            // Wait for all network calls to complete
+            let mut results = Vec::new();
+            for task in tasks {
+                match task.await {
+                    Ok((addr_count, address, analysis_result, data_store_check)) => {
+                        // Convert the analysis result to the same format as get_address_type
+                        let result: Result<(Analysis, bool), Error> = match analysis_result {
+                            Ok(analysis) => Ok((analysis, false)),
+                            Err(e) => match e {
+                                AnalysisError::FailedGet => {
+                                    info!("Address currently does not hold data: {}", address);
+                                    // Check if address is a directory (pointer) or a file (scratchpad)
+                                    let is_pointer = data_store_check.unwrap_or(false);
+                                    if is_pointer {
+                                        Ok((Analysis::Pointer(Pointer::new(
+                                            &SecretKey::random(),
+                                            0,
+                                            PointerTarget::ScratchpadAddress(ScratchpadAddress::new(SecretKey::random().public_key())),
+                                        )), true))
+                                    } else {
+                                        // We need to check if it's a scratchpad too
+                                        // For now, assume it's a scratchpad if it's not a pointer
+                                        Ok((Analysis::Scratchpad(Scratchpad::new(
+                                            &SecretKey::random(),
+                                            0,
+                                            &Bytes::new(),
+                                            0
+                                        )), true))
+                                    }
+                                }
+                                _ => {
+                                    warn!("Address error: {}", e);
+                                    Ok((Analysis::Chunk(Chunk::new(Bytes::new())), false))
+                                }
+                            }
+                        };
+                        results.push((addr_count, address, result));
                     }
-                    Analysis::Scratchpad(_) => {
-                        info!("Address is a scratchpad, adding key");
-                        self.key_store.add_scratchpad_key()?;
-                    }
-                    _ => {
-                        info!("Address is neither a pointer nor a scratchpad, marking key as bad");
-                        self.key_store.add_bad_key()?;
+                    Err(e) => {
+                        error!("Task failed: {}", e);
+                        // Skip this address
                     }
                 }
-                count = base_count;
             }
+
+            // Process results sequentially to maintain key store consistency
+            let mut found_non_empty = false;
+            let mut new_count = count;
+
+            for (addr_count, address, result) in results {
+                match result {
+                    Ok((address_type, create_mode)) => {
+                        info!("Checking address: {}", address);
+                        if create_mode {
+                            info!("Address is empty, increment count!");
+                            new_count = std::cmp::max(new_count, addr_count + 1);
+                        } else {
+                            info!("Address is not empty, processing type: {:?}", address_type);
+                            found_non_empty = true;
+                            match address_type {
+                                Analysis::Pointer(_) => {
+                                    info!("Address is a pointer, adding key");
+                                    self.key_store.add_pointer_key()?;
+                                }
+                                Analysis::Scratchpad(_) => {
+                                    info!("Address is a scratchpad, adding key");
+                                    self.key_store.add_scratchpad_key()?;
+                                }
+                                _ => {
+                                    info!("Address is neither a pointer nor a scratchpad, marking key as bad");
+                                    self.key_store.add_bad_key()?;
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Error checking address {}: {}", address, e);
+                        // Treat errors as empty addresses for now
+                        new_count = std::cmp::max(new_count, addr_count + 1);
+                    }
+                }
+            }
+
+            // Update count based on results
+            if found_non_empty {
+                count = base_count;
+            } else {
+                count = new_count;
+            }
+
+            // Clear the current batch
+            addresses_to_check.clear();
+
+            // Check if we should continue
             if count > 2 {
                 info!("No new addresses found, done with refresh!");
                 break;
+            }
+
+            // Generate next batch of addresses if we need to continue
+            let mut next_current_count = count;
+            while addresses_to_check.len() < 10 && next_current_count <= count + 10 {
+                let address = self.key_store.get_address_at_index(self.key_store.get_num_keys() as u64 + next_current_count)?;
+                addresses_to_check.push((address, next_current_count));
+                next_current_count += 1;
             }
         }
 
