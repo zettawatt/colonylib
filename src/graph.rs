@@ -20,13 +20,13 @@ use std::collections::HashMap;
 //////////////////////////////////////////////
 macro_rules! PREDICATE {
     ($e:expr) => {
-        concat!("ant://colonylib/vocabulary/", "0.1/", "predicate#", $e)
+        concat!("ant://colonylib/", "v1/", $e)
     };
 }
 
 macro_rules! OBJECT {
     ($e:expr) => {
-        concat!("ant://colonylib/vocabulary/", "0.1/", "object#", $e)
+        concat!("ant://colonylib/", "v1/", $e)
     };
 }
 
@@ -35,26 +35,25 @@ macro_rules! OBJECT {
 //////////////////////////////////////////////
 
 /// Address Type
-/// Defines the type of the resource at the address
+/// Defines the type of pod component at the address
 /// Object must be one of the address type objects
-const HAS_ADDR_TYPE: &str = PREDICATE!("addr_type");
+const HAS_ADDR_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 
 /// Name
-/// The name of the resource
+/// The name of the resource pod
 /// Object is a string literal
-const HAS_NAME: &str = PREDICATE!("name");
+const HAS_NAME: &str = "http://schema.org/name";
 
 /// Pod Depth
 /// The depth of the pod in the reference tree
 /// Only valid for POD and POD_REF address types
 /// Object is a literal representing the depth, local pods are set to 0
-/// This is a local attribute, not written out in the TriG format
 const HAS_DEPTH: &str = PREDICATE!("depth");
 
 /// Pod Index
 /// The index for a pod scratchpad used to build up a pod from multiple scratchpads
 /// Object is a literal representing the index
-const HAS_POD_INDEX: &str = PREDICATE!("pod_index");
+const HAS_POD_INDEX: &str = PREDICATE!("index");
 
 /// Creation Date
 /// The date when the pod was created
@@ -72,8 +71,11 @@ const HAS_MODIFIED_DATE: &str = PREDICATE!("modified");
 
 /// Address Type Objects
 /// Defines what kind of object the address is pointing to
-const POD: &str = OBJECT!("pod");
-const POD_REF: &str = OBJECT!("pod_ref");
+const POD: &str = OBJECT!("pod"); // pointer for a pod
+const POD_REF: &str = OBJECT!("ref"); // pointer for a pod reference
+const DATA: &str = OBJECT!("data"); //scratchpad containing data for a pod
+const EMPTY: &str = OBJECT!("empty"); //Empty scratchpad
+const UNUSED: &str = OBJECT!("unused"); //Unused pod pointer
 
 // Error handling
 #[derive(Debug, thiserror::Error)]
@@ -201,6 +203,7 @@ impl Graph {
         let _quad = self.put_quad(pod_iri,HAS_CREATION_DATE,date,Some(pod_iri))?;
         let _quad = self.put_quad(pod_iri,HAS_MODIFIED_DATE,date,Some(pod_iri))?;
         // Scratchpad metadata
+        let _quad = self.put_quad(pod_iri,HAS_ADDR_TYPE,DATA,Some(configuration_iri))?;
         let _quad = self.put_quad(scratchpad_iri,HAS_POD_INDEX, "0", Some(pod_iri))?;
         let _quad = self.put_quad(configuration_scratchpad_iri,HAS_POD_INDEX, "0", Some(configuration_iri))?;
         debug!("Pod entries added");
