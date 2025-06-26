@@ -333,3 +333,29 @@ a88343401d7c67df13cf71807a810f263f72086777d5ebaffeb2eb12b7b533ae - Pubkemon Go, 
   "schema:applicationCategory": "Application"
 }
 ```
+
+4db8f08763aca5cda31a73f0160b9217090ec54dd8b0e3e709076c563f00815d colony-cli
+```json
+{
+  "@context": {"schema": "http://schema.org/"},
+  "@type": "schema:SoftwareApplication",
+  "@id": "ant://4db8f08763aca5cda31a73f0160b9217090ec54dd8b0e3e709076c563f00815d",
+  "schema:name": "colony-cli",
+  "schema:description": "colony-cli v0.1.1 x86_64 linux binary
+  "schema:operatingSystem": "Linux",
+  "schema:applicationCategory": "Application"
+}
+```
+
+cca4e991284bfd22005bd29884079154817c7f0c3ae09c1685ffa3764c6c1e83 colony-daemon
+```json
+{
+  "@context": {"schema": "http://schema.org/"},
+  "@type": "schema:SoftwareApplication",
+  "@id": "ant://cca4e991284bfd22005bd29884079154817c7f0c3ae09c1685ffa3764c6c1e83",
+  "schema:name": "colony-daemon",
+  "schema:description": "colony-daemon v0.1.2 x86_64 linux binary
+  "schema:operatingSystem": "Linux",
+  "schema:applicationCategory": "Application"
+}
+```

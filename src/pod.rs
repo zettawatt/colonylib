@@ -23,6 +23,7 @@ use crate::DataStore;
 use crate::data::Error as DataStoreError;
 use crate::Graph;
 use crate::graph::Error as GraphError;
+use crate::graph;
 
 
 // Error handling
@@ -472,16 +473,26 @@ impl<'a> PodManager<'a> {
     /// - [`get_subject_data`] - Retrieve data for a specific subject
     /// - [`upload_all`] - Upload pending changes to the network
     /// - [`search`] - Search for subjects across pods
-    pub async fn put_subject_data(&mut self, pod_address: &str, subject_address: &str, subject_data: &str) -> Result<(), Error> {
+    pub async fn put_subject_data(&mut self,
+        pod_address: &str,
+        subject_address: &str,
+        subject_data: &str
+    ) -> Result<(), Error> {
         let pod_address = self.graph.check_pod_exists(pod_address)?;
         let pod_address = pod_address.trim();
+        let configuration_address = self.key_store.get_configuration_address()?;
+        let configuration_address = configuration_address.as_str();
 
         // Inject the JSON data into the graph using the pod address as the named graph
         // And return the resulting graph data as a TriG formatted byte vector
-        let graph = self.graph.put_subject_data(pod_address, subject_address, subject_data)?;
+        let (graph, configuration) = self.graph.put_subject_data(pod_address, subject_address, configuration_address, subject_data)?;
 
         // Process the pod data with proper scratchpad management
         self.process_pod_data(pod_address, graph).await?;
+        // Update the configuration graph with the updated key count
+        let num_keys = self.key_store.get_num_keys();
+        self.graph.update_key_count(configuration_address, num_keys)?;
+        self.process_pod_data(configuration_address, configuration).await?;
 
         Ok(())
     }
@@ -564,6 +575,30 @@ impl<'a> PodManager<'a> {
         }
     }
 
+    async fn remove_pod_data(&mut self, pod_address: &str, pod_scratchpads: Vec<String>) -> Result<(), Error> {
+        // Remove the pod address from the key store pointers list
+        self.key_store.remove_pointer_key(pod_address)?;
+        // Remove the pod scratchpads from the key store scratchpads list
+        for scratchpad in pod_scratchpads.clone() {
+            self.key_store.remove_scratchpad_key(scratchpad.trim())?;
+        }
+
+        // Remove each scratchpad file from the data store
+        for scratchpad in pod_scratchpads.clone() {
+            self.data_store.remove_scratchpad_file(scratchpad.trim())?;
+        }
+        // Remove the pod pointer file from the data store
+        self.data_store.remove_pointer_file(pod_address)?;
+
+        // Mark the removal of the pod pointer and scratchpads for the next upload_all operation
+        self.data_store.append_removal_list(pod_address,"pointer")?;
+        for scratchpad in pod_scratchpads {
+            self.data_store.append_removal_list(scratchpad.trim(), "scratchpad")?;
+        }
+
+        Ok(())
+    }
+
     /// Processes pod data by managing scratchpad allocation and data distribution.
     ///
     /// This function handles the complex task of distributing pod graph data across multiple
@@ -606,7 +641,7 @@ impl<'a> PodManager<'a> {
             let pod_iri = format!("ant://{}", pod_address);
             let index = (all_scratchpads.len() - 1).to_string();
 
-            self.graph.put_quad(&scratchpad_iri, "ant://colonylib/vocabulary/0.1/predicate#pod_index", &index, Some(&pod_iri))?;
+            self.graph.put_quad(&scratchpad_iri, graph::HAS_INDEX, &index, Some(&pod_iri))?;
         }
 
         // Sort the graph data to prioritize pod_index and pod_ref entries
@@ -627,8 +662,10 @@ impl<'a> PodManager<'a> {
         // Clear any unused scratchpads
         for i in chunks.len()..all_scratchpads.len() {
             let scratchpad_address = &all_scratchpads[i];
-            self.data_store.update_scratchpad_data(scratchpad_address.trim(), "")?;
-            //self.data_store.append_update_list(scratchpad_address.trim())?;
+            self.data_store.remove_scratchpad_file(scratchpad_address.trim())?;
+            self.data_store.append_removal_list(scratchpad_address.trim(), "scratchpad")?;
+            self.graph.remove_scratchpad_entry(pod_address, scratchpad_address.trim())?;
+            self.key_store.remove_scratchpad_key(scratchpad_address.trim())?;
         }
 
         // Add the pod pointer address to the update list
@@ -676,9 +713,9 @@ impl<'a> PodManager<'a> {
     ///
     /// Returns a priority value where lower numbers indicate higher priority.
     fn get_line_priority(&self, line: &str) -> u8 {
-        if line.contains("ant://colonylib/vocabulary/0.1/predicate#pod_index") {
+        if line.contains(graph::HAS_INDEX) {
             0 // Pod scratchpads should always be first in the scratchpad (pointer can only point to the first scratchpad)
-        } else if line.contains("ant://colonylib/vocabulary/0.1/object#pod_ref") {
+        } else if line.contains(graph::POD_REF) {
             1 // Pod references are next for future enhancement to thread the data fetches
         } else {
             2 // Everything else in the pod
@@ -841,14 +878,62 @@ impl<'a> PodManager<'a> {
         let configuration_scratchpad_address = configuration_scratchpad_address.as_str();
         let _ = self.data_store.update_pointer_target(configuration_address, configuration_scratchpad_address)?;
 
+        // Get the number of keys to store in the graph
+        let num_keys = self.key_store.get_num_keys();
+
         // Add the pointer address to the graph
-        let (graph, configuration) = self.graph.add_pod_entry(pod_name, pod_address, scratchpad_address, configuration_address, configuration_scratchpad_address)?;
+        let (graph, configuration) = self.graph.add_pod_entry(
+            pod_name,
+            pod_address,
+            scratchpad_address,
+            configuration_address,
+            configuration_scratchpad_address,
+            num_keys,
+            )?;
 
         // Process the pod data with proper scratchpad management
         self.process_pod_data(pod_address, graph).await?;
+
+        // Update the configuration graph with the updated key count
+        let num_keys = self.key_store.get_num_keys();
+        self.graph.update_key_count(configuration_address, num_keys)?;
+
         self.process_pod_data(configuration_address, configuration).await?;
 
         Ok((pod_address.to_string(), scratchpad_address.to_string()))
+    }
+
+    pub async fn remove_pod(&mut self, pod_address: &str) -> Result<(), Error> {
+        let pod_address = self.graph.check_pod_exists(pod_address)?;
+        let pod_address = pod_address.trim();
+        let configuration_address = self.key_store.get_configuration_address()?;
+        let configuration_address = configuration_address.as_str();
+
+        // Check current scratchpads for this pod
+        let pod_scratchpads = self.get_pod_scratchpads(pod_address)?
+        .unwrap_or_else(|| vec![]);
+
+        // Remove the pod from the graph
+        let configuration = self.graph.remove_pod_entry(pod_address, pod_scratchpads.clone(), configuration_address)?;
+        self.process_pod_data(configuration_address, configuration).await?;
+
+        // Process the pod data with proper scratchpad management
+        self.remove_pod_data(pod_address, pod_scratchpads).await?;
+
+        Ok(())
+    }
+
+    pub async fn rename_pod(&mut self, pod_address: &str, new_name: &str) -> Result<(), Error> {
+        let pod_address = self.graph.check_pod_exists(pod_address)?;
+        let pod_address = pod_address.trim();
+
+        // Rename the pod in the graph
+        let graph = self.graph.rename_pod_entry(pod_address, new_name)?;
+
+        // Process the pod data with proper scratchpad management
+        self.process_pod_data(pod_address, graph).await?;
+
+        Ok(())
     }
 
     /// Adds a reference from one pod to another pod in the graph database.
@@ -908,6 +993,9 @@ impl<'a> PodManager<'a> {
 
         // Process the pod data with proper scratchpad management
         self.process_pod_data(pod_address, graph).await?;
+        // Update the configuration graph with the updated key count
+        let num_keys = self.key_store.get_num_keys();
+        self.graph.update_key_count(configuration_address, num_keys)?;
         self.process_pod_data(configuration_address, configuration).await?;
 
         Ok(())
@@ -966,6 +1054,9 @@ impl<'a> PodManager<'a> {
 
         // Process the pod data with proper scratchpad management
         self.process_pod_data(pod_address, graph).await?;
+        // Update the configuration graph with the updated key count
+        let num_keys = self.key_store.get_num_keys();
+        self.graph.update_key_count(configuration_address, num_keys)?;
         self.process_pod_data(configuration_address, configuration).await?;
 
         Ok(())
@@ -1223,7 +1314,23 @@ impl<'a> PodManager<'a> {
     /// - [`put_subject_data`] - Modifies pods that need uploading
     /// - [`refresh_cache`] - Downloads updates from the network
     pub async fn upload_all(&mut self) -> Result<(), Error> {
-        // open update list and walk through each line
+        // open removal list and walk through each line to remove the pods
+        // doing this first because the pods that were removed may have been reprovisioned with the same addresses
+        let file_path = self.data_store.get_removal_list_path();
+        let file = File::open(file_path.clone())?;
+        let reader = BufReader::new(file);
+
+        for line in reader.lines() {
+            let line = line?;
+            let address = line.trim();
+            debug!("Removing pod from the network: {}", address);
+            self.delete_pod(address).await?;
+        }
+
+        // Clear out the removal list
+        let _ = File::create(file_path)?;
+
+        // open update list and walk through each line to upload the pods
         let file_path = self.data_store.get_update_list_path();
         let file = File::open(file_path.clone())?;
         let reader = BufReader::new(file);
@@ -1231,7 +1338,7 @@ impl<'a> PodManager<'a> {
         for line in reader.lines() {
             let line = line?;
             let address = line.trim();
-            debug!("Uploading pod: {}", address);
+            debug!("Uploading pod to the network: {}", address);
             self.upload_pod(address).await?;
             
         }

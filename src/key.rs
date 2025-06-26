@@ -70,6 +70,7 @@ pub struct KeyStore {
     pointers: HashMap<Vec<u8>, Vec<u8>>,
     scratchpads: HashMap<Vec<u8>, Vec<u8>>,
     bad_keys: HashMap<Vec<u8>, Vec<u8>>,
+    unused_keys: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 impl fmt::Debug for KeyStore {
@@ -143,6 +144,7 @@ impl KeyStore {
         let mut pointers: HashMap<PublicKey, SecretKey> = HashMap::new();
         let mut scratchpads: HashMap<PublicKey, SecretKey> = HashMap::new();
         let bad_keys: HashMap<PublicKey, SecretKey> = HashMap::new();
+        let unused_keys: HashMap<PublicKey, SecretKey> = HashMap::new();
         //let pod_key: SecretKey = main_sk.derive_key(&index(0)).into();
         //let pod_pubkey: PublicKey = pod_key.public_key();
         //pods.insert(pod_pubkey, pod_key.clone());
@@ -163,7 +165,8 @@ impl KeyStore {
             main_sk: main_sk.to_bytes(),
             pointers: pointers.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect(),
             scratchpads: scratchpads.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect(),
-            bad_keys: bad_keys.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect()
+            bad_keys: bad_keys.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect(),
+            unused_keys: unused_keys.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect(),
         })
     }
 
@@ -240,6 +243,20 @@ impl KeyStore {
     }
 
     pub fn add_pointer_key(&mut self) -> Result<String, Error> {
+        // Check for unused keys first
+        let key_pair = self.unused_keys.iter().next();
+        match key_pair {
+            Some((pubkey, key)) => {
+                let pubkey = pubkey.clone();
+                let key = key.clone();
+                self.unused_keys.remove(&pubkey);
+                self.pointers.insert(pubkey.clone(), key.clone());
+                debug!("Reusing unused key at address: {}", hex::encode(pubkey));
+                return Ok(hex::encode(key));
+            },
+            None => {},
+        }
+
         let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
@@ -250,7 +267,34 @@ impl KeyStore {
         Ok(pod_key.to_hex().to_string())
     }
 
+    pub fn remove_pointer_key(&mut self, address: &str) -> Result<(), Error> {
+        let pubkey = hex::decode(address)?;
+        let key = self.pointers.remove(&pubkey);
+        match key {
+            Some(value) => {
+                self.unused_keys.insert(pubkey, value);
+            },
+            None => {
+                return Err(Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Key not found")));
+            },
+        }
+        Ok(())
+    }
+
     pub fn add_scratchpad_key(&mut self) -> Result<String, Error> {
+        // Check for unused keys first
+        let key_pair = self.unused_keys.iter().next();
+        match key_pair {
+            Some((pubkey, key)) => {
+                let pubkey = pubkey.clone();
+                let key = key.clone();
+                self.unused_keys.remove(&pubkey);
+                self.pointers.insert(pubkey.clone(), key.clone());
+                debug!("Reusing unused key at address: {}", hex::encode(pubkey));
+                return Ok(hex::encode(key));
+            },
+            None => {},
+        }
         let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
@@ -259,6 +303,20 @@ impl KeyStore {
         let pod_pubkey: PublicKey = pod_key.clone().public_key();
         self.scratchpads.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
         Ok(pod_key.to_hex().to_string())
+    }
+
+    pub fn remove_scratchpad_key(&mut self, address: &str) -> Result<(), Error> {
+        let pubkey = hex::decode(address)?;
+        let key = self.scratchpads.remove(&pubkey);
+        match key {
+            Some(value) => {
+                self.unused_keys.insert(pubkey, value);
+            },
+            None => {
+                return Err(Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Key not found")));
+            },
+        }
+        Ok(())
     }
 
     pub fn add_bad_key(&mut self) -> Result<String, Error> {
@@ -301,6 +359,10 @@ impl KeyStore {
 
     pub fn get_bad_keys(&self) -> HashMap<String, String> {
         self.bad_keys.iter().map(|(k, v)| (hex::encode(k), hex::encode(v))).collect()
+    }
+
+    pub fn get_unused_keys(&self) -> HashMap<String, String> {
+        self.unused_keys.iter().map(|(k, v)| (hex::encode(k), hex::encode(v))).collect()
     }
 
     pub fn get_address_at_index(&self, count: u64) -> Result<String, Error> {

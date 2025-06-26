@@ -1,4 +1,4 @@
-use std::fs::{File, create_dir_all, read_to_string, write, OpenOptions};
+use std::fs::{File, create_dir_all, read_to_string, write, OpenOptions, remove_file};
 use std::path::PathBuf;
 use dirs;
 use std::io::Error as IoError;
@@ -143,6 +143,31 @@ impl DataStore {
         Ok(())
     }
 
+    pub fn get_removal_list_path(&self) -> PathBuf {
+        let mut removal_list_path = self.get_data_path();
+        removal_list_path.push("removal_list.txt");
+        removal_list_path
+    }
+
+    pub fn append_removal_list(&self, address: &str, address_type: &str) -> Result<(), Error> {
+        let removal_list_path = self.get_removal_list_path();
+        let mut removal_list = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&removal_list_path)?;
+
+        // Check if the file has a line that matches the address
+        let contents = read_to_string(&removal_list_path)?;
+        let address_entry = format!("{},{}", address, address_type);
+        if contents.lines().any(|line| line == address_entry.trim()) {
+            info!("Address {} already exists in removal list", address);
+            return Ok(());
+        }
+        // If not, append the address to the file
+        writeln!(removal_list, "{},{}", address, address_type)?;
+        Ok(())
+    }
+
     pub fn update_pointer_target(&self, pointer_address: &str, scratchpad_address: &str) -> Result<(), Error> {
         // Update the first line with the scratchpad address, keeping the second line unchanged
         let mut pointer_path = self.get_pointers_dir();
@@ -225,12 +250,32 @@ impl DataStore {
         Ok(())
     }
 
+    pub fn remove_pointer_file(&self, address: &str) -> Result<(), Error> {
+        let mut pointer_path = self.get_pointers_dir();
+        pointer_path.push(address);
+        if pointer_path.exists() {
+            remove_file(&pointer_path)?;
+            info!("Removed pointer file: {:?}", pointer_path);
+        }
+        Ok(())
+    }
+
     pub fn create_scratchpad_file(&self, address: &str) -> Result<(), Error> {
         let mut scratchpad_path = self.get_scratchpads_dir();
         scratchpad_path.push(address);
         if !scratchpad_path.exists() {
             File::create(&scratchpad_path)?;
             info!("Created scratchpad file: {:?}", scratchpad_path);
+        }
+        Ok(())
+    }
+
+    pub fn remove_scratchpad_file(&self, address: &str) -> Result<(), Error> {
+        let mut scratchpad_path = self.get_scratchpads_dir();
+        scratchpad_path.push(address);
+        if scratchpad_path.exists() {
+            remove_file(&scratchpad_path)?;
+            info!("Removed scratchpad file: {:?}", scratchpad_path);
         }
         Ok(())
     }

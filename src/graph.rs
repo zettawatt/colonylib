@@ -37,33 +37,40 @@ macro_rules! OBJECT {
 /// Address Type
 /// Defines the type of pod component at the address
 /// Object must be one of the address type objects
-const HAS_ADDR_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+pub const HAS_ADDR_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 
 /// Name
 /// The name of the resource pod
 /// Object is a string literal
-const HAS_NAME: &str = "http://schema.org/name";
+pub const HAS_NAME: &str = "http://schema.org/name";
 
 /// Pod Depth
 /// The depth of the pod in the reference tree
 /// Only valid for POD and POD_REF address types
 /// Object is a literal representing the depth, local pods are set to 0
-const HAS_DEPTH: &str = PREDICATE!("depth");
+pub const HAS_DEPTH: &str = PREDICATE!("depth");
 
-/// Pod Index
-/// The index for a pod scratchpad used to build up a pod from multiple scratchpads
+/// Scratchpad Index
+/// The index of the scratchpad in a pod
+/// This is used to sequentially build up a pod from multiple scratchpads
 /// Object is a literal representing the index
-const HAS_POD_INDEX: &str = PREDICATE!("index");
+pub const HAS_INDEX: &str = PREDICATE!("index");
+
+/// Key Count
+/// The number of derived keys
+/// This is used during refresh to pregenerate the keys we need
+/// Object is a literal representing the count
+pub const KEY_COUNT: &str = PREDICATE!("count");
 
 /// Creation Date
 /// The date when the pod was created
 /// Object is a literal representing the date
-const HAS_CREATION_DATE: &str = PREDICATE!("creation");
+pub const HAS_CREATION_DATE: &str = PREDICATE!("creation");
 
 /// Modified Date
 /// The date when the pod was modified
 /// Object is a literal representing the date
-const HAS_MODIFIED_DATE: &str = PREDICATE!("modified");
+pub const HAS_MODIFIED_DATE: &str = PREDICATE!("modified");
 
 //////////////////////////////////////////////
 // Objects
@@ -71,11 +78,11 @@ const HAS_MODIFIED_DATE: &str = PREDICATE!("modified");
 
 /// Address Type Objects
 /// Defines what kind of object the address is pointing to
-const POD: &str = OBJECT!("pod"); // pointer for a pod
-const POD_REF: &str = OBJECT!("ref"); // pointer for a pod reference
-const DATA: &str = OBJECT!("data"); //scratchpad containing data for a pod
-const EMPTY: &str = OBJECT!("empty"); //Empty scratchpad
-const UNUSED: &str = OBJECT!("unused"); //Unused pod pointer
+pub const POD: &str = OBJECT!("pod"); // pointer for a pod
+pub const POD_REF: &str = OBJECT!("ref"); // pointer for a pod reference
+pub const DATA: &str = OBJECT!("data"); //scratchpad containing data for a pod
+pub const UNUSED: &str = OBJECT!("unused"); //Unused pod pointer or scratchpad
+pub const ABANDONED: &str = OBJECT!("abandoned"); //Abandoned pod pointer or scratchpad address, never use again
 
 // Error handling
 #[derive(Debug, thiserror::Error)]
@@ -176,7 +183,14 @@ impl Graph {
         Ok(quad.into_owned())
     }
 
-    pub fn add_pod_entry(&mut self, pod_name: &str, pod_address: &str, scratchpad_address: &str, configuration_address: &str, configuration_scratchpad_address: &str) -> Result<(Vec<u8>, Vec<u8>), Error> {
+    pub fn add_pod_entry(&mut self,
+        pod_name: &str,
+        pod_address: &str,
+        scratchpad_address: &str,
+        configuration_address: &str,
+        configuration_scratchpad_address: &str,
+        num_keys: u64,
+    ) -> Result<(Vec<u8>, Vec<u8>), Error> {
         // Add a new pod
         let pod_iri = format!("ant://{}", pod_address);
         let pod_iri = pod_iri.as_str();
@@ -188,6 +202,9 @@ impl Graph {
         let configuration_iri = configuration_iri.as_str();
         let config = NamedNodeRef::new(configuration_iri)?;
         self.store.insert_named_graph(config)?;
+
+        // Update the key count
+        self.update_key_count(configuration_address, num_keys)?;
 
         // Enter in scratchpad quad
         let scratchpad_iri = format!("ant://{}", scratchpad_address);
@@ -204,8 +221,8 @@ impl Graph {
         let _quad = self.put_quad(pod_iri,HAS_MODIFIED_DATE,date,Some(pod_iri))?;
         // Scratchpad metadata
         let _quad = self.put_quad(pod_iri,HAS_ADDR_TYPE,DATA,Some(configuration_iri))?;
-        let _quad = self.put_quad(scratchpad_iri,HAS_POD_INDEX, "0", Some(pod_iri))?;
-        let _quad = self.put_quad(configuration_scratchpad_iri,HAS_POD_INDEX, "0", Some(configuration_iri))?;
+        let _quad = self.put_quad(scratchpad_iri,HAS_INDEX, "0", Some(pod_iri))?;
+        let _quad = self.put_quad(configuration_scratchpad_iri,HAS_INDEX, "0", Some(configuration_iri))?;
         debug!("Pod entries added");
 
         // Dump newly created graph in TriG format
@@ -258,6 +275,84 @@ impl Graph {
         }
     }
 
+    pub fn remove_pod_entry(&mut self, pod_address: &str, pod_scratchpads: Vec<String>, configuration_address: &str) -> Result<Vec<u8>, Error> {
+        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = pod_iri.as_str();
+        let pod = NamedNodeRef::new(pod_iri)?;
+
+        // Get the configuration IRI
+        let configuration_iri = format!("ant://{}", configuration_address);
+        let configuration_iri = configuration_iri.as_str();
+        let config = NamedNodeRef::new(configuration_iri)?;
+
+        // Remove the pod graph
+        self.store.clear_graph(pod)?;
+
+        // Remove the pod from the configuration graph
+        let update = format!(
+            "DELETE WHERE {{ GRAPH <{}> {{ <{}> ?p ?o . }} }}",
+            configuration_iri, pod_iri
+        );
+        debug!("Delete pod from configuration graph string: {}", update);
+        self.store.update(update.as_str())?;
+
+        // Set the pod_address and pod_scratchpads to UNUSED in the configuration graph
+        let _quad = self.put_quad(pod_iri,HAS_ADDR_TYPE,UNUSED,Some(configuration_iri))?;
+        for scratchpad in pod_scratchpads {
+            let scratchpad_iri = format!("ant://{}", scratchpad);
+            let scratchpad_iri = scratchpad_iri.as_str();
+            let _quad = self.put_quad(scratchpad_iri,HAS_ADDR_TYPE,UNUSED,Some(configuration_iri))?;
+        }
+
+        // Dump the updated configuration graph in TriG format
+        let mut configuration = Vec::new();
+        self.store.dump_graph_to_writer(config, RdfFormat::TriG, &mut configuration)?;
+
+        Ok(configuration)
+    }
+
+    pub fn rename_pod_entry(&mut self, pod_address: &str, new_name: &str) -> Result<Vec<u8>, Error> {
+        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = pod_iri.as_str();
+        let pod = NamedNodeRef::new(pod_iri)?;
+
+        // Update the pod name
+        let update = format!(
+            "DELETE WHERE {{ GRAPH <{}> {{ <{}> <{}> ?o . }} }}",
+            pod_iri, pod_iri, HAS_NAME
+        );
+        debug!("Delete existing pod name string: {}", update);
+        self.store.update(update.as_str())?;
+
+        // Enter in new pod name quad
+        let _quad = self.put_quad(pod_iri,HAS_NAME,new_name,Some(pod_iri))?;
+        debug!("Pod name updated to {}", new_name);
+
+        // Dump the updated graph in TriG format
+        let mut buffer = Vec::new();
+        self.store.dump_graph_to_writer(pod, RdfFormat::TriG, &mut buffer)?;
+
+        Ok(buffer)
+    }
+
+    pub fn remove_scratchpad_entry(&mut self, pod_address: &str, scratchpad_address: &str) -> Result<(), Error> {
+        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = pod_iri.as_str();
+
+        let scratchpad_iri = format!("ant://{}", scratchpad_address);
+        let scratchpad_iri = scratchpad_iri.as_str();
+
+        // Remove the depth object if it already exists in the configuration graph
+        let update = format!(
+            "DELETE WHERE {{ GRAPH <{}> {{ <{}> <{}> ?o . }} }}",
+            pod_iri, scratchpad_iri, HAS_INDEX
+        );
+        debug!("Delete unused scratchpad from pod string: {}", update);
+        self.store.update(update.as_str())?;
+        
+        Ok(())
+    }
+
     pub fn pod_ref_entry(&mut self, pod_address: &str, pod_ref_address: &str, configuration_address: &str, add: bool) -> Result<(Vec<u8>, Vec<u8>), Error> {
         let pod_ref_iri = format!("ant://{}", pod_ref_address);
         let pod_ref_iri = pod_ref_iri.as_str();
@@ -307,14 +402,40 @@ impl Graph {
 
         Ok((buffer, configuration))
     }
+
+    pub fn update_key_count(&mut self, configuration_address: &str, num_keys: u64) -> Result<(), Error> {
+        let configuration_iri = format!("ant://{}", configuration_address);
+        let configuration_iri = configuration_iri.as_str();
+
+        // Remove the key count object if it already exists in the configuration graph
+        let update = format!(
+            "DELETE WHERE {{ GRAPH <{}> {{ <{}> <{}> ?o . }} }}",
+            configuration_iri, configuration_iri, KEY_COUNT
+        );
+        self.store.update(update.as_str())?;
+
+        // Enter in key count quad
+        let _quad = self.put_quad(configuration_iri,KEY_COUNT,&num_keys.to_string(),Some(configuration_iri))?;
+        Ok(())
+    }
         
     // Input is a JSON-LD string
-    pub fn put_subject_data(&mut self, pod_address: &str, subject_address: &str, data: &str) -> Result<Vec<u8>, Error> {
+    pub fn put_subject_data(&mut self,
+        pod_address: &str,
+        subject_address: &str,
+        configuration_address: &str,
+        data: &str
+    ) -> Result<(Vec<u8>,Vec<u8>), Error> {
         let pod_iri = format!("ant://{}", pod_address);
         let pod_iri = pod_iri.as_str();
         let pod = NamedNodeRef::new(pod_iri)?;
         let subject_iri = format!("ant://{}", subject_address);
         let subject_iri = subject_iri.as_str();
+
+        // Get the configuration IRI
+        let configuration_iri = format!("ant://{}", configuration_address);
+        let configuration_iri = configuration_iri.as_str();
+        let config = NamedNodeRef::new(configuration_iri)?;
 
         // Delete existing data for the subject in the pod graph
         // This query deletes all triples for the subject in the specified pod graph
@@ -346,6 +467,13 @@ impl Graph {
         )?;
 
         // Update modified date
+        let delete_query = format!(
+            "DELETE WHERE {{ GRAPH <{}> {{ <{}> <{}> ?date . }} }}",
+            pod_iri, pod_iri, HAS_MODIFIED_DATE
+        );
+        debug!("Delete existing modified date query: {}", delete_query);
+        self.store.update(delete_query.as_str())?;
+
         let date = Utc::now().to_rfc3339();
         let date = date.as_str();
         let _quad = self.put_quad(pod_iri,HAS_MODIFIED_DATE,date,Some(pod_iri))?;
@@ -354,7 +482,12 @@ impl Graph {
         let mut buffer = Vec::new();
         self.store.dump_graph_to_writer(pod, RdfFormat::TriG, &mut buffer)?;
 
-        Ok(buffer)
+        // Dump the updated configuration graph in TriG format
+        let mut configuration = Vec::new();
+        self.store.dump_graph_to_writer(config, RdfFormat::TriG, &mut configuration)?;
+        
+
+        Ok((buffer, configuration))
     }
 
     pub fn get_subject_data(&self, subject_address: &str) -> Result<String, Error> {
@@ -983,7 +1116,7 @@ impl Graph {
         // Query for all scratchpad addresses in the pod's named graph
         let query = format!(
             "SELECT DISTINCT ?scratchpad ?index WHERE {{ GRAPH <{}> {{ ?scratchpad <{}> ?index . }} }}",
-            pod_iri, HAS_POD_INDEX
+            pod_iri, HAS_INDEX
         );
         debug!("Pod scratchpads query: {}", query);
 
@@ -1039,7 +1172,7 @@ impl Graph {
                                             NamedNodeRef::new("http://example.org/object").unwrap(), 
                                             GraphNameRef::DefaultGraph));
             
-            if triple.predicate == HAS_POD_INDEX {
+            if triple.predicate == HAS_INDEX {
                 // Convert the triple.object into a u64
                 if let oxigraph::model::Term::Literal(literal) = triple.object {
                     if let Ok(index) = literal.value().parse::<u64>() {
