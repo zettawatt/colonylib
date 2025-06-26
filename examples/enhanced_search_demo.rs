@@ -14,11 +14,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pod1 = "music_collection_depth_0";
     let pod2 = "music_reviews_depth_1"; 
     let pod3 = "artist_info_depth_2";
+    let num_keys = 0;
 
     // Add pods with content
-    graph.add_pod_entry("Music Collection", pod1, "scratchpad1", "config1", "config_scratchpad1")?;
-    graph.add_pod_entry("Music Reviews", pod2, "scratchpad2", "config2", "config_scratchpad2")?;
-    graph.add_pod_entry("Artist Info", pod3, "scratchpad3", "config3", "config_scratchpad3")?;
+    graph.add_pod_entry("Music Collection", pod1, "scratchpad1", "config1", "config_scratchpad1", num_keys)?;
+    graph.add_pod_entry("Music Reviews", pod2, "scratchpad2", "config2", "config_scratchpad2", num_keys+2)?;
+    graph.add_pod_entry("Artist Info", pod3, "scratchpad3", "config3", "config_scratchpad3", num_keys+4)?;
 
     // Set different depths
     graph.update_pod_depth(pod1, "config1", 0)?;

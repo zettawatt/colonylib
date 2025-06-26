@@ -1,5 +1,3 @@
-use std::fs;
-
 mod common;
 use common::create_test_datastore;
 
@@ -64,13 +62,15 @@ fn test_update_list_operations() {
     datastore.append_update_list(address1).unwrap();
     datastore.append_update_list(address2).unwrap();
 
-    // Check that update list file exists and contains the addresses
+    // Check that update list file exists and is in JSON format
     let update_list_path = datastore.get_update_list_path();
     assert!(update_list_path.exists());
+    assert!(update_list_path.extension().unwrap() == "json");
 
-    let content = fs::read_to_string(update_list_path).unwrap();
-    assert!(content.contains(address1));
-    assert!(content.contains(address2));
+    // Check that the addresses are in the pods section
+    let update_list = datastore.get_update_list().unwrap();
+    assert!(update_list.pods.contains_key(address1));
+    assert!(update_list.pods.contains_key(address2));
 }
 
 #[test]
@@ -122,9 +122,8 @@ fn test_duplicate_update_list_entries() {
     datastore.append_update_list(address).unwrap();
     datastore.append_update_list(address).unwrap();
 
-    // Check that it only appears once
-    let update_list_path = datastore.get_update_list_path();
-    let content = fs::read_to_string(update_list_path).unwrap();
-    let count = content.lines().filter(|line| *line == address).count();
-    assert_eq!(count, 1);
+    // Check that it only appears once in the pods section
+    let update_list = datastore.get_update_list().unwrap();
+    assert_eq!(update_list.pods.len(), 1);
+    assert!(update_list.pods.contains_key(address));
 }

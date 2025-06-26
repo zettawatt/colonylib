@@ -26,7 +26,7 @@ fn test_add_pod_entry() {
     let configuration_scratchpad_address = "config_scratchpad1234567890";
     let pod_name = "Test Pod";
 
-    let result = graph.add_pod_entry(pod_name, pod_address, scratchpad_address, configuration_address, configuration_scratchpad_address);
+    let result = graph.add_pod_entry(pod_name, pod_address, scratchpad_address, configuration_address, configuration_scratchpad_address, 0);
     assert!(result.is_ok(), "Failed to add pod entry: {:?}", result.err());
 
     let (trig_data, config_data) = result.unwrap();
@@ -344,7 +344,7 @@ fn test_get_pod_scratchpads() {
     let configuration_scratchpad_address = "test_config_scratchpad_123";
 
     // First create a pod entry to establish the named graph
-    graph.add_pod_entry("Test Pod", pod_address, scratchpad1, configuration_address, configuration_scratchpad_address).unwrap();
+    graph.add_pod_entry("Test Pod", pod_address, scratchpad1, configuration_address, configuration_scratchpad_address, 0).unwrap();
 
     // Add additional scratchpad to the pod
     let pod_iri = format!("ant://{}", pod_address);
@@ -372,7 +372,7 @@ fn test_clear_pod_graph() {
     let configuration_scratchpad_address = "test_config_scratchpad_clear";
 
     // Add a pod entry
-    let result = graph.add_pod_entry("Test Pod for Clearing", pod_address, scratchpad_address, configuration_address, configuration_scratchpad_address);
+    let result = graph.add_pod_entry("Test Pod for Clearing", pod_address, scratchpad_address, configuration_address, configuration_scratchpad_address, 0);
     assert!(result.is_ok(), "Failed to add pod entry");
 
     // Verify the pod has data
@@ -421,7 +421,7 @@ fn test_get_pod_references_with_add_ref() {
     let configuration_scratchpad_address = "test_config_scratchpad_refs";
 
     // Create a pod entry first
-    graph.add_pod_entry("Test Pod with References", pod_address, "scratchpad_main", configuration_address, configuration_scratchpad_address).unwrap();
+    graph.add_pod_entry("Test Pod with References", pod_address, "scratchpad_main", configuration_address, configuration_scratchpad_address, 0).unwrap();
 
     // Add pod references
     graph.pod_ref_entry(pod_address, ref_pod1, configuration_address, true).unwrap();
@@ -445,7 +445,7 @@ fn test_enhanced_search_content() {
     let pod_address = "test_pod_search";
 
     // Add a pod with some searchable content
-    graph.add_pod_entry("Searchable Pod", pod_address, "search_scratchpad", "search_config", "search_config_scratchpad").unwrap();
+    graph.add_pod_entry("Searchable Pod", pod_address, "search_scratchpad", "search_config", "search_config_scratchpad", 0).unwrap();
 
     // Add some content to search for
     let pod_iri = format!("ant://{}", pod_address);
@@ -478,9 +478,9 @@ fn test_enhanced_word_based_search() {
     let pod3_address = "test_pod_depth_2";
 
     // Add pods with different depths
-    graph.add_pod_entry("Pod at Depth 0", pod1_address, "scratchpad1", "config1", "config_scratchpad1").unwrap();
-    graph.add_pod_entry("Pod at Depth 1", pod2_address, "scratchpad2", "config2", "config_scratchpad2").unwrap();
-    graph.add_pod_entry("Pod at Depth 2", pod3_address, "scratchpad3", "config3", "config_scratchpad3").unwrap();
+    graph.add_pod_entry("Pod at Depth 0", pod1_address, "scratchpad1", "config1", "config_scratchpad1", 0).unwrap();
+    graph.add_pod_entry("Pod at Depth 1", pod2_address, "scratchpad2", "config2", "config_scratchpad2", 0).unwrap();
+    graph.add_pod_entry("Pod at Depth 2", pod3_address, "scratchpad3", "config3", "config_scratchpad3", 0).unwrap();
 
     // Set different depths for the pods (using force_set for testing)
     graph.force_set_pod_depth(pod1_address, "config1", 0).unwrap();

@@ -144,7 +144,7 @@ fn test_graph_pod_entry_creation() {
     let scratchpad_address = "test_scratchpad_entry";
 
     // Create pod entry
-    let (trig_data, config_data) = graph.add_pod_entry("test pod", pod_address, scratchpad_address, "test_config", "test_config_scratchpad").unwrap();
+    let (trig_data, config_data) = graph.add_pod_entry("test pod", pod_address, scratchpad_address, "test_config", "test_config_scratchpad", 0).unwrap();
 
     // Verify the TriG data contains expected elements
     assert!(!trig_data.is_empty());

@@ -11,9 +11,9 @@ fn test_enhanced_word_based_search() {
     let pod3_address = "test_pod_depth_2";
 
     // Add pods with different depths
-    graph.add_pod_entry("Pod at Depth 0", pod1_address, "scratchpad1", "config1", "config_scratchpad1").unwrap();
-    graph.add_pod_entry("Pod at Depth 1", pod2_address, "scratchpad2", "config2", "config_scratchpad2").unwrap();
-    graph.add_pod_entry("Pod at Depth 2", pod3_address, "scratchpad3", "config3", "config_scratchpad3").unwrap();
+    graph.add_pod_entry("Pod at Depth 0", pod1_address, "scratchpad1", "config1", "config_scratchpad1", 0).unwrap();
+    graph.add_pod_entry("Pod at Depth 1", pod2_address, "scratchpad2", "config2", "config_scratchpad2", 0).unwrap();
+    graph.add_pod_entry("Pod at Depth 2", pod3_address, "scratchpad3", "config3", "config_scratchpad3", 0).unwrap();
 
     // Set different depths for the pods
     graph.update_pod_depth(pod1_address, "config1", 0).unwrap();
@@ -88,7 +88,7 @@ fn test_word_splitting_and_or_logic() {
     let (mut graph, _temp_dir) = create_test_graph();
 
     let pod_address = "test_pod_or_logic";
-    graph.add_pod_entry("Test Pod", pod_address, "scratchpad", "config", "config_scratchpad").unwrap();
+    graph.add_pod_entry("Test Pod", pod_address, "scratchpad", "config", "config_scratchpad", 0).unwrap();
     
     let pod_iri = format!("ant://{}", pod_address);
 
@@ -115,7 +115,7 @@ fn test_quoted_phrase_search() {
     let (mut graph, _temp_dir) = create_test_graph();
 
     let pod_address = "test_pod_quotes";
-    graph.add_pod_entry("Test Pod", pod_address, "scratchpad", "config", "config_scratchpad").unwrap();
+    graph.add_pod_entry("Test Pod", pod_address, "scratchpad", "config", "config_scratchpad", 0).unwrap();
 
     let pod_iri = format!("ant://{}", pod_address);
 
@@ -160,7 +160,7 @@ fn test_multiple_quoted_phrases() {
     let (mut graph, _temp_dir) = create_test_graph();
 
     let pod_address = "test_pod_multi_quotes";
-    graph.add_pod_entry("Test Pod", pod_address, "scratchpad", "config", "config_scratchpad").unwrap();
+    graph.add_pod_entry("Test Pod", pod_address, "scratchpad", "config", "config_scratchpad", 0).unwrap();
 
     let pod_iri = format!("ant://{}", pod_address);
 

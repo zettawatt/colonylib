@@ -1,4 +1,4 @@
-use std::fs::{File, create_dir_all, read_to_string, write, OpenOptions, remove_file};
+use std::fs::{File, create_dir_all, read_to_string, write, remove_file};
 use std::path::PathBuf;
 use dirs;
 use std::io::Error as IoError;
@@ -6,6 +6,10 @@ use tracing::{error, info};
 use std::io::Write;
 use thiserror;
 use serde;
+use serde_json;
+
+// Import UpdateList from pod module
+use crate::pod::UpdateList;
 
 // Error handling
 #[derive(Debug, thiserror::Error)]
@@ -121,51 +125,143 @@ impl DataStore {
 
     pub fn get_update_list_path(&self) -> PathBuf {
         let mut update_list_path = self.get_data_path();
-        update_list_path.push("update_list.txt");
+        update_list_path.push("update_list.json");
         update_list_path
     }
 
-    pub fn append_update_list(&self, address: &str) -> Result<(), Error> {
+    /// Read the current update list from JSON file, creating an empty one if it doesn't exist
+    fn read_update_list(&self) -> Result<UpdateList, Error> {
         let update_list_path = self.get_update_list_path();
-        let mut update_list = OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(&update_list_path)?;
 
-        // Check if the file has a line that matches the address
-        let contents = read_to_string(&update_list_path)?;
-        if contents.lines().any(|line| line == address) {
-            info!("Address {} already exists in update list", address);
-            return Ok(());
+        if !update_list_path.exists() {
+            return Ok(UpdateList::default());
         }
-        // If not, append the address to the file
-        writeln!(update_list, "{}", address)?;
+
+        let contents = read_to_string(&update_list_path)?;
+        if contents.trim().is_empty() {
+            return Ok(UpdateList::default());
+        }
+
+        match serde_json::from_str(&contents) {
+            Ok(update_list) => Ok(update_list),
+            Err(_) => {
+                // If JSON parsing fails, return empty list (could be old format)
+                info!("Failed to parse update list as JSON, starting with empty list");
+                Ok(UpdateList::default())
+            }
+        }
+    }
+
+    /// Write the update list to JSON file
+    fn write_update_list(&self, update_list: &UpdateList) -> Result<(), Error> {
+        let update_list_path = self.get_update_list_path();
+        let json_content = serde_json::to_string_pretty(update_list)
+            .map_err(|e| Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
+        write(&update_list_path, json_content)?;
         Ok(())
     }
 
-    pub fn get_removal_list_path(&self) -> PathBuf {
-        let mut removal_list_path = self.get_data_path();
-        removal_list_path.push("removal_list.txt");
-        removal_list_path
+    pub fn append_update_list(&self, pod_address: &str) -> Result<(), Error> {
+        let mut update_list = self.read_update_list()?;
+
+        // Check if the pod address already exists
+        if update_list.pods.contains_key(pod_address) {
+            info!("Pod address {} already exists in update list", pod_address);
+            return Ok(());
+        }
+
+        // Remove from removal list if it exists there (cross-removal behavior)
+        if let Some(pos) = update_list.remove.pointers.iter().position(|x| x == pod_address) {
+            update_list.remove.pointers.remove(pos);
+            info!("Removed pod address {} from pointer removal list", pod_address);
+        }
+
+        // Add the pod with an empty scratchpad list (will be populated later)
+        update_list.pods.insert(pod_address.to_string(), Vec::new());
+
+        self.write_update_list(&update_list)?;
+        Ok(())
     }
 
     pub fn append_removal_list(&self, address: &str, address_type: &str) -> Result<(), Error> {
-        let removal_list_path = self.get_removal_list_path();
-        let mut removal_list = OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(&removal_list_path)?;
+        let mut update_list = self.read_update_list()?;
 
-        // Check if the file has a line that matches the address
-        let contents = read_to_string(&removal_list_path)?;
-        let address_entry = format!("{},{}", address, address_type);
-        if contents.lines().any(|line| line == address_entry.trim()) {
-            info!("Address {} already exists in removal list", address);
-            return Ok(());
+        match address_type {
+            "pointer" => {
+                if !update_list.remove.pointers.contains(&address.to_string()) {
+                    // Remove from pods list if it exists there (cross-removal behavior)
+                    if update_list.pods.remove(address).is_some() {
+                        info!("Removed pointer address {} from pods update list", address);
+                    }
+
+                    update_list.remove.pointers.push(address.to_string());
+                } else {
+                    info!("Pointer address {} already exists in removal list", address);
+                    return Ok(());
+                }
+            }
+            "scratchpad" => {
+                if !update_list.remove.scratchpads.contains(&address.to_string()) {
+                    // Remove from any pod's scratchpad list if it exists there (cross-removal behavior)
+                    for (pod_address, scratchpads) in update_list.pods.iter_mut() {
+                        if let Some(pos) = scratchpads.iter().position(|x| x == address) {
+                            scratchpads.remove(pos);
+                            info!("Removed scratchpad address {} from pod {} update list", address, pod_address);
+                            break;
+                        }
+                    }
+
+                    update_list.remove.scratchpads.push(address.to_string());
+                } else {
+                    info!("Scratchpad address {} already exists in removal list", address);
+                    return Ok(());
+                }
+            }
+            _ => {
+                error!("Unknown address type for removal: {}", address_type);
+                return Err(Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("Unknown address type: {}", address_type)
+                )));
+            }
         }
-        // If not, append the address to the file
-        writeln!(removal_list, "{},{}", address, address_type)?;
+
+        self.write_update_list(&update_list)?;
         Ok(())
+    }
+
+    /// Add a scratchpad address to a pod's scratchpad list in the update list
+    pub fn add_scratchpad_to_pod(&self, pod_address: &str, scratchpad_address: &str) -> Result<(), Error> {
+        let mut update_list = self.read_update_list()?;
+
+        // Remove scratchpad from removal list if it exists there (cross-removal behavior)
+        if let Some(pos) = update_list.remove.scratchpads.iter().position(|x| x == scratchpad_address) {
+            update_list.remove.scratchpads.remove(pos);
+            info!("Removed scratchpad address {} from removal list", scratchpad_address);
+        }
+
+        // Ensure the pod exists in the update list
+        let scratchpads = update_list.pods.entry(pod_address.to_string()).or_insert_with(Vec::new);
+
+        // Add the scratchpad if it's not already there
+        if !scratchpads.contains(&scratchpad_address.to_string()) {
+            scratchpads.push(scratchpad_address.to_string());
+        }
+
+        self.write_update_list(&update_list)?;
+        Ok(())
+    }
+
+    /// Clear the entire update list
+    pub fn clear_update_list(&self) -> Result<(), Error> {
+        let empty_list = UpdateList::default();
+        self.write_update_list(&empty_list)?;
+        Ok(())
+    }
+
+    /// Get a copy of the current update list
+    pub fn get_update_list(&self) -> Result<UpdateList, Error> {
+        self.read_update_list()
     }
 
     pub fn update_pointer_target(&self, pointer_address: &str, scratchpad_address: &str) -> Result<(), Error> {

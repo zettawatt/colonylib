@@ -5,12 +5,11 @@ use autonomi::client::scratchpad::{Scratchpad, ScratchpadError, ScratchpadAddres
 use autonomi::client::payment::PaymentOption;
 use ant_networking::{NetworkError, GetRecordError};
 use autonomi;
-use std::fs::File;
-use std::io::{BufReader, BufRead, Write};
+
 use thiserror;
 use tracing::{debug, error, info, warn};
 use std::fmt;
-use serde;
+use serde::{Deserialize, Serialize};
 use blsttc::Error as BlsttcError;
 use alloc::string::FromUtf8Error;
 use std::io::Error as IoError;
@@ -23,6 +22,28 @@ use crate::DataStore;
 use crate::data::Error as DataStoreError;
 use crate::Graph;
 use crate::graph::Error as GraphError;
+
+/// Structure representing the removal section of the update list
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct RemovalSection {
+    /// Pointer addresses to be removed (updated to point to themselves)
+    #[serde(default)]
+    pub pointers: Vec<String>,
+    /// Scratchpad addresses to be removed (updated with empty data)
+    #[serde(default)]
+    pub scratchpads: Vec<String>,
+}
+
+/// Structure representing the complete update list in JSON format
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct UpdateList {
+    /// Items to be removed from the network
+    #[serde(default)]
+    pub remove: RemovalSection,
+    /// Pod addresses mapped to their associated scratchpad addresses for upload
+    #[serde(default)]
+    pub pods: std::collections::HashMap<String, Vec<String>>,
+}
 use crate::graph;
 
 
@@ -1314,37 +1335,65 @@ impl<'a> PodManager<'a> {
     /// - [`put_subject_data`] - Modifies pods that need uploading
     /// - [`refresh_cache`] - Downloads updates from the network
     pub async fn upload_all(&mut self) -> Result<(), Error> {
-        // open removal list and walk through each line to remove the pods
-        // doing this first because the pods that were removed may have been reprovisioned with the same addresses
-        let file_path = self.data_store.get_removal_list_path();
-        let file = File::open(file_path.clone())?;
-        let reader = BufReader::new(file);
+        // Get the current update list
+        let update_list = self.data_store.get_update_list()?;
 
-        for line in reader.lines() {
-            let line = line?;
-            let address = line.trim();
-            debug!("Removing pod from the network: {}", address);
-            self.delete_pod(address).await?;
+        // Process removals first
+        info!("Processing {} pointer removals and {} scratchpad removals",
+              update_list.remove.pointers.len(),
+              update_list.remove.scratchpads.len());
+
+        // Remove pointers by updating them to point to themselves
+        for pointer_address in &update_list.remove.pointers {
+            debug!("Removing pointer: {}", pointer_address);
+            match self.update_pointer(pointer_address, pointer_address).await {
+                Ok(_) => info!("Successfully removed pointer: {}", pointer_address),
+                Err(e) => {
+                    match e {
+                        Error::Pointer(PointerError::CannotUpdateNewPointer) => {
+                            info!("Pointer {} not found on network, already removed", pointer_address);
+                        }
+                        Error::Pointer(PointerError::Network(NetworkError::GetRecordError(GetRecordError::RecordNotFound))) => {
+                            info!("Pointer {} not found on network, already removed", pointer_address);
+                        }
+                        _ => {
+                            error!("Failed to remove pointer {}: {}", pointer_address, e);
+                        }
+                    }
+                }
+            }
         }
 
-        // Clear out the removal list
-        let _ = File::create(file_path)?;
+        // Remove scratchpads by updating them with empty data
+        for scratchpad_address in &update_list.remove.scratchpads {
+            debug!("Removing scratchpad: {}", scratchpad_address);
+            match self.update_scratchpad(scratchpad_address, "").await {
+                Ok(_) => info!("Successfully removed scratchpad: {}", scratchpad_address),
+                Err(e) => {
+                    match e {
+                        Error::Scratchpad(ScratchpadError::CannotUpdateNewScratchpad) => {
+                            info!("Scratchpad {} not found on network, already removed", scratchpad_address);
+                        }
+                        Error::Scratchpad(ScratchpadError::Network(NetworkError::GetRecordError(GetRecordError::RecordNotFound))) => {
+                            info!("Scratchpad {} not found on network, already removed", scratchpad_address);
+                        }
+                        _ => {
+                            error!("Failed to remove scratchpad {}: {}", scratchpad_address, e);
+                        }
+                    }
+                }
+            }
+        }
 
-        // open update list and walk through each line to upload the pods
-        let file_path = self.data_store.get_update_list_path();
-        let file = File::open(file_path.clone())?;
-        let reader = BufReader::new(file);
-
-        for line in reader.lines() {
-            let line = line?;
-            let address = line.trim();
-            debug!("Uploading pod to the network: {}", address);
-            self.upload_pod(address).await?;
-            
+        // Process pod uploads
+        info!("Processing {} pod uploads", update_list.pods.len());
+        for (pod_address, _scratchpads) in &update_list.pods {
+            debug!("Uploading pod to the network: {}", pod_address);
+            self.upload_pod(pod_address).await?;
         }
 
         // Clear out the update list
-        let _ = File::create(file_path)?;
+        self.data_store.clear_update_list()?;
         Ok(())
     }
 
@@ -1492,22 +1541,7 @@ impl<'a> PodManager<'a> {
 
         }
 
-        // Delete the line in the update list file that matches the address
-        let file_path = self.data_store.get_update_list_path();
-        let file = File::open(file_path.clone())?;
-        let lines: Vec<String> = BufReader::new(file)
-            .lines()
-            .filter_map(Result::ok)
-            .filter(|line| line.trim() != address)
-            .collect();
-
-        // Write the remaining lines back to the file
-        let mut file = File::create(file_path)?;
-        for line in lines {
-            writeln!(file, "{}", line)?;
-        }
         debug!("Pod {} uploaded successfully", address);
-
         Ok(())
     }
 
