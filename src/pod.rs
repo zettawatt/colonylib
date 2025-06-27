@@ -192,20 +192,32 @@ impl<'a> PodManager<'a> {
     // Create a new pointer key, make sure it is empty, and add it to the key store
     async fn create_pointer_key(&mut self) -> Result<SecretKey, Error> {
         // Derive a new key
-        info!("Deriving a new key");
-        let key_string = self.key_store.add_pointer_key()?;
-        info!("Newly derived key: {}", key_string);
-        let derived_key: SecretKey = SecretKey::from_hex(key_string.trim())?;
+        info!("Deriving or using a free key");
+        let (pubkey, key) = self.key_store.add_pointer_key()?;
+
+        // If the address is being freed, unset the FREE attribute in the configuration graph
+        let configuration_address = self.key_store.get_configuration_address()?;
+        let configuration_address = configuration_address.as_str();
+        self.graph.use_free_pointer(pubkey.as_str(), configuration_address)?;
+
+        info!("New key: {}", key);
+        let derived_key: SecretKey = SecretKey::from_hex(key.trim())?;
         Ok(derived_key)
     }
 
     // Create a new scratchpad key, make sure it is empty, and add it to the key store
     async fn create_scratchpad_key(&mut self) -> Result<SecretKey, Error> {
         // Derive a new key
-        info!("Deriving a new key");
-        let key_string = self.key_store.add_scratchpad_key()?;
-        info!("Newly derived key: {}", key_string);
-        let derived_key: SecretKey = SecretKey::from_hex(key_string.trim())?;
+        info!("Deriving or using a free key");
+        let (pubkey,key) = self.key_store.add_scratchpad_key()?;
+
+        // If the address is being freed, unset the FREE attribute in the configuration graph
+        let configuration_address = self.key_store.get_configuration_address()?;
+        let configuration_address = configuration_address.as_str();
+        self.graph.use_free_scratchpad(pubkey.as_str(), configuration_address)?;
+
+        info!("New key: {}", key);
+        let derived_key: SecretKey = SecretKey::from_hex(key.trim())?;
         Ok(derived_key)
     }
 
@@ -1697,38 +1709,145 @@ impl<'a> PodManager<'a> {
     pub async fn refresh_cache(&mut self) -> Result<(), Error> {
         // Loop through the next 3 derived keys and check if they contain data on the network
         // This is to ensure that we have all of the relevant keys in our key store
-        let mut count: u64 = 0;
-        let base_count = count.clone();
-        loop {
-            let address = self.key_store.get_address_at_index(self.key_store.get_num_keys() as u64 + count)?;
-            info!("Checking address: {}", address);
-            let (address_type, create_mode) = self.get_address_type(address.as_str()).await?;
-            if create_mode {
-                info!("Address is empty, increment count!");
-                count += 1;
-            } else {
-                info!("Address is not empty, processing type: {:?}", address_type);
-                match address_type {
-                    Analysis::Pointer(_) => {
-                        info!("Address is a pointer, adding key");
-                        self.key_store.add_pointer_key()?;
+        // let mut count: u64 = 0;
+        // let base_count = count.clone();
+        // loop {
+        //     let address = self.key_store.get_address_at_index(self.key_store.get_num_keys() as u64 + count)?;
+        //     info!("Checking address: {}", address);
+        //     let (address_type, create_mode) = self.get_address_type(address.as_str()).await?;
+        //     if create_mode {
+        //         info!("Address is empty, increment count!");
+        //         count += 1;
+        //     } else {
+        //         info!("Address is not empty, processing type: {:?}", address_type);
+        //         match address_type {
+        //             Analysis::Pointer(_) => {
+        //                 info!("Address is a pointer, adding key");
+        //                 self.key_store.add_pointer_key()?;
+        //             }
+        //             Analysis::Scratchpad(_) => {
+        //                 info!("Address is a scratchpad, adding key");
+        //                 self.key_store.add_scratchpad_key()?;
+        //             }
+        //             _ => {
+        //                 info!("Address is neither a pointer nor a scratchpad, marking key as bad");
+        //                 self.key_store.add_bad_key()?;
+        //             }
+        //         }
+        //         count = base_count;
+        //     }
+        //     if count > 2 {
+        //         info!("No new addresses found, done with refresh!");
+        //         break;
+        //     }
+        // }
+
+        // Get the configuration address
+        let configuration_address = self.key_store.get_configuration_address()?;
+        let configuration_address = configuration_address.as_str();
+
+        // Download the configuration pod pointer
+        let pointer_address = PointerAddress::from_hex(configuration_address)?;
+        let pointer = match self.client.pointer_get(&pointer_address).await {
+            Ok(pointer) => pointer,
+            Err(e) => {
+                match e {
+                    PointerError::CannotUpdateNewPointer => {
+                        warn!("Configuration pointer not found on network, skipping");
+                        return Ok(()); // Skip to the next pointer
                     }
-                    Analysis::Scratchpad(_) => {
-                        info!("Address is a scratchpad, adding key");
-                        self.key_store.add_scratchpad_key()?;
+                    // Catch Pointer(Network(GetRecordError(RecordNotFound))) error when there is nothing on the network
+                    PointerError::Network(NetworkError::GetRecordError(GetRecordError::RecordNotFound)) => {
+                        warn!("Configuration pointer not found on network, skipping");
+                        return Ok(()); // Skip to the next pointer
                     }
                     _ => {
-                        info!("Address is neither a pointer nor a scratchpad, marking key as bad");
-                        self.key_store.add_bad_key()?;
+                        error!("Error occurred: {:?}", e); // Log the error
+                        return Err(Error::Pointer(e)); // Propagate the error to the higher-level function
                     }
                 }
-                count = base_count;
             }
-            if count > 2 {
-                info!("No new addresses found, done with refresh!");
-                break;
+        };
+
+        // Check if the pointer counter is newer than the local cache. If the pointer is older, we are done.
+        let local_pointer_count = self.data_store.get_pointer_count(configuration_address)?;
+        if pointer.counter() as u64 <= local_pointer_count {
+            info!("Local pods are up to date, skipping refresh");
+            return Ok(());
+        }
+
+        // Check the configuration pod target
+        let target = pointer.target();
+        let target = match target {
+            PointerTarget::ScratchpadAddress(scratchpad_address) => scratchpad_address,
+            _ => {
+                error!("Configuration pointer target is not a scratchpad address");
+                return Ok(());
+            }
+        };
+
+        // Download the configuration pod data
+        let data = self.combine_scratchpad_data(target).await?;
+
+        // Load the configuration pod data into the graph database
+        self.load_pod_into_graph(configuration_address, data.trim())?;
+
+        // Get the list of used and free pointers and scratchpads from the graph        
+        let mut free_pointers = self.graph.get_free_pointers(configuration_address)?;
+        let mut free_scratchpads = self.graph.get_free_scratchpads(configuration_address)?;
+        let pointers = self.graph.get_pointers(configuration_address)?;
+        let scratchpads = self.graph.get_scratchpads(configuration_address)?;
+        let key_count = self.graph.get_key_count(configuration_address)?;
+
+        // Check if the update_list pods section contains any of the free pointers or scratchpads
+        // If so, remove them from the free pointers and scratchpads lists
+        //FIXME: this isn't right, need to modify the scratchpad values since they are in a list
+        let update_list = self.data_store.get_update_list()?;
+        for pod in update_list.pods.keys() {
+            if free_pointers.contains(pod) {
+                free_pointers.retain(|x| x != pod);
+            }
+            if free_scratchpads.contains(pod) {
+                free_scratchpads.retain(|x| x != pod);
             }
         }
+
+        // Remove the free pointers and scratchpads from the data store
+        for pointer in free_pointers {
+            self.data_store.remove_pointer_file(pointer.trim())?;
+        }
+        for scratchpad in free_scratchpads {
+            self.data_store.remove_scratchpad_file(scratchpad.trim())?;
+        }
+
+        // FIXME: need a routine to update the key_store arrays to match the graph data
+        // Basically, get all pointers, scratchpads, free pointers, and free scratchpads from the graph
+        // Then compare them to the key store and add as needed
+        // Use the KEY_COUNT predicate to determine the number of keys to derive
+
+        // Clear out the key store pointers, scratchpads, free_pointers, free_scratchpads, and bad_keys hashmaps
+        self.key_store.clear_keys()?;
+
+        // Walk through all of the derived keys up to the key count in the graph
+        for i in 0..key_count {
+            let address = self.key_store.get_address_at_index(i)?;
+            // Check if the address matches any of the values in the pointers, scratchpads, free_pointers, or free_scratchpads vectors
+            // If a match is found, map it to the proper key store hashmap
+            // If a match is not found, add it to the bad_keys hashmap
+            if pointers.contains(&address) {
+                self.key_store.add_pointer_key()?;
+            } else if scratchpads.contains(&address) {
+                self.key_store.add_scratchpad_key()?;
+            } else if free_pointers.contains(&address) {
+                self.key_store.add_free_pointer_key()?;
+            } else if free_scratchpads.contains(&address) {
+                self.key_store.add_free_scratchpad_key()?;
+            } else {
+                self.key_store.add_bad_key()?;
+            }
+        }
+
+        // Once the key store is updated, proceed with the normal refresh
 
         // Get the list of local pointers from the key store
         for (address, _key) in self.key_store.get_pointers() {

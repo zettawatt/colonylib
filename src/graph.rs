@@ -81,7 +81,8 @@ pub const HAS_MODIFIED_DATE: &str = PREDICATE!("modified");
 pub const POD: &str = OBJECT!("pod"); // pointer for a pod
 pub const POD_REF: &str = OBJECT!("ref"); // pointer for a pod reference
 pub const DATA: &str = OBJECT!("data"); //scratchpad containing data for a pod
-pub const UNUSED: &str = OBJECT!("unused"); //Unused pod pointer or scratchpad
+pub const FREED_POD: &str = OBJECT!("free_pod"); //Unused pod pointer or scratchpad
+pub const FREED_DATA: &str = OBJECT!("free_data"); //Unused pod pointer or scratchpad
 pub const ABANDONED: &str = OBJECT!("abandoned"); //Abandoned pod pointer or scratchpad address, never use again
 
 // Error handling
@@ -297,11 +298,11 @@ impl Graph {
         self.store.update(update.as_str())?;
 
         // Set the pod_address and pod_scratchpads to UNUSED in the configuration graph
-        let _quad = self.put_quad(pod_iri,HAS_ADDR_TYPE,UNUSED,Some(configuration_iri))?;
+        let _quad = self.put_quad(pod_iri,HAS_ADDR_TYPE,FREED_POD,Some(configuration_iri))?;
         for scratchpad in pod_scratchpads {
             let scratchpad_iri = format!("ant://{}", scratchpad);
             let scratchpad_iri = scratchpad_iri.as_str();
-            let _quad = self.put_quad(scratchpad_iri,HAS_ADDR_TYPE,UNUSED,Some(configuration_iri))?;
+            let _quad = self.put_quad(scratchpad_iri,HAS_ADDR_TYPE,FREED_DATA,Some(configuration_iri))?;
         }
 
         // Dump the updated configuration graph in TriG format
@@ -670,6 +671,167 @@ impl Graph {
 
         debug!("Found {} references in pod {}", references.len(), pod_address);
         Ok(references)
+    }
+
+    // Get all free pointers from the graph data
+    pub fn get_free_pointers(&self, pod_address: &str) -> Result<Vec<String>, Error> {
+        let pod_iri = format!("ant://{}", pod_address);
+
+        // Query for all objects in the pod's named graph that are ant:// URIs
+        let query = format!(
+            "SELECT DISTINCT ?pod_ref WHERE {{ GRAPH <{}> {{ ?pod_ref <{}> <{}> . }} }}",
+            pod_iri, HAS_ADDR_TYPE, FREED_POD
+        );
+        debug!("Free pointers query: {}", query);
+
+        let mut pointers = Vec::new();
+        let results = self.store.query(query.as_str())?;
+        if let QueryResults::Solutions(solutions) = results {
+            for solution in solutions {
+                if let Ok(solution) = solution {
+                    if let Some(ref_term) = solution.get("pod_ref") {
+                        if let oxigraph::model::Term::NamedNode(ref_node) = ref_term {
+                            let ref_iri = ref_node.as_str();
+                            // Extract the address from the ant:// URI
+                            if let Some(address) = ref_iri.strip_prefix("ant://") {
+                                pointers.push(address.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        debug!("Found {} free pointers in pod {}", pointers.len(), pod_address);
+        Ok(pointers)
+    }
+
+    // Get all free scratchpads from the graph data
+    pub fn get_free_scratchpads(&self, pod_address: &str) -> Result<Vec<String>, Error> {
+        let pod_iri = format!("ant://{}", pod_address);
+
+        // Query for all objects in the pod's named graph that are ant:// URIs
+        let query = format!(
+            "SELECT DISTINCT ?pod_ref WHERE {{ GRAPH <{}> {{ ?pod_ref <{}> <{}> . }} }}",
+            pod_iri, HAS_ADDR_TYPE, FREED_DATA
+        );
+        debug!("Free scratchpads query: {}", query);
+
+        let mut scratchpads = Vec::new();
+        let results = self.store.query(query.as_str())?;
+        if let QueryResults::Solutions(solutions) = results {
+            for solution in solutions {
+                if let Ok(solution) = solution {
+                    if let Some(ref_term) = solution.get("pod_ref") {
+                        if let oxigraph::model::Term::NamedNode(ref_node) = ref_term {
+                            let ref_iri = ref_node.as_str();
+                            // Extract the address from the ant:// URI
+                            if let Some(address) = ref_iri.strip_prefix("ant://") {
+                                scratchpads.push(address.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        debug!("Found {} free scratchpads in pod {}", scratchpads.len(), pod_address);
+        Ok(scratchpads)
+    }
+
+    // Get all pointers from the graph data
+    pub fn get_pointers(&self, pod_address: &str) -> Result<Vec<String>, Error> {
+        let pod_iri = format!("ant://{}", pod_address);
+
+        // Query for all objects in the pod's named graph that are ant:// URIs
+        let query = format!(
+            "SELECT DISTINCT ?pod_ref WHERE {{ GRAPH <{}> {{ ?pod_ref <{}> <{}> . }} }}",
+            pod_iri, HAS_ADDR_TYPE, POD
+        );
+        debug!("Pointers query: {}", query);
+
+        let mut pointers = Vec::new();
+        let results = self.store.query(query.as_str())?;
+        if let QueryResults::Solutions(solutions) = results {
+            for solution in solutions {
+                if let Ok(solution) = solution {
+                    if let Some(ref_term) = solution.get("pod_ref") {
+                        if let oxigraph::model::Term::NamedNode(ref_node) = ref_term {
+                            let ref_iri = ref_node.as_str();
+                            // Extract the address from the ant:// URI
+                            if let Some(address) = ref_iri.strip_prefix("ant://") {
+                                pointers.push(address.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        debug!("Found {} pointers in pod {}", pointers.len(), pod_address);
+        Ok(pointers)
+    }
+
+    // Get all scratchpads from the graph data
+    pub fn get_scratchpads(&self, pod_address: &str) -> Result<Vec<String>, Error> {
+        let pod_iri = format!("ant://{}", pod_address);
+
+        // Query for all objects in the pod's named graph that are ant:// URIs
+        let query = format!(
+            "SELECT DISTINCT ?pod_ref WHERE {{ GRAPH <{}> {{ ?pod_ref <{}> <{}> . }} }}",
+            pod_iri, HAS_ADDR_TYPE, DATA
+        );
+        debug!("Scratchpads query: {}", query);
+
+        let mut scratchpads = Vec::new();
+        let results = self.store.query(query.as_str())?;
+        if let QueryResults::Solutions(solutions) = results {
+            for solution in solutions {
+                if let Ok(solution) = solution {
+                    if let Some(ref_term) = solution.get("pod_ref") {
+                        if let oxigraph::model::Term::NamedNode(ref_node) = ref_term {
+                            let ref_iri = ref_node.as_str();
+                            // Extract the address from the ant:// URI
+                            if let Some(address) = ref_iri.strip_prefix("ant://") {
+                                scratchpads.push(address.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        debug!("Found {} scratchpads in pod {}", scratchpads.len(), pod_address);
+        Ok(scratchpads)
+    }
+
+    // Get the key count from the graph data
+    pub fn get_key_count(&self, pod_address: &str) -> Result<u64, Error> {
+        let pod_iri = format!("ant://{}", pod_address);
+
+        let query = format!(
+            "SELECT ?count WHERE {{ GRAPH <{}> {{ <{}> <{}> ?count . }} }}",
+            pod_iri, pod_iri, KEY_COUNT
+        );
+        debug!("Key count query: {}", query);
+
+        let results = self.store.query(query.as_str())?;
+        if let QueryResults::Solutions(solutions) = results {
+            for solution in solutions {
+                if let Ok(solution) = solution {
+                    if let Some(count_term) = solution.get("count") {
+                        if let oxigraph::model::Term::Literal(literal) = count_term {
+                            if let Ok(count_value) = literal.value().parse::<u64>() {
+                                debug!("Found key count {} for pod {}", count_value, pod_address);
+                                return Ok(count_value);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(0)
     }
 
     // Get all subjects in a pod
@@ -1204,6 +1366,38 @@ impl Graph {
         let pod_node = NamedNodeRef::new(&pod_iri)?;
         self.store.clear_graph(pod_node)?;
         debug!("Cleared graph for pod: {}", pod_address);
+        Ok(())
+    }
+
+    pub fn use_free_pointer(&mut self, address: &str, configuration_address: &str) -> Result<(), Error> {
+        let address_iri = format!("ant://{}", address);
+        let address_iri = address_iri.as_str();
+        let configuration_iri = format!("ant://{}", configuration_address);
+        let configuration_iri = configuration_iri.as_str();
+
+        // Remove the pod from the configuration graph
+        let update = format!(
+            "DELETE WHERE {{ GRAPH <{}> {{ <{}> <{}> <{}> . }} }}",
+            configuration_iri, address_iri, HAS_ADDR_TYPE, FREED_POD
+        );
+        debug!("Delete pod from configuration graph string: {}", update);
+        self.store.update(update.as_str())?;
+        Ok(())
+    }
+
+    pub fn use_free_scratchpad(&mut self, address: &str, configuration_address: &str) -> Result<(), Error> {
+        let address_iri = format!("ant://{}", address);
+        let address_iri = address_iri.as_str();
+        let configuration_iri = format!("ant://{}", configuration_address);
+        let configuration_iri = configuration_iri.as_str();
+
+        // Remove the pod from the configuration graph
+        let update = format!(
+            "DELETE WHERE {{ GRAPH <{}> {{ <{}> <{}> <{}> . }} }}",
+            configuration_iri, address_iri, HAS_ADDR_TYPE, FREED_DATA
+        );
+        debug!("Delete pod from configuration graph string: {}", update);
+        self.store.update(update.as_str())?;
         Ok(())
     }
 
