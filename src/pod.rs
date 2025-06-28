@@ -717,9 +717,12 @@ impl<'a> PodManager<'a> {
 
     /// Sorts graph data to prioritize pod_index and pod_ref entries.
     ///
-    /// This function ensures that lines containing pod_index predicates appear first,
-    /// followed by lines containing pod_ref objects, with all other data following.
+    /// This function ensures that statements containing pod_index predicates appear first,
+    /// followed by statements containing pod_ref objects, with all other data following.
     /// This ordering is important for proper scratchpad linking and pod reference handling.
+    ///
+    /// The function properly handles multi-line TriG statements by grouping continuation
+    /// lines (those starting with whitespace) with their subject line.
     ///
     /// # Parameters
     ///
@@ -729,39 +732,79 @@ impl<'a> PodManager<'a> {
     ///
     /// Returns the sorted data as a string with prioritized entries first.
     pub fn sort_graph_data(&self, data: &str) -> String {
-        let mut lines: Vec<&str> = data.lines().collect();
+        let lines: Vec<&str> = data.lines().collect();
+        let mut statements: Vec<Vec<&str>> = Vec::new();
+        let mut current_statement: Vec<&str> = Vec::new();
 
-        // Sort lines with custom priority:
-        // 1. Lines containing pod_index predicate (highest priority)
-        // 2. Lines containing pod_ref object (medium priority)
-        // 3. All other lines (normal priority)
-        lines.sort_by(|a, b| {
-            let a_priority = self.get_line_priority(a);
-            let b_priority = self.get_line_priority(b);
+        // Group lines into statements (subject + continuation lines)
+        for line in lines {
+            if line.trim().is_empty() {
+                // Empty line - add to current statement if it exists, otherwise skip
+                if !current_statement.is_empty() {
+                    current_statement.push(line);
+                }
+            } else if line.starts_with(char::is_whitespace) {
+                // Continuation line (starts with whitespace) - add to current statement
+                if !current_statement.is_empty() {
+                    current_statement.push(line);
+                } else {
+                    // Orphaned continuation line - treat as new statement
+                    current_statement.push(line);
+                }
+            } else {
+                // New subject line - save previous statement and start new one
+                if !current_statement.is_empty() {
+                    statements.push(current_statement);
+                }
+                current_statement = vec![line];
+            }
+        }
+
+        // Don't forget the last statement
+        if !current_statement.is_empty() {
+            statements.push(current_statement);
+        }
+
+        // Sort statements based on the priority of their first (subject) line
+        statements.sort_by(|a, b| {
+            let a_priority = if !a.is_empty() { self.get_statement_priority(a) } else { 2 };
+            let b_priority = if !b.is_empty() { self.get_statement_priority(b) } else { 2 };
             a_priority.cmp(&b_priority)
         });
 
-        lines.join("\n")
+        // Reconstruct the sorted data
+        let mut result = Vec::new();
+        for statement in statements {
+            for line in statement {
+                result.push(line);
+            }
+        }
+
+        result.join("\n")
     }
 
-    /// Determines the sorting priority for a line of TriG data.
+    /// Determines the sorting priority for a TriG statement.
     ///
     /// # Parameters
     ///
-    /// * `line` - A single line from the TriG data
+    /// * `statement` - A vector of lines representing a complete TriG statement
     ///
     /// # Returns
     ///
     /// Returns a priority value where lower numbers indicate higher priority.
-    fn get_line_priority(&self, line: &str) -> u8 {
-        if line.contains(graph::HAS_INDEX) {
-            0 // Pod scratchpads should always be first in the scratchpad (pointer can only point to the first scratchpad)
-        } else if line.contains(graph::POD_REF) {
-            1 // Pod references are next for future enhancement to thread the data fetches
-        } else {
-            2 // Everything else in the pod
+    fn get_statement_priority(&self, statement: &[&str]) -> u8 {
+        // Check all lines in the statement for priority indicators
+        for line in statement {
+            if line.contains(graph::HAS_INDEX) {
+                return 0; // Pod scratchpads should always be first in the scratchpad (pointer can only point to the first scratchpad)
+            } else if line.contains(graph::POD_REF) {
+                return 1; // Pod references are next for future enhancement to thread the data fetches
+            }
         }
+        2 // Everything else in the pod
     }
+
+
 
     /// Splits data into chunks that fit within the scratchpad size limit.
     ///

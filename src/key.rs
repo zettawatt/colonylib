@@ -314,7 +314,7 @@ impl KeyStore {
                 let pubkey = pubkey.clone();
                 let key = key.clone();
                 self.free_scratchpads.remove(&pubkey);
-                self.pointers.insert(pubkey.clone(), key.clone());
+                self.scratchpads.insert(pubkey.clone(), key.clone());
                 debug!("Reusing unused key at address: {}", hex::encode(pubkey.clone()));
                 return Ok((hex::encode(pubkey),hex::encode(key)));
             },
