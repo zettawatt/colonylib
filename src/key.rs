@@ -234,6 +234,28 @@ impl KeyStore {
         }
     }
 
+    pub fn get_free_pointer_key(&self, pod_pubkey: String) -> Result<String, Error> {
+        let decoded_key = hex::decode(pod_pubkey.as_str())?;
+        match self.free_pointers.get(&decoded_key) {
+            Some(value) => {
+                debug!("Pointer key: {}", hex::encode(value));
+                Ok(hex::encode(value))
+            },
+            None => Err(Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Key not found"))),
+        }
+    }
+
+    pub fn get_free_scratchpad_key(&self, pod_pubkey: String) -> Result<String, Error> {
+        let decoded_key = hex::decode(pod_pubkey.as_str())?;
+        match self.free_scratchpads.get(&decoded_key) {
+            Some(value) => {
+                debug!("Scratchpad key: {}", hex::encode(value));
+                Ok(hex::encode(value))
+            },
+            None => Err(Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Key not found"))),
+        }
+    }
+
     pub fn get_bad_key(&self, pod_pubkey: String) -> Result<String, Error> {
         let decoded_key = hex::decode(pod_pubkey.as_str())?;
         match self.bad_keys.get(&decoded_key) {
@@ -331,6 +353,37 @@ impl KeyStore {
         let pod_pubkey: PublicKey = pod_key.clone().public_key();
         self.bad_keys.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
         Ok(pod_key.to_hex().to_string())
+    }
+
+    pub fn add_free_pointer_key(&mut self) -> Result<String, Error> {
+        let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
+        let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
+        let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
+        let num_keys = self.get_num_keys();
+        let pod_key: SecretKey = main_sk.derive_key(&index(num_keys)).into();
+        let pod_pubkey: PublicKey = pod_key.clone().public_key();
+        self.free_pointers.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
+        Ok(pod_key.to_hex().to_string())
+    }
+
+    pub fn add_free_scratchpad_key(&mut self) -> Result<String, Error> {
+        let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
+        let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
+        let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
+        let num_keys = self.get_num_keys();
+        let pod_key: SecretKey = main_sk.derive_key(&index(num_keys)).into();
+        let pod_pubkey: PublicKey = pod_key.clone().public_key();
+        self.free_scratchpads.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
+        Ok(pod_key.to_hex().to_string())
+    }
+
+    pub fn clear_keys(&mut self) -> Result<(), Error> {
+        self.pointers.clear();
+        self.scratchpads.clear();
+        self.bad_keys.clear();
+        self.free_pointers.clear();
+        self.free_scratchpads.clear();
+        Ok(())
     }
 
     pub fn get_num_pointer_keys(&self) -> u64 {

@@ -72,6 +72,8 @@ pub enum Error {
   Serde(#[from] SerdeError),
   #[error(transparent)]
   Graph(#[from] GraphError),
+  #[error("{0}")]
+  Pod(String),
 }
 
 #[derive(serde::Serialize)]
@@ -89,6 +91,7 @@ pub enum ErrorKind {
     Io(String),
     Serde(String),
     Graph(String),
+    Pod(String),
 }
 
 impl serde::Serialize for Error {
@@ -109,6 +112,7 @@ impl serde::Serialize for Error {
         Self::Io(_) => ErrorKind::Io(error_message),
         Self::Serde(_) => ErrorKind::Serde(error_message),
         Self::Graph(_) => ErrorKind::Graph(error_message),
+        Self::Pod(_) => ErrorKind::Pod(error_message),
       };
       error_kind.serialize(serializer)
     }
@@ -665,7 +669,7 @@ impl<'a> PodManager<'a> {
         // Create additional scratchpads if needed
         let mut all_scratchpads = current_scratchpads.clone();
         while all_scratchpads.len() < required_scratchpads {
-            let new_scratchpad = self.add_scratchpad().await?;
+            let new_scratchpad = self.add_scratchpad(pod_address).await?;
             let new_address = new_scratchpad.to_hex();
             all_scratchpads.push(new_address.clone());
 
@@ -675,6 +679,10 @@ impl<'a> PodManager<'a> {
             let index = (all_scratchpads.len() - 1).to_string();
 
             self.graph.put_quad(&scratchpad_iri, graph::HAS_INDEX, &index, Some(&pod_iri))?;
+
+            // Update the key count
+            let num_keys = self.key_store.get_num_keys();
+            self.graph.update_key_count(pod_address, num_keys)?;
         }
 
         // Sort the graph data to prioritize pod_index and pod_ref entries
@@ -688,7 +696,7 @@ impl<'a> PodManager<'a> {
             if i < all_scratchpads.len() {
                 let scratchpad_address = &all_scratchpads[i];
                 self.data_store.update_scratchpad_data(scratchpad_address.trim(), chunk)?;
-                //self.data_store.append_update_list(scratchpad_address.trim())?;
+                self.data_store.add_scratchpad_to_pod(pod_address, &scratchpad_address)?;
             }
         }
 
@@ -895,12 +903,12 @@ impl<'a> PodManager<'a> {
     /// - [`upload_all`] - Upload the new pod to the network
     /// - [`put_subject_data`] - Add data to the pod
     pub async fn add_pod(&mut self, pod_name: &str) -> Result<(String,String), Error> {
-        let scratchpad_address = self.add_scratchpad().await?;
-        let scratchpad_address = scratchpad_address.to_hex();
-        let scratchpad_address = scratchpad_address.as_str();
         let pod_address = self.add_pointer().await?;
         let pod_address = pod_address.to_hex();
         let pod_address = pod_address.as_str();
+        let scratchpad_address = self.add_scratchpad(pod_address).await?;
+        let scratchpad_address = scratchpad_address.to_hex();
+        let scratchpad_address = scratchpad_address.as_str();
 
         // Add the scratchpad address to the pointer files
         let _ = self.data_store.update_pointer_target(pod_address, scratchpad_address)?;
@@ -941,6 +949,11 @@ impl<'a> PodManager<'a> {
         let pod_address = pod_address.trim();
         let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
+
+        // Return an error if trying to remove the configuration pod
+        if pod_address == configuration_address {
+            return Err(Error::Pod("Cannot remove configuration pod".to_string()));
+        }
 
         // Check current scratchpads for this pod
         let pod_scratchpads = self.get_pod_scratchpads(pod_address)?
@@ -1095,14 +1108,14 @@ impl<'a> PodManager<'a> {
         Ok(())
     }
 
-    async fn add_scratchpad(&mut self) -> Result<ScratchpadAddress, Error> {
+    async fn add_scratchpad(&mut self, pod_address: &str) -> Result<ScratchpadAddress, Error> {
         // Derive a new key for the pod scratchpad
         let scratchpad_key: SecretKey = self.create_scratchpad_key().await?;
         let scratchpad_address: ScratchpadAddress = ScratchpadAddress::new(scratchpad_key.clone().public_key());
 
         // Create a new file in the pod directory from the address
         let _ = self.data_store.create_scratchpad_file(scratchpad_address.clone().to_hex().as_str())?;
-        //self.data_store.append_update_list(scratchpad_address.clone().to_hex().as_str())?;
+        self.data_store.add_scratchpad_to_pod(pod_address, &scratchpad_address.to_hex())?;
 
         Ok(scratchpad_address)
     }
@@ -1248,7 +1261,9 @@ impl<'a> PodManager<'a> {
     ///////////////////////////////////////////
     // Autonomi network operations
     ///////////////////////////////////////////
-     
+    
+    // Not used today, ignoring the unused warning
+    #[allow(dead_code)]
     async fn get_address_type(&mut self, address: &str) -> Result<(Analysis, bool), Error> {
         // get the type stored on the network
         let mut create_mode = false;
@@ -1358,7 +1373,7 @@ impl<'a> PodManager<'a> {
         // Remove pointers by updating them to point to themselves
         for pointer_address in &update_list.remove.pointers {
             debug!("Removing pointer: {}", pointer_address);
-            match self.update_pointer(pointer_address, pointer_address).await {
+            match self.remove_pointer(pointer_address, pointer_address).await {
                 Ok(_) => info!("Successfully removed pointer: {}", pointer_address),
                 Err(e) => {
                     match e {
@@ -1379,7 +1394,7 @@ impl<'a> PodManager<'a> {
         // Remove scratchpads by updating them with empty data
         for scratchpad_address in &update_list.remove.scratchpads {
             debug!("Removing scratchpad: {}", scratchpad_address);
-            match self.update_scratchpad(scratchpad_address, "").await {
+            match self.remove_scratchpad(scratchpad_address, "").await {
                 Ok(_) => info!("Successfully removed scratchpad: {}", scratchpad_address),
                 Err(e) => {
                     match e {
@@ -1619,6 +1634,7 @@ impl<'a> PodManager<'a> {
 
         // Update the pointer counter and target 
         self.client.pointer_update(&key, target).await?;
+        debug!("Pointer updated");
 
         // Update the local pointer file counter
         let pointer_count = pointer.counter() + 1;
@@ -1628,6 +1644,57 @@ impl<'a> PodManager<'a> {
 
     async fn update_scratchpad(&mut self, address: &str, data: &str) -> Result<(), Error> {
         let key_string = self.key_store.get_scratchpad_key(address.to_string())?;
+        let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
+
+        // get the scratchpad to make sure it exists and to get the current counter value
+        let scratchpad_address = ScratchpadAddress::from_hex(address)?;        // Lookup the key for the pod pointer from the key store
+        let scratchpad = self.client.scratchpad_get(&scratchpad_address).await?;
+
+        // Update the scratchpad contents and its counter
+        let scratchpad = Scratchpad::new_with_signature(
+            key.clone().public_key(),
+            0,
+            Bytes::from(data.to_owned()),
+            scratchpad.counter() + 1,
+            key.sign(Scratchpad::bytes_for_signature(
+                scratchpad_address.clone(),
+                0,
+                &Bytes::from(data.to_owned()),
+                scratchpad.counter() + 1,
+            )),
+        );
+
+        // Put the new scratchpad on the network
+        let payment_option = PaymentOption::from(self.wallet);
+        let (scratchpad_cost, _scratchpad_address) = self.client.scratchpad_put(scratchpad, payment_option.clone()).await?;
+        info!("Scratchpad update cost: {scratchpad_cost:?}");
+        debug!("Scratchpad updated");
+
+        Ok(())
+    }
+
+    async fn remove_pointer(&mut self, address: &str, target: &str) -> Result<(), Error> {
+        let key_string = self.key_store.get_free_pointer_key(address.to_string())?;
+        let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
+
+        let pointer_address = PointerAddress::from_hex(address)?;
+        let pointer = self.client.pointer_get(&pointer_address).await?;
+
+        // Create the target address
+        let target_address = ScratchpadAddress::from_hex(target)?;
+        let target = PointerTarget::ScratchpadAddress(target_address);
+
+        // Update the pointer counter and target 
+        self.client.pointer_update(&key, target).await?;
+
+        // Update the local pointer file counter
+        let pointer_count = pointer.counter() + 1;
+        self.data_store.update_pointer_count(address, pointer_count.into())?;
+        Ok(())
+    }
+
+    async fn remove_scratchpad(&mut self, address: &str, data: &str) -> Result<(), Error> {
+        let key_string = self.key_store.get_free_scratchpad_key(address.to_string())?;
         let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
 
         // get the scratchpad to make sure it exists and to get the current counter value
@@ -1745,6 +1812,7 @@ impl<'a> PodManager<'a> {
         // Get the configuration address
         let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
+        debug!("Refreshing configuration address: {}", configuration_address);
 
         // Download the configuration pod pointer
         let pointer_address = PointerAddress::from_hex(configuration_address)?;
@@ -1769,9 +1837,11 @@ impl<'a> PodManager<'a> {
             }
         };
 
+        debug!("Retrieved pointer. Update count: {}", pointer.counter());
         // Check if the pointer counter is newer than the local cache. If the pointer is older, we are done.
-        let local_pointer_count = self.data_store.get_pointer_count(configuration_address)?;
-        if pointer.counter() as u64 <= local_pointer_count {
+        // The MAX condition is the special case where the pointer file is not found and we always want to refresh
+        let local_pointer_count = self.data_store.get_pointer_count(configuration_address).unwrap_or_else(|_| std::u64::MAX);
+        if pointer.counter() as u64 <= local_pointer_count && local_pointer_count != std::u64::MAX {
             info!("Local pods are up to date, skipping refresh");
             return Ok(());
         }
@@ -1785,9 +1855,11 @@ impl<'a> PodManager<'a> {
                 return Ok(());
             }
         };
+        debug!("Retrieved scratchpad address: {}", target.to_hex());
 
         // Download the configuration pod data
         let data = self.combine_scratchpad_data(target).await?;
+        debug!("Retrieved scratchpad data");
 
         // Load the configuration pod data into the graph database
         self.load_pod_into_graph(configuration_address, data.trim())?;
@@ -1801,29 +1873,36 @@ impl<'a> PodManager<'a> {
 
         // Check if the update_list pods section contains any of the free pointers or scratchpads
         // If so, remove them from the free pointers and scratchpads lists
-        //FIXME: this isn't right, need to modify the scratchpad values since they are in a list
         let update_list = self.data_store.get_update_list()?;
-        for pod in update_list.pods.keys() {
-            if free_pointers.contains(pod) {
-                free_pointers.retain(|x| x != pod);
+        for (pod_address, scratchpad_addresses) in &update_list.pods {
+            // Check if the pod address itself is in free_pointers
+            if free_pointers.contains(pod_address) {
+                free_pointers.retain(|x| x != pod_address);
             }
-            if free_scratchpads.contains(pod) {
-                free_scratchpads.retain(|x| x != pod);
+
+            // Check if the pod address itself is in free_scratchpads
+            if free_scratchpads.contains(pod_address) {
+                free_scratchpads.retain(|x| x != pod_address);
+            }
+
+            // Check each scratchpad address associated with this pod
+            for scratchpad_address in scratchpad_addresses {
+                if free_pointers.contains(scratchpad_address) {
+                    free_pointers.retain(|x| x != scratchpad_address);
+                }
+                if free_scratchpads.contains(scratchpad_address) {
+                    free_scratchpads.retain(|x| x != scratchpad_address);
+                }
             }
         }
 
         // Remove the free pointers and scratchpads from the data store
-        for pointer in free_pointers {
+        for pointer in free_pointers.clone() {
             self.data_store.remove_pointer_file(pointer.trim())?;
         }
-        for scratchpad in free_scratchpads {
+        for scratchpad in free_scratchpads.clone() {
             self.data_store.remove_scratchpad_file(scratchpad.trim())?;
         }
-
-        // FIXME: need a routine to update the key_store arrays to match the graph data
-        // Basically, get all pointers, scratchpads, free pointers, and free scratchpads from the graph
-        // Then compare them to the key store and add as needed
-        // Use the KEY_COUNT predicate to determine the number of keys to derive
 
         // Clear out the key store pointers, scratchpads, free_pointers, free_scratchpads, and bad_keys hashmaps
         self.key_store.clear_keys()?;

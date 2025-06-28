@@ -180,6 +180,7 @@ impl Graph {
             graph_name_ref,
         );
         debug!("Creating quad: {:?}", quad);
+        self.store.remove(quad)?;
         self.store.insert(quad)?;
         Ok(quad.into_owned())
     }
@@ -221,9 +222,13 @@ impl Graph {
         let _quad = self.put_quad(pod_iri,HAS_CREATION_DATE,date,Some(pod_iri))?;
         let _quad = self.put_quad(pod_iri,HAS_MODIFIED_DATE,date,Some(pod_iri))?;
         // Scratchpad metadata
-        let _quad = self.put_quad(pod_iri,HAS_ADDR_TYPE,DATA,Some(configuration_iri))?;
+        let _quad = self.put_quad(scratchpad_iri,HAS_ADDR_TYPE,DATA,Some(configuration_iri))?;
         let _quad = self.put_quad(scratchpad_iri,HAS_INDEX, "0", Some(pod_iri))?;
+
+        //FIXME: only need to do this the first time the configuration graph is created. Future optimization
         let _quad = self.put_quad(configuration_scratchpad_iri,HAS_INDEX, "0", Some(configuration_iri))?;
+        let _quad = self.put_quad(configuration_scratchpad_iri,HAS_ADDR_TYPE, DATA, Some(configuration_iri))?;
+        let _quad = self.put_quad(configuration_iri,HAS_ADDR_TYPE, POD, Some(configuration_iri))?;
         debug!("Pod entries added");
 
         // Dump newly created graph in TriG format
@@ -294,8 +299,17 @@ impl Graph {
             "DELETE WHERE {{ GRAPH <{}> {{ <{}> ?p ?o . }} }}",
             configuration_iri, pod_iri
         );
-        debug!("Delete pod from configuration graph string: {}", update);
         self.store.update(update.as_str())?;
+
+        for scratchpad in pod_scratchpads.clone() {
+            let scratchpad_iri = format!("ant://{}", scratchpad);
+            let scratchpad_iri = scratchpad_iri.as_str();
+            let update = format!(
+                "DELETE WHERE {{ GRAPH <{}> {{ <{}> ?p ?o . }} }}",
+                configuration_iri, scratchpad_iri
+            );
+            self.store.update(update.as_str())?;
+        }
 
         // Set the pod_address and pod_scratchpads to UNUSED in the configuration graph
         let _quad = self.put_quad(pod_iri,HAS_ADDR_TYPE,FREED_POD,Some(configuration_iri))?;
