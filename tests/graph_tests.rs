@@ -3,11 +3,11 @@ use common::create_test_graph;
 
 macro_rules! PREDICATE {
     ($e:expr) => {
-        concat!("ant://colonylib/vocabulary/", "0.1/", "predicate#", $e)
+        concat!("ant://colonylib/", "v1/", $e)
     };
 }
 
-const HAS_POD_INDEX: &str = PREDICATE!("pod_index");
+const HAS_INDEX: &str = PREDICATE!("index");
 
 #[test]
 fn test_graph_creation() {
@@ -131,9 +131,9 @@ fn test_get_pod_references() {
     // Create a pod with some test data that includes references
     let trig_data = format!(r#"
         @prefix ant: <ant://> .
-            <ant://referenced_pod1> <ant://colonylib/vocabulary/0.1/predicate#addr_type> <ant://colonylib/vocabulary/0.1/object#pod_ref> .
-            <ant://referenced_pod2> <ant://colonylib/vocabulary/0.1/predicate#addr_type> <ant://colonylib/vocabulary/0.1/object#pod_ref> .
-            <ant://{}> <ant://colonylib/vocabulary/0.1/predicate#name> "Some Name" .
+            <ant://referenced_pod1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <ant://colonylib/v1/ref> .
+            <ant://referenced_pod2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <ant://colonylib/v1/ref> .
+            <ant://{}> <http://schema.org/name> "Some Name" .
     "#, pod_address);
 
     // Load the test data
@@ -349,7 +349,7 @@ fn test_get_pod_scratchpads() {
     // Add additional scratchpad to the pod
     let pod_iri = format!("ant://{}", pod_address);
     let scratchpad2_iri = format!("ant://{}", scratchpad2);
-    graph.put_quad(&scratchpad2_iri, HAS_POD_INDEX, "1", Some(&pod_iri)).unwrap();
+    graph.put_quad(&scratchpad2_iri, HAS_INDEX, "1", Some(&pod_iri)).unwrap();
 
     // Test getting scratchpads for the pod
     let scratchpads = graph.get_pod_scratchpads(pod_address).unwrap();
@@ -398,7 +398,7 @@ fn test_load_pod_into_graph() {
     let trig_data = format!(r#"
             <ant://test_subject> <ant://test_predicate> "test_object" .
             <ant://scratchpad123> <{}> "0" .
-    "#, HAS_POD_INDEX);
+    "#, HAS_INDEX);
 
     // Load the data into the graph
     let result = graph.load_pod_into_graph(pod_address, &trig_data);

@@ -100,6 +100,12 @@ The main entry point for colonylib is the `PodManager` struct, which provides a 
 // Create a new pod with a given name
 async fn add_pod(&mut self, pod_name: &str) -> Result<(String, String), Error>
 
+// Remove a pod and all its associated data
+async fn remove_pod(&mut self, pod_address: &str) -> Result<(), Error>
+
+// Rename an existing pod
+async fn rename_pod(&mut self, pod_address: &str, new_name: &str) -> Result<(), Error>
+
 // Create a reference from one pod to another
 fn add_pod_ref(&mut self, pod_address: &str, referenced_pod_address: &str) -> Result<(), Error>
 
@@ -456,6 +462,46 @@ pod_manager.upload_all().await?;
 // Later, refresh with references to discover connected pods
 pod_manager.refresh_ref(2).await?; // Depth 2 to include referenced pods
 ```
+
+#### Pod Management Operations
+
+Rename and remove pods as needed:
+
+```rust
+// Create a pod with an initial name
+let (pod_addr, _) = pod_manager.add_pod("Temporary Research").await?;
+
+// Add some metadata
+let metadata = json!({
+  "@context": {"schema": "http://schema.org/"},
+  "@type": "schema:SoftwareApplication",
+  "@id": "ant://cca4e991284bfd22005bd29884079154817c7f0c3ae09c1685ffa3764c6c1e83",
+  "schema:name": "colony-daemon",
+  "schema:description": "colony-daemon v0.1.2 x86_64 linux binary
+  "schema:operatingSystem": "Linux",
+  "schema:applicationCategory": "Application"
+});
+
+pod_manager.put_subject_data(&pod_addr, subject_address, &metadata.to_string()).await?;
+
+// Rename the pod to be more descriptive
+pod_manager.rename_pod(&pod_addr, "Climate Research Dataset").await?;
+
+// Upload the changes
+pod_manager.upload_all().await?;
+
+// Later, if the pod is no longer needed, remove it
+pod_manager.remove_pod(&pod_addr).await?;
+
+// Upload the removal to the network
+pod_manager.upload_all().await?;
+```
+
+**Important Notes:**
+- **Renaming**: Only changes the display name; the pod address remains the same
+- **Removal**: Completely removes the pod and all associated scratchpads
+- **Configuration pod**: The configuration pod cannot be removed (it's protected)
+- **Irreversible**: Once uploaded to the network, removals cannot be undone
 
 ### Offline-First User Support
 

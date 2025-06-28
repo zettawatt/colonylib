@@ -987,6 +987,72 @@ impl<'a> PodManager<'a> {
         Ok((pod_address.to_string(), scratchpad_address.to_string()))
     }
 
+    /// Removes a pod and all its associated data from the local store and network.
+    ///
+    /// This function completely removes a pod from the Colony system, including:
+    /// - Removing the pod entry from the graph database
+    /// - Removing all associated scratchpad data
+    /// - Removing the pod from the configuration pod's reference list
+    /// - Cleaning up local files and key store entries
+    /// - Adding addresses to the removal queue for network cleanup
+    ///
+    /// The pod will be marked for removal from the Autonomi network on the next call to `upload_all()`.
+    /// This operation cannot be undone once the changes are uploaded to the network.
+    ///
+    /// # Parameters
+    ///
+    /// * `pod_address` - The hexadecimal address of the pod to remove
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if the pod was successfully removed from local storage and queued for network removal.
+    ///
+    /// Returns an `Error` if:
+    /// - The pod address does not exist in the local store
+    /// - The pod address is the configuration pod (cannot be removed)
+    /// - Graph database operations fail
+    /// - Local file operations fail
+    /// - Key store operations fail
+    ///
+    /// # Safety
+    ///
+    /// - **Cannot remove configuration pod**: The configuration pod is protected and cannot be removed
+    /// - **Irreversible operation**: Once uploaded to the network, the pod removal cannot be undone
+    /// - **Cascading removal**: All scratchpads associated with the pod are also removed
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // Create a pod to demonstrate removal
+    /// let (pod_address, _) = pod_manager.add_pod("Temporary Pod").await?;
+    ///
+    /// // Add some data to the pod
+    /// let subject_data = r#"{
+    ///     "@context": {"schema": "http://schema.org/"},
+    ///     "@type": "schema:Document",
+    ///     "schema:name": "Temporary Document"
+    /// }"#;
+    /// pod_manager.put_subject_data(&pod_address, &pod_address, subject_data).await?;
+    ///
+    /// // Remove the pod (this only removes it locally and queues for network removal)
+    /// pod_manager.remove_pod(&pod_address).await?;
+    ///
+    /// // The pod is now removed from local storage but still exists on the network
+    /// // Upload the removal to the network
+    /// pod_manager.upload_all().await?;
+    ///
+    /// // Now the pod is completely removed from both local storage and the network
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`add_pod`] - Create a new pod
+    /// - [`rename_pod`] - Rename an existing pod
+    /// - [`upload_all`] - Upload pending removals to the network
+    /// - [`list_my_pods`] - List all local pods
     pub async fn remove_pod(&mut self, pod_address: &str) -> Result<(), Error> {
         let pod_address = self.graph.check_pod_exists(pod_address)?;
         let pod_address = pod_address.trim();
@@ -1012,6 +1078,64 @@ impl<'a> PodManager<'a> {
         Ok(())
     }
 
+    /// Renames an existing pod in the local store and queues the change for network upload.
+    ///
+    /// This function updates the human-readable name of a pod in the graph database.
+    /// The pod's address remains unchanged, but its display name is updated throughout
+    /// the system. The change will be uploaded to the Autonomi network on the next call
+    /// to `upload_all()`.
+    ///
+    /// # Parameters
+    ///
+    /// * `pod_address` - The hexadecimal address of the pod to rename
+    /// * `new_name` - The new human-readable name for the pod
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if the pod was successfully renamed in local storage and queued for network upload.
+    ///
+    /// Returns an `Error` if:
+    /// - The pod address does not exist in the local store
+    /// - Graph database operations fail
+    /// - Local file operations fail
+    /// - The new name is invalid or empty
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // Create a pod with an initial name
+    /// let (pod_address, _) = pod_manager.add_pod("Initial Name").await?;
+    ///
+    /// // Add some data to the pod
+    /// let subject_data = r#"{
+    ///     "@context": {"schema": "http://schema.org/"},
+    ///     "@type": "schema:Collection",
+    ///     "schema:name": "My Collection",
+    ///     "schema:description": "A collection of important items"
+    /// }"#;
+    /// pod_manager.put_subject_data(&pod_address, &pod_address, subject_data).await?;
+    ///
+    /// // Rename the pod to something more descriptive
+    /// pod_manager.rename_pod(&pod_address, "Important Documents Collection").await?;
+    ///
+    /// // The pod is now renamed locally, upload the change to the network
+    /// pod_manager.upload_all().await?;
+    ///
+    /// // Verify the new name appears in the pod list
+    /// let pods = pod_manager.list_my_pods().await?;
+    /// let renamed_pod = pods.iter().find(|p| p.address == pod_address).unwrap();
+    /// assert_eq!(renamed_pod.name, "Important Documents Collection");
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`add_pod`] - Create a new pod with a name
+    /// - [`remove_pod`] - Remove an existing pod
+    /// - [`list_my_pods`] - List all pods with their current names
+    /// - [`upload_all`] - Upload the name change to the network
     pub async fn rename_pod(&mut self, pod_address: &str, new_name: &str) -> Result<(), Error> {
         let pod_address = self.graph.check_pod_exists(pod_address)?;
         let pod_address = pod_address.trim();

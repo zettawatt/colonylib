@@ -35,9 +35,9 @@ fn test_pod_reference_extraction() {
     // Create test TriG data with references
     let trig_data = format!(r#"
         @prefix ant: <ant://> .
-            <ant://referenced_pod1> <ant://colonylib/vocabulary/0.1/predicate#addr_type> <ant://colonylib/vocabulary/0.1/object#pod_ref> .
-            <ant://referenced_pod2> <ant://colonylib/vocabulary/0.1/predicate#addr_type> <ant://colonylib/vocabulary/0.1/object#pod_ref> .
-            <ant://subject3> <ant://colonylib/vocabulary/0.1/predicate#name> "Test Name" .
+            <ant://referenced_pod1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <ant://colonylib/v1/ref> .
+            <ant://referenced_pod2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <ant://colonylib/v1/ref> .
+            <ant://subject3> <http://schema.org/name> "Test Name" .
     "#);
 
     // Load the test data
@@ -52,7 +52,7 @@ fn test_pod_reference_extraction() {
     assert!(references.contains(&"referenced_pod2".to_string()));
 
     // Should not contain vocabulary URIs
-    assert!(!references.iter().any(|r| r.contains("/vocabulary/")));
+    assert!(!references.iter().any(|r| r.contains("/v1/")));
 }
 
 #[test]
@@ -124,16 +124,17 @@ fn test_update_list_functionality() {
     let update_list_path = data_store.get_update_list_path();
     assert!(update_list_path.exists());
 
-    let content = std::fs::read_to_string(update_list_path).unwrap();
+    // Get the update list using the proper API
+    let update_list = data_store.get_update_list().unwrap();
     for addr in &addresses {
-        assert!(content.contains(addr));
+        assert!(update_list.pods.contains_key(*addr));
     }
 
     // Test duplicate prevention
     data_store.append_update_list("addr1").unwrap();
-    let content = std::fs::read_to_string(data_store.get_update_list_path()).unwrap();
-    let count = content.lines().filter(|line| *line == "addr1").count();
-    assert_eq!(count, 1);
+    let update_list = data_store.get_update_list().unwrap();
+    assert_eq!(update_list.pods.len(), 3); // Should still be 3, not 4
+    assert!(update_list.pods.contains_key("addr1"));
 }
 
 #[test]
@@ -157,7 +158,7 @@ fn test_graph_pod_entry_creation() {
     // The function creates data about the scratchpad, not the pod address directly
     assert!(trig_string.contains(&format!("ant://{}", scratchpad_address)));
     // Check for the actual predicate URIs
-    assert!(trig_string.contains("colonylib/vocabulary") || config_string.contains("colonylib/vocabulary"));
+    assert!(trig_string.contains("colonylib/v1") || config_string.contains("colonylib/v1"));
     // Note: depth is stored in the default graph, not in the pod's named graph
     // so it won't appear in the TriG output for the specific pod graph
 
