@@ -1462,7 +1462,8 @@ impl<'a> PodManager<'a> {
     /// - [`search`] - Search across all pods
     /// - [`refresh_cache`] - Update the list with network changes
     pub fn list_my_pods(&self) -> Result<Value, Error> {
-        let search_results = self.graph.get_my_pods()?;
+        let configuration_address = self.key_store.get_configuration_address()?;
+        let search_results = self.graph.get_my_pods(configuration_address.as_str())?;
 
         // Parse the SPARQL JSON results and return them
         let results: Value = serde_json::from_str(&search_results)?;
@@ -2723,5 +2724,85 @@ impl<'a> PodManager<'a> {
         }
 
         Ok(())
+    }
+    /// Returns the current update list in JSON format
+    /// 
+    /// # Returns
+    /// 
+    /// Returns a JSON object containing the update list, or an `Error` if:
+    /// - The update list cannot be read from local storage
+    /// - JSON serialization fails
+    /// 
+    /// # Example
+    /// 
+    /// ```ignore
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// let update_list = pod_manager.get_update_list()?;
+    /// println!("Update list: {}", serde_json::to_string_pretty(&update_list)?);
+    /// # Ok(())
+    /// # }
+    /// ```
+    /// 
+    /// # Related Functions
+    /// 
+    /// - [`upload_all`] - Uploads all pending changes to the network
+    /// - [`refresh_cache`] - Downloads updates from the network
+    /// - [`refresh_ref`] - Downloads referenced pods from the network
+    /// - [`add_pod`] - Creates a new pod that needs uploading
+    /// - [`put_subject_data`] - Adds data to a pod that needs uploading
+    /// - [`remove_pod`] - Removes a pod that needs uploading
+    /// - [`rename_pod`] - Renames a pod that needs uploading
+    /// - [`add_pod_ref`] - Adds a pod reference that needs uploading
+    /// - [`remove_pod_ref`] - Removes a pod reference that needs uploading
+    /// 
+    /// # JSON Format
+    /// 
+    /// The returned JSON object has the following structure:
+    /// ```json
+    /// {
+    ///     "update": ["pod_address_1", "pod_address_2", ...],
+    ///     "remove": ["pod_address_3", "pod_address_4", ...]
+    /// }
+    /// ```
+    /// 
+    /// The "update" array contains addresses of pods that need to be updated or created on the network.
+    /// The "remove" array contains addresses of pods that need to be removed from the network.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns an error if:
+    /// - The update list cannot be read from local storage
+    /// - JSON serialization fails
+    /// 
+    /// # Example
+    /// 
+    /// ```ignore
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// let update_list = pod_manager.get_update_list()?;
+    /// println!("Update list: {}", serde_json::to_string_pretty(&update_list)?);
+    /// # Ok(())
+    /// # }
+    /// ```
+    /// 
+    pub fn get_update_list(&self) -> Result<Value, Error> {
+        let update_list = self.data_store.get_update_list()?;
+
+        // Restructure the update list to match the expected JSON format
+        // There are 2 main keys: "update" and "remove"
+        // "update" contains an array of pod addresses to update or create
+        // "remove" contains an array of pod address to remove
+
+        let mut update_list_json = serde_json::Map::new();
+        let mut update_array = Vec::new();
+        for pod_address in update_list.pods.keys() {
+            update_array.push(Value::String(pod_address.to_string()));
+        }
+        update_list_json.insert("update".to_string(), Value::Array(update_array));
+        let mut remove_array = Vec::new();
+        for pod_address in update_list.remove.pointers {
+            remove_array.push(Value::String(pod_address));
+        }
+        update_list_json.insert("remove".to_string(), Value::Array(remove_array));
+        Ok(Value::Object(update_list_json))
     }
 }

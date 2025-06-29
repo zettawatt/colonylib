@@ -245,6 +245,12 @@ impl Graph {
             POD,
             Some(configuration_iri),
         )?;
+        let _quad = self.put_quad(
+            configuration_iri,
+            HAS_NAME,
+            "User Configuration",
+            Some(configuration_iri),
+        )?;
         debug!("Pod entries added");
 
         // Dump newly created graph in TriG format
@@ -922,7 +928,10 @@ impl Graph {
     }
 
     // Get all of the user's pods
-    pub fn get_my_pods(&self) -> Result<String, Error> {
+    pub fn get_my_pods(&self, configuration_address: &str) -> Result<String, Error> {
+        let configuration_iri = format!("ant://{configuration_address}");
+        let configuration_iri = configuration_iri.as_str();
+
         // Query for all subjects that have HAS_ADDR_TYPE predicate with POD object
         // Returns all information stored in all graphs for these subjects
         let query = format!(
@@ -930,7 +939,7 @@ impl Graph {
             SELECT DISTINCT ?subject ?predicate ?object ?graph WHERE {{
                 {{
                     SELECT DISTINCT ?subject WHERE {{
-                        GRAPH ?filter_graph {{
+                        GRAPH <{configuration_iri}> {{
                             ?subject <{HAS_ADDR_TYPE}> <{POD}> .
                         }}
                     }}
