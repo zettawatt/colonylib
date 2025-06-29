@@ -28,6 +28,12 @@ fn test_key_store_to_and_from_file() {
 
     let loaded_key_store = KeyStore::from_file(&mut file, password).unwrap();
 
-    assert_eq!(key_store.get_seed_phrase(), loaded_key_store.get_seed_phrase());
-    assert_eq!(key_store.get_pointers().len(), loaded_key_store.get_pointers().len());
+    assert_eq!(
+        key_store.get_seed_phrase(),
+        loaded_key_store.get_seed_phrase()
+    );
+    assert_eq!(
+        key_store.get_pointers().len(),
+        loaded_key_store.get_pointers().len()
+    );
 }

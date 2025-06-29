@@ -1,27 +1,28 @@
+use autonomi::{Client, Wallet};
+use colonylib::{DataStore, Graph, KeyStore, PodManager};
 use ruint::Uint;
-use autonomi::{Wallet, Client};
-use colonylib::{KeyStore, PodManager, DataStore, Graph};
-use tokio;
-use tracing::{Level};
-use tracing_subscriber::{filter, prelude::*};
+
 use serde_json::json;
+use tracing::Level;
+use tracing_subscriber::{filter, prelude::*};
 
 // ETH wallet for local testnet
-const LOCAL_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+const LOCAL_PRIVATE_KEY: &str =
+    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const PASSWORD: &str = "password";
 
 #[tokio::main]
 async fn main() {
-    
     let subscriber = tracing_subscriber::registry()
-        .with(filter::Targets::new()
-            .with_target("colonylib", Level::DEBUG) // INFO level for colonylib
-            .with_target("main", Level::INFO)      // INFO level for main.rs
-            .with_default(Level::ERROR))          // ERROR level for other modules
+        .with(
+            filter::Targets::new()
+                .with_target("colonylib", Level::DEBUG) // INFO level for colonylib
+                .with_target("main", Level::INFO) // INFO level for main.rs
+                .with_default(Level::ERROR),
+        ) // ERROR level for other modules
         .with(tracing_subscriber::fmt::layer());
-    
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("setting default subscriber failed");
+
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     println!("Setting up network connection...");
     let environment = "local".to_string();
@@ -41,12 +42,16 @@ async fn main() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         &mut KeyStore::from_mnemonic(mnemonic).unwrap()
     };
-    let _ = key_store.set_wallet_key(LOCAL_PRIVATE_KEY.to_string()).unwrap();
+    key_store
+        .set_wallet_key(LOCAL_PRIVATE_KEY.to_string())
+        .unwrap();
 
     let graph_path = data_store.get_graph_path();
     let graph = &mut Graph::open(&graph_path).unwrap();
 
-    let mut podman = PodManager::new(client, wallet, data_store, key_store, graph).await.unwrap();
+    let mut podman = PodManager::new(client, wallet, data_store, key_store, graph)
+        .await
+        .unwrap();
     println!("Network connection established");
 
     // Add pod 1 with ant girl image metadata
@@ -65,11 +70,15 @@ async fn main() {
     });
     let file_data1_str = serde_json::to_string(&file_data1).unwrap();
     println!("Adding file data to Pod 1: {}", file_data1_str);
-    
-    let _ = podman.put_subject_data(
-        pointer_address1.trim(),
-        "4467c38f2591ddf840161dfd8536bfff594be4e455bf2630e841de846d49029a",
-        &file_data1_str).await.unwrap();
+
+    podman
+        .put_subject_data(
+            pointer_address1.trim(),
+            "4467c38f2591ddf840161dfd8536bfff594be4e455bf2630e841de846d49029a",
+            &file_data1_str,
+        )
+        .await
+        .unwrap();
 
     // Add pod 2 with audio file metadata
     println!("\n=== Adding Pod 2 ===");
@@ -87,15 +96,19 @@ async fn main() {
     });
     let file_data2_str = serde_json::to_string(&file_data2).unwrap();
     println!("Adding file data to Pod 2: {}", file_data2_str);
-    
-    let _ = podman.put_subject_data(
-        pointer_address2.trim(),
-        "c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59",
-        &file_data2_str).await.unwrap();
+
+    podman
+        .put_subject_data(
+            pointer_address2.trim(),
+            "c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59",
+            &file_data2_str,
+        )
+        .await
+        .unwrap();
 
     // Upload both pods to the network
     println!("\n=== Uploading Pods to Network ===");
-    let _ = podman.upload_all().await.unwrap();
+    podman.upload_all().await.unwrap();
     println!("Successfully uploaded all pods to the network!");
 
     // Wait for replication
@@ -115,11 +128,15 @@ async fn main() {
     });
     let file_data2_str = serde_json::to_string(&file_data2).unwrap();
     println!("Adding additional file data to Pod 2: {}", file_data2_str);
-    
-    let _ = podman.put_subject_data(
-        pointer_address2.trim(),
-        "01bd818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59",
-        &file_data2_str).await.unwrap();
+
+    podman
+        .put_subject_data(
+            pointer_address2.trim(),
+            "01bd818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59",
+            &file_data2_str,
+        )
+        .await
+        .unwrap();
 
     println!("\n=== Get Pod Subjects ===");
     // Get subjects from Pod 2
@@ -132,11 +149,14 @@ async fn main() {
     println!("\n=== List My Pods ===");
     // List all pods in the wallet
     let my_pods = podman.list_my_pods().unwrap();
-    println!("My pods results: {}", serde_json::to_string_pretty(&my_pods).unwrap());
+    println!(
+        "My pods results: {}",
+        serde_json::to_string_pretty(&my_pods).unwrap()
+    );
 
     // Upload both pods to the network
     println!("\n=== Uploading Pods to Network ===");
-    let _ = podman.upload_all().await.unwrap();
+    podman.upload_all().await.unwrap();
     println!("Successfully uploaded all pods to the network!");
 
     // Wait for replication
@@ -145,30 +165,33 @@ async fn main() {
 
     println!("\n=== Summary ===");
     println!("Pod 1 (ant_girl.png): {}", pointer_address1);
-    println!("Pod 2 (BegBlag.mp3 and something.mp3): {}", pointer_address2);
+    println!(
+        "Pod 2 (BegBlag.mp3 and something.mp3): {}",
+        pointer_address2
+    );
     println!("Both pods have been successfully created and uploaded to the network.");
 }
 
 // Get balance of gas tokens in wallet
 #[allow(dead_code)]
-async fn get_balance_of_gas_tokens (wallet: &Wallet) -> Result<f64, String> {
+async fn get_balance_of_gas_tokens(wallet: &Wallet) -> Result<f64, String> {
     let balance: Uint<256, 4> = wallet.balance_of_gas_tokens().await.map_err(|e| {
-            println!("Error getting balance of gas tokens: {e}");
-            format!("Error getting balance of gas tokens: {e}")
-        })?;
-    let balance: f64 = balance.try_into().unwrap_or(0f64);
+        println!("Error getting balance of gas tokens: {e}");
+        format!("Error getting balance of gas tokens: {e}")
+    })?;
+    let balance: f64 = balance.into();
     let balance: f64 = balance / 1_000_000_000_000_000_000.0f64;
     Ok(balance)
 }
 
 // Get balance of ANT tokens in wallet
 #[allow(dead_code)]
-async fn get_balance_of_tokens (wallet: &Wallet) -> Result<f64, String> {
+async fn get_balance_of_tokens(wallet: &Wallet) -> Result<f64, String> {
     let balance: Uint<256, 4> = wallet.balance_of_tokens().await.map_err(|e| {
-            println!("Error getting balance of gas tokens: {e}");
-            format!("Error getting balance of gas tokens: {e}")
-        })?;
-    let balance: f64 = balance.try_into().unwrap_or(0f64);
+        println!("Error getting balance of gas tokens: {e}");
+        format!("Error getting balance of gas tokens: {e}")
+    })?;
+    let balance: f64 = balance.into();
     let balance: f64 = balance / 1_000_000_000_000_000_000.0f64;
     Ok(balance)
 }

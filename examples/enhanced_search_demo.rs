@@ -12,14 +12,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create some test pods with different depths
     let pod1 = "music_collection_depth_0";
-    let pod2 = "music_reviews_depth_1"; 
+    let pod2 = "music_reviews_depth_1";
     let pod3 = "artist_info_depth_2";
     let num_keys = 0;
 
     // Add pods with content
-    graph.add_pod_entry("Music Collection", pod1, "scratchpad1", "config1", "config_scratchpad1", num_keys)?;
-    graph.add_pod_entry("Music Reviews", pod2, "scratchpad2", "config2", "config_scratchpad2", num_keys+2)?;
-    graph.add_pod_entry("Artist Info", pod3, "scratchpad3", "config3", "config_scratchpad3", num_keys+4)?;
+    graph.add_pod_entry(
+        "Music Collection",
+        pod1,
+        "scratchpad1",
+        "config1",
+        "config_scratchpad1",
+        num_keys,
+    )?;
+    graph.add_pod_entry(
+        "Music Reviews",
+        pod2,
+        "scratchpad2",
+        "config2",
+        "config_scratchpad2",
+        num_keys + 2,
+    )?;
+    graph.add_pod_entry(
+        "Artist Info",
+        pod3,
+        "scratchpad3",
+        "config3",
+        "config_scratchpad3",
+        num_keys + 4,
+    )?;
 
     // Set different depths
     graph.update_pod_depth(pod1, "config1", 0)?;
@@ -32,20 +53,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pod3_iri = format!("ant://{}", pod3);
 
     // Pod 1 (depth 0): Contains "beatles" and "abbey" (2 matches for "beatles abbey road")
-    graph.put_quad("ant://album1", "ant://title", "The Beatles Abbey Road", Some(&pod1_iri))?;
-    graph.put_quad("ant://album2", "ant://title", "The Beatles White Album", Some(&pod1_iri))?;
-    
+    graph.put_quad(
+        "ant://album1",
+        "ant://title",
+        "The Beatles Abbey Road",
+        Some(&pod1_iri),
+    )?;
+    graph.put_quad(
+        "ant://album2",
+        "ant://title",
+        "The Beatles White Album",
+        Some(&pod1_iri),
+    )?;
+
     // Pod 2 (depth 1): Contains "beatles", "abbey", and "road" (3 matches for "beatles abbey road")
-    graph.put_quad("ant://review1", "ant://content", "The Beatles recorded Abbey Road album in 1969", Some(&pod2_iri))?;
-    graph.put_quad("ant://review2", "ant://content", "Abbey Road is considered their masterpiece", Some(&pod2_iri))?;
-    
+    graph.put_quad(
+        "ant://review1",
+        "ant://content",
+        "The Beatles recorded Abbey Road album in 1969",
+        Some(&pod2_iri),
+    )?;
+    graph.put_quad(
+        "ant://review2",
+        "ant://content",
+        "Abbey Road is considered their masterpiece",
+        Some(&pod2_iri),
+    )?;
+
     // Pod 3 (depth 2): Contains only "beatles" (1 match for "beatles abbey road")
-    graph.put_quad("ant://artist1", "ant://name", "The Beatles", Some(&pod3_iri))?;
-    graph.put_quad("ant://artist2", "ant://name", "Led Zeppelin", Some(&pod3_iri))?;
+    graph.put_quad(
+        "ant://artist1",
+        "ant://name",
+        "The Beatles",
+        Some(&pod3_iri),
+    )?;
+    graph.put_quad(
+        "ant://artist2",
+        "ant://name",
+        "Led Zeppelin",
+        Some(&pod3_iri),
+    )?;
 
     println!("Added content to pods:");
     println!("- Pod 1 (depth 0): 'The Beatles Abbey Road', 'The Beatles White Album'");
-    println!("- Pod 2 (depth 1): 'The Beatles recorded Abbey Road album in 1969', 'Abbey Road is considered their masterpiece'");
+    println!(
+        "- Pod 2 (depth 1): 'The Beatles recorded Abbey Road album in 1969', 'Abbey Road is considered their masterpiece'"
+    );
     println!("- Pod 3 (depth 2): 'The Beatles', 'Led Zeppelin'");
     println!();
 
@@ -66,16 +119,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("===============");
     for (i, binding) in bindings.iter().enumerate() {
         let text = binding["object"]["value"].as_str().unwrap_or("");
-        let match_count = binding.get("match_count")
+        let match_count = binding
+            .get("match_count")
             .and_then(|v| v.get("value"))
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
-        let depth = binding.get("depth")
+        let depth = binding
+            .get("depth")
             .and_then(|v| v.get("value"))
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
-        
-        println!("{}. '{}' (matches: {}, depth: {})", i + 1, text, match_count, depth);
+
+        println!(
+            "{}. '{}' (matches: {}, depth: {})",
+            i + 1,
+            text,
+            match_count,
+            depth
+        );
     }
 
     println!();
@@ -96,27 +157,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let quoted_search_results = graph.search_content(r#"beatles "abbey road""#, Some(10))?;
     let quoted_json_result: serde_json::Value = serde_json::from_str(&quoted_search_results)?;
-    let quoted_bindings = quoted_json_result["results"]["bindings"].as_array().unwrap();
+    let quoted_bindings = quoted_json_result["results"]["bindings"]
+        .as_array()
+        .unwrap();
 
     println!("Quoted Search Results:");
     println!("=====================");
     for (i, binding) in quoted_bindings.iter().enumerate() {
         let text = binding["object"]["value"].as_str().unwrap_or("");
-        let match_count = binding.get("match_count")
+        let match_count = binding
+            .get("match_count")
             .and_then(|v| v.get("value"))
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
-        let depth = binding.get("depth")
+        let depth = binding
+            .get("depth")
             .and_then(|v| v.get("value"))
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
 
-        println!("{}. '{}' (matches: {}, depth: {})", i + 1, text, match_count, depth);
+        println!(
+            "{}. '{}' (matches: {}, depth: {})",
+            i + 1,
+            text,
+            match_count,
+            depth
+        );
     }
 
     println!();
     println!("Notice how:");
-    println!("- 'The Beatles Abbey Road' matches both 'beatles' and 'abbey road' phrase (2 matches)");
+    println!(
+        "- 'The Beatles Abbey Road' matches both 'beatles' and 'abbey road' phrase (2 matches)"
+    );
     println!("- 'The Beatles recorded Abbey Road album' matches both terms (2 matches)");
     println!("- 'Abbey Road is considered...' matches only the 'abbey road' phrase (1 match)");
     println!("- 'The Beatles' matches only 'beatles' (1 match)");

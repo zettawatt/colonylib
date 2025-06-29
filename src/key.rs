@@ -1,20 +1,20 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use bip39::{Mnemonic, Language};
-use bip39::Error as Bip39Error;
 use autonomi::client::key_derivation::{DerivationIndex, MainSecretKey};
-use autonomi::{SecretKey, PublicKey};
+use autonomi::{PublicKey, SecretKey};
+use bip39::Error as Bip39Error;
+use bip39::{Language, Mnemonic};
+use blsttc::Error as BlsttcError;
+use borsh::{BorshDeserialize, BorshSerialize};
 use cocoon::Cocoon;
 use cocoon::Error as CocoonError;
-use std::collections::HashMap;
-use std::io::Error as IoError;
-use std::fmt;
-use blsttc::Error as BlsttcError;
+use hex;
+use serde;
 use sn_bls_ckd::derive_master_sk;
 use sn_curv::elliptic::curves::ECScalar;
-use hex;
-use tracing::{debug, error, info, warn, instrument};
+use std::collections::HashMap;
+use std::fmt;
+use std::io::Error as IoError;
 use thiserror;
-use serde;
+use tracing::{debug, error, info, instrument, warn};
 
 // Error handling
 #[derive(Debug, thiserror::Error)]
@@ -47,20 +47,19 @@ pub enum ErrorKind {
 impl serde::Serialize for Error {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-      S: serde::ser::Serializer,
+        S: serde::ser::Serializer,
     {
-      let error_message = self.to_string();
-      let error_kind = match self {
-        Self::Cocoon(_) => ErrorKind::Cocoon(error_message),
-        Self::Io(_) => ErrorKind::Io(error_message),
-        Self::Bip39(_) => ErrorKind::Bip39(error_message),
-        Self::Blsttc(_) => ErrorKind::Blsttc(error_message),
-        Self::Hex(_) => ErrorKind::Hex(error_message),
-      };
-      error_kind.serialize(serializer)
+        let error_message = self.to_string();
+        let error_kind = match self {
+            Self::Cocoon(_) => ErrorKind::Cocoon(error_message),
+            Self::Io(_) => ErrorKind::Io(error_message),
+            Self::Bip39(_) => ErrorKind::Bip39(error_message),
+            Self::Blsttc(_) => ErrorKind::Blsttc(error_message),
+            Self::Hex(_) => ErrorKind::Hex(error_message),
+        };
+        error_kind.serialize(serializer)
     }
-  }
-
+}
 
 #[derive(BorshDeserialize, BorshSerialize, Clone)]
 pub struct KeyStore {
@@ -89,8 +88,11 @@ impl fmt::Debug for KeyStore {
 
 impl KeyStore {
     #[instrument]
-    pub fn from_file<R: std::io::Read + std::fmt::Debug>(file: &mut R, password: &str) -> Result<Self, Error> {
-        let cocoon = Cocoon::new(&password.as_bytes());
+    pub fn from_file<R: std::io::Read + std::fmt::Debug>(
+        file: &mut R,
+        password: &str,
+    ) -> Result<Self, Error> {
+        let cocoon = Cocoon::new(password.as_bytes());
         let encoded = cocoon.parse(file).map_err(Error::Cocoon)?;
         debug!("Read from file: {:?}", file);
         let key_store = KeyStore::try_from_slice(&encoded)?;
@@ -100,8 +102,12 @@ impl KeyStore {
     }
 
     #[instrument]
-    pub fn to_file<W: std::io::Write + std::fmt::Debug>(&self, file: &mut W, password: &str) -> Result<(), Error> {
-        let mut cocoon = Cocoon::new(&password.as_bytes());
+    pub fn to_file<W: std::io::Write + std::fmt::Debug>(
+        &self,
+        file: &mut W,
+        password: &str,
+    ) -> Result<(), Error> {
+        let mut cocoon = Cocoon::new(password.as_bytes());
         let encoded = borsh::to_vec(&self)?;
         cocoon.dump(encoded, file).map_err(Error::Cocoon)?;
         debug!("Wrote to file: {:?}", file);
@@ -111,7 +117,6 @@ impl KeyStore {
 
     #[instrument]
     pub fn from_mnemonic(mnemonic: &str) -> Result<Self, Error> {
-
         // Generate a new mnemonic from the given phrase
         let mnemonic = Mnemonic::parse_in_normalized(Language::English, mnemonic)?;
         let seed = mnemonic.to_seed_normalized("");
@@ -129,12 +134,11 @@ impl KeyStore {
         let hex_key = hex::encode(secret_key.to_bytes());
         let hex_key = hex_key.as_str();
 
-        Ok(Self::from_hex(hex_key, mnemonic.to_string().as_str())?)
+        Self::from_hex(hex_key, mnemonic.to_string().as_str())
     }
 
     #[instrument]
     pub fn from_hex(key: &str, mnemonic: &str) -> Result<Self, Error> {
-
         let secret_key = SecretKey::from_hex(key)?;
 
         // Generate a new main keys from the mnemonic
@@ -165,11 +169,26 @@ impl KeyStore {
             wallet_key: SecretKey::default().to_bytes().to_vec(),
             mnemonic: mnemonic.to_string(),
             main_sk: main_sk.to_bytes(),
-            pointers: pointers.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect(),
-            scratchpads: scratchpads.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect(),
-            bad_keys: bad_keys.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect(),
-            free_pointers: free_pointers.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect(),
-            free_scratchpads: free_scratchpads.iter().map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec())).collect(),
+            pointers: pointers
+                .iter()
+                .map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec()))
+                .collect(),
+            scratchpads: scratchpads
+                .iter()
+                .map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec()))
+                .collect(),
+            bad_keys: bad_keys
+                .iter()
+                .map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec()))
+                .collect(),
+            free_pointers: free_pointers
+                .iter()
+                .map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec()))
+                .collect(),
+            free_scratchpads: free_scratchpads
+                .iter()
+                .map(|(k, v)| (k.to_bytes().to_vec(), v.to_bytes().to_vec()))
+                .collect(),
         })
     }
 
@@ -192,7 +211,11 @@ impl KeyStore {
 
     pub fn get_configuration_address(&self) -> Result<String, Error> {
         // Get the first derived key
-        let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
+        let main_sk_array: [u8; 32] = self
+            .main_sk
+            .clone()
+            .try_into()
+            .expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
         let key: SecretKey = main_sk.derive_key(&index(0)).into();
@@ -203,7 +226,11 @@ impl KeyStore {
 
     pub fn get_configuration_scratchpad_address(&self) -> Result<String, Error> {
         // Get the first derived key
-        let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
+        let main_sk_array: [u8; 32] = self
+            .main_sk
+            .clone()
+            .try_into()
+            .expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
         let key: SecretKey = main_sk.derive_key(&index(1)).into();
@@ -218,8 +245,11 @@ impl KeyStore {
             Some(value) => {
                 debug!("Pointer key: {}", hex::encode(value));
                 Ok(hex::encode(value))
-            },
-            None => Err(Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Key not found"))),
+            }
+            None => Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Key not found",
+            ))),
         }
     }
 
@@ -229,8 +259,11 @@ impl KeyStore {
             Some(value) => {
                 debug!("Scratchpad key: {}", hex::encode(value));
                 Ok(hex::encode(value))
-            },
-            None => Err(Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Key not found"))),
+            }
+            None => Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Key not found",
+            ))),
         }
     }
 
@@ -240,8 +273,11 @@ impl KeyStore {
             Some(value) => {
                 debug!("Pointer key: {}", hex::encode(value));
                 Ok(hex::encode(value))
-            },
-            None => Err(Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Key not found"))),
+            }
+            None => Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Key not found",
+            ))),
         }
     }
 
@@ -251,8 +287,11 @@ impl KeyStore {
             Some(value) => {
                 debug!("Scratchpad key: {}", hex::encode(value));
                 Ok(hex::encode(value))
-            },
-            None => Err(Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Key not found"))),
+            }
+            None => Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Key not found",
+            ))),
         }
     }
 
@@ -262,34 +301,47 @@ impl KeyStore {
             Some(value) => {
                 debug!("Bad key: {}", hex::encode(value));
                 Ok(hex::encode(value))
-            },
-            None => Err(Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Key not found"))),
+            }
+            None => Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Key not found",
+            ))),
         }
     }
 
-    pub fn add_pointer_key(&mut self) -> Result<(String,String), Error> {
+    pub fn add_pointer_key(&mut self) -> Result<(String, String), Error> {
         // Check for unused keys first
         let key_pair = self.free_pointers.iter().next();
-        match key_pair {
-            Some((pubkey, key)) => {
-                let pubkey = pubkey.clone();
-                let key = key.clone();
-                self.free_pointers.remove(&pubkey);
-                self.pointers.insert(pubkey.clone(), key.clone());
-                debug!("Reusing unused key at address: {}", hex::encode(pubkey.clone()));
-                return Ok((hex::encode(pubkey),hex::encode(key)));
-            },
-            None => {},
+        if let Some((pubkey, key)) = key_pair {
+            let pubkey = pubkey.clone();
+            let key = key.clone();
+            self.free_pointers.remove(&pubkey);
+            self.pointers.insert(pubkey.clone(), key.clone());
+            debug!(
+                "Reusing unused key at address: {}",
+                hex::encode(pubkey.clone())
+            );
+            return Ok((hex::encode(pubkey), hex::encode(key)));
         }
 
-        let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
+        let main_sk_array: [u8; 32] = self
+            .main_sk
+            .clone()
+            .try_into()
+            .expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
         let num_keys = self.get_num_keys();
         let pod_key: SecretKey = main_sk.derive_key(&index(num_keys)).into();
         let pod_pubkey: PublicKey = pod_key.clone().public_key();
-        self.pointers.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
-        Ok((pod_pubkey.to_hex().to_string(),pod_key.to_hex().to_string()))
+        self.pointers.insert(
+            pod_pubkey.to_bytes().to_vec(),
+            pod_key.clone().to_bytes().to_vec(),
+        );
+        Ok((
+            pod_pubkey.to_hex().to_string(),
+            pod_key.to_hex().to_string(),
+        ))
     }
 
     pub fn remove_pointer_key(&mut self, address: &str) -> Result<(), Error> {
@@ -298,36 +350,49 @@ impl KeyStore {
         match key {
             Some(value) => {
                 self.free_pointers.insert(pubkey, value);
-            },
+            }
             None => {
-                return Err(Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Key not found")));
-            },
+                return Err(Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Key not found",
+                )));
+            }
         }
         Ok(())
     }
 
-    pub fn add_scratchpad_key(&mut self) -> Result<(String,String), Error> {
+    pub fn add_scratchpad_key(&mut self) -> Result<(String, String), Error> {
         // Check for unused keys first
         let key_pair = self.free_scratchpads.iter().next();
-        match key_pair {
-            Some((pubkey, key)) => {
-                let pubkey = pubkey.clone();
-                let key = key.clone();
-                self.free_scratchpads.remove(&pubkey);
-                self.scratchpads.insert(pubkey.clone(), key.clone());
-                debug!("Reusing unused key at address: {}", hex::encode(pubkey.clone()));
-                return Ok((hex::encode(pubkey),hex::encode(key)));
-            },
-            None => {},
+        if let Some((pubkey, key)) = key_pair {
+            let pubkey = pubkey.clone();
+            let key = key.clone();
+            self.free_scratchpads.remove(&pubkey);
+            self.scratchpads.insert(pubkey.clone(), key.clone());
+            debug!(
+                "Reusing unused key at address: {}",
+                hex::encode(pubkey.clone())
+            );
+            return Ok((hex::encode(pubkey), hex::encode(key)));
         }
-        let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
+        let main_sk_array: [u8; 32] = self
+            .main_sk
+            .clone()
+            .try_into()
+            .expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
         let num_keys = self.get_num_keys();
         let pod_key: SecretKey = main_sk.derive_key(&index(num_keys)).into();
         let pod_pubkey: PublicKey = pod_key.clone().public_key();
-        self.scratchpads.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
-        Ok((pod_pubkey.to_hex().to_string(),pod_key.to_hex().to_string()))
+        self.scratchpads.insert(
+            pod_pubkey.to_bytes().to_vec(),
+            pod_key.clone().to_bytes().to_vec(),
+        );
+        Ok((
+            pod_pubkey.to_hex().to_string(),
+            pod_key.to_hex().to_string(),
+        ))
     }
 
     pub fn remove_scratchpad_key(&mut self, address: &str) -> Result<(), Error> {
@@ -336,44 +401,68 @@ impl KeyStore {
         match key {
             Some(value) => {
                 self.free_scratchpads.insert(pubkey, value);
-            },
+            }
             None => {
-                return Err(Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Key not found")));
-            },
+                return Err(Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Key not found",
+                )));
+            }
         }
         Ok(())
     }
 
     pub fn add_bad_key(&mut self) -> Result<String, Error> {
-        let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
+        let main_sk_array: [u8; 32] = self
+            .main_sk
+            .clone()
+            .try_into()
+            .expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
         let num_keys = self.get_num_keys();
         let pod_key: SecretKey = main_sk.derive_key(&index(num_keys)).into();
         let pod_pubkey: PublicKey = pod_key.clone().public_key();
-        self.bad_keys.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
+        self.bad_keys.insert(
+            pod_pubkey.to_bytes().to_vec(),
+            pod_key.clone().to_bytes().to_vec(),
+        );
         Ok(pod_key.to_hex().to_string())
     }
 
     pub fn add_free_pointer_key(&mut self) -> Result<String, Error> {
-        let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
+        let main_sk_array: [u8; 32] = self
+            .main_sk
+            .clone()
+            .try_into()
+            .expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
         let num_keys = self.get_num_keys();
         let pod_key: SecretKey = main_sk.derive_key(&index(num_keys)).into();
         let pod_pubkey: PublicKey = pod_key.clone().public_key();
-        self.free_pointers.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
+        self.free_pointers.insert(
+            pod_pubkey.to_bytes().to_vec(),
+            pod_key.clone().to_bytes().to_vec(),
+        );
         Ok(pod_key.to_hex().to_string())
     }
 
     pub fn add_free_scratchpad_key(&mut self) -> Result<String, Error> {
-        let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
+        let main_sk_array: [u8; 32] = self
+            .main_sk
+            .clone()
+            .try_into()
+            .expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
         let num_keys = self.get_num_keys();
         let pod_key: SecretKey = main_sk.derive_key(&index(num_keys)).into();
         let pod_pubkey: PublicKey = pod_key.clone().public_key();
-        self.free_scratchpads.insert(pod_pubkey.to_bytes().to_vec(), pod_key.clone().to_bytes().to_vec());
+        self.free_scratchpads.insert(
+            pod_pubkey.to_bytes().to_vec(),
+            pod_key.clone().to_bytes().to_vec(),
+        );
         Ok(pod_key.to_hex().to_string())
     }
 
@@ -406,33 +495,51 @@ impl KeyStore {
     }
 
     pub fn get_pointers(&self) -> HashMap<String, String> {
-        self.pointers.iter().map(|(k, v)| (hex::encode(k), hex::encode(v))).collect()
+        self.pointers
+            .iter()
+            .map(|(k, v)| (hex::encode(k), hex::encode(v)))
+            .collect()
     }
 
     pub fn get_scratchpads(&self) -> HashMap<String, String> {
-        self.scratchpads.iter().map(|(k, v)| (hex::encode(k), hex::encode(v))).collect()
+        self.scratchpads
+            .iter()
+            .map(|(k, v)| (hex::encode(k), hex::encode(v)))
+            .collect()
     }
 
     pub fn get_bad_keys(&self) -> HashMap<String, String> {
-        self.bad_keys.iter().map(|(k, v)| (hex::encode(k), hex::encode(v))).collect()
+        self.bad_keys
+            .iter()
+            .map(|(k, v)| (hex::encode(k), hex::encode(v)))
+            .collect()
     }
 
     pub fn get_free_pointers(&self) -> HashMap<String, String> {
-        self.free_pointers.iter().map(|(k, v)| (hex::encode(k), hex::encode(v))).collect()
+        self.free_pointers
+            .iter()
+            .map(|(k, v)| (hex::encode(k), hex::encode(v)))
+            .collect()
     }
 
     pub fn get_free_scratchpads(&self) -> HashMap<String, String> {
-        self.free_scratchpads.iter().map(|(k, v)| (hex::encode(k), hex::encode(v))).collect()
+        self.free_scratchpads
+            .iter()
+            .map(|(k, v)| (hex::encode(k), hex::encode(v)))
+            .collect()
     }
 
     pub fn get_address_at_index(&self, count: u64) -> Result<String, Error> {
-        let main_sk_array: [u8; 32] = self.main_sk.clone().try_into().expect("main_sk must be 32 bytes");
+        let main_sk_array: [u8; 32] = self
+            .main_sk
+            .clone()
+            .try_into()
+            .expect("main_sk must be 32 bytes");
         let secret_key: SecretKey = SecretKey::from_bytes(main_sk_array)?;
         let main_sk: MainSecretKey = MainSecretKey::new(secret_key);
         let pod_key: SecretKey = main_sk.derive_key(&index(count)).into();
         Ok(pod_key.public_key().to_hex())
     }
-
 }
 
 fn index(i: u64) -> DerivationIndex {
@@ -442,11 +549,5 @@ fn index(i: u64) -> DerivationIndex {
 }
 
 fn remove_0x_prefix(input: &str) -> String {
-    if input.starts_with("0x") {
-        input[2..].to_string()
-    } else {
-        input.to_string()
-    }
+    input.strip_prefix("0x").unwrap_or(input).to_string()
 }
-
-

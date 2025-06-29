@@ -81,7 +81,11 @@ fn test_address_validation() {
 
     // Should return false for non-existent addresses
     assert!(!datastore.address_is_pointer(non_existent_address).unwrap());
-    assert!(!datastore.address_is_scratchpad(non_existent_address).unwrap());
+    assert!(
+        !datastore
+            .address_is_scratchpad(non_existent_address)
+            .unwrap()
+    );
 }
 
 #[test]
@@ -96,7 +100,11 @@ fn test_path_getters() {
     assert!(datastore.get_data_path().starts_with(temp_dir.path()));
     assert!(datastore.get_keystore_path().starts_with(temp_dir.path()));
     assert!(datastore.get_graph_path().starts_with(temp_dir.path()));
-    assert!(datastore.get_update_list_path().starts_with(temp_dir.path()));
+    assert!(
+        datastore
+            .get_update_list_path()
+            .starts_with(temp_dir.path())
+    );
 }
 
 #[test]

@@ -13,7 +13,7 @@ const HAS_INDEX: &str = PREDICATE!("index");
 fn test_graph_creation() {
     let (_graph, _temp_dir) = create_test_graph();
     // Graph should be created successfully
-    assert!(true); // If we get here, graph creation worked
+    // If we get here, graph creation worked
 }
 
 #[test]
@@ -26,16 +26,33 @@ fn test_add_pod_entry() {
     let configuration_scratchpad_address = "config_scratchpad1234567890";
     let pod_name = "Test Pod";
 
-    let result = graph.add_pod_entry(pod_name, pod_address, scratchpad_address, configuration_address, configuration_scratchpad_address, 0);
-    assert!(result.is_ok(), "Failed to add pod entry: {:?}", result.err());
+    let result = graph.add_pod_entry(
+        pod_name,
+        pod_address,
+        scratchpad_address,
+        configuration_address,
+        configuration_scratchpad_address,
+        0,
+    );
+    assert!(
+        result.is_ok(),
+        "Failed to add pod entry: {:?}",
+        result.err()
+    );
 
     let (trig_data, config_data) = result.unwrap();
     assert!(!trig_data.is_empty(), "TriG data should not be empty");
-    assert!(!config_data.is_empty(), "Configuration data should not be empty");
+    assert!(
+        !config_data.is_empty(),
+        "Configuration data should not be empty"
+    );
 
     // Convert Vec<u8> to String for checking contents
     let trig_string = String::from_utf8(trig_data).unwrap();
-    assert!(trig_string.contains(scratchpad_address), "TriG data should contain the scratchpad address");
+    assert!(
+        trig_string.contains(scratchpad_address),
+        "TriG data should contain the scratchpad address"
+    );
 }
 
 #[test]
@@ -50,23 +67,31 @@ fn test_pod_depth_operations() {
     assert_eq!(initial_depth, u64::MAX);
 
     // Set depth to 0
-    graph.update_pod_depth(pod_address, configuration_address, 0).unwrap();
+    graph
+        .update_pod_depth(pod_address, configuration_address, 0)
+        .unwrap();
     let depth = graph.get_pod_depth(pod_address).unwrap();
     assert_eq!(depth, 0);
 
     // Try to set depth to 2 (should NOT work since 2 > 0, depth should remain 0)
-    graph.update_pod_depth(pod_address, configuration_address, 2).unwrap();
+    graph
+        .update_pod_depth(pod_address, configuration_address, 2)
+        .unwrap();
     let depth = graph.get_pod_depth(pod_address).unwrap();
     assert_eq!(depth, 0); // Should still be 0 since we only update to smaller depths
 
     // Try to set depth to 1 (should NOT work since 1 > 0, depth should remain 0)
-    graph.update_pod_depth(pod_address, configuration_address, 1).unwrap();
+    graph
+        .update_pod_depth(pod_address, configuration_address, 1)
+        .unwrap();
     let depth = graph.get_pod_depth(pod_address).unwrap();
     assert_eq!(depth, 0); // Should still be 0
 
     // Now let's test with a higher initial depth
     // First set depth to 5
-    graph.update_pod_depth(pod_address, configuration_address, 5).unwrap(); // This won't work since 5 > 0
+    graph
+        .update_pod_depth(pod_address, configuration_address, 5)
+        .unwrap(); // This won't work since 5 > 0
     let depth = graph.get_pod_depth(pod_address).unwrap();
     assert_eq!(depth, 0); // Should still be 0
 
@@ -75,17 +100,23 @@ fn test_pod_depth_operations() {
     let configuration_address2 = "test_config_456";
 
     // Set initial depth to 5 (this should work since no depth exists)
-    graph.update_pod_depth(pod_address2, configuration_address2, 5).unwrap();
+    graph
+        .update_pod_depth(pod_address2, configuration_address2, 5)
+        .unwrap();
     let depth = graph.get_pod_depth(pod_address2).unwrap();
     assert_eq!(depth, 5);
 
     // Try to set depth to 3 (should work since 3 < 5)
-    graph.update_pod_depth(pod_address2, configuration_address2, 3).unwrap();
+    graph
+        .update_pod_depth(pod_address2, configuration_address2, 3)
+        .unwrap();
     let depth = graph.get_pod_depth(pod_address2).unwrap();
     assert_eq!(depth, 3);
 
     // Try to set depth to 7 (should not change since 7 > 3)
-    graph.update_pod_depth(pod_address2, configuration_address2, 7).unwrap();
+    graph
+        .update_pod_depth(pod_address2, configuration_address2, 7)
+        .unwrap();
     let depth = graph.get_pod_depth(pod_address2).unwrap();
     assert_eq!(depth, 3); // Should still be 3
 }
@@ -129,12 +160,15 @@ fn test_get_pod_references() {
     let pod_address = "test_pod";
 
     // Create a pod with some test data that includes references
-    let trig_data = format!(r#"
+    let trig_data = format!(
+        r#"
         @prefix ant: <ant://> .
             <ant://referenced_pod1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <ant://colonylib/v1/ref> .
             <ant://referenced_pod2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <ant://colonylib/v1/ref> .
             <ant://{}> <http://schema.org/name> "Some Name" .
-    "#, pod_address);
+    "#,
+        pod_address
+    );
 
     // Load the test data
     graph.load_pod_into_graph(pod_address, &trig_data).unwrap();
@@ -177,26 +211,32 @@ fn test_search_content() {
     let pod_iri = format!("ant://{}", pod_address);
 
     // Add test triples with searchable content
-    graph.put_quad(
-        "ant://subject1",
-        "ant://colonylib/vocabulary/0.1/predicate#name",
-        "Test Document",
-        Some(&pod_iri)
-    ).unwrap();
+    graph
+        .put_quad(
+            "ant://subject1",
+            "ant://colonylib/vocabulary/0.1/predicate#name",
+            "Test Document",
+            Some(&pod_iri),
+        )
+        .unwrap();
 
-    graph.put_quad(
-        "ant://subject2",
-        "ant://colonylib/vocabulary/0.1/predicate#description",
-        "This is a test description with searchable content",
-        Some(&pod_iri)
-    ).unwrap();
+    graph
+        .put_quad(
+            "ant://subject2",
+            "ant://colonylib/vocabulary/0.1/predicate#description",
+            "This is a test description with searchable content",
+            Some(&pod_iri),
+        )
+        .unwrap();
 
-    graph.put_quad(
-        "ant://subject3",
-        "ant://colonylib/vocabulary/0.1/predicate#name",
-        "Another Document",
-        Some(&pod_iri)
-    ).unwrap();
+    graph
+        .put_quad(
+            "ant://subject3",
+            "ant://colonylib/vocabulary/0.1/predicate#name",
+            "Another Document",
+            Some(&pod_iri),
+        )
+        .unwrap();
 
     // Test text search
     let results = graph.search_content("test", Some(10)).unwrap();
@@ -205,13 +245,13 @@ fn test_search_content() {
     // Should find results containing "test"
     assert!(parsed_results.get("results").is_some());
     let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
-    assert!(bindings.len() > 0);
+    assert!(!bindings.is_empty());
 
     // Test case-insensitive search
     let results = graph.search_content("TEST", Some(10)).unwrap();
     let parsed_results: serde_json::Value = serde_json::from_str(&results).unwrap();
     let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
-    assert!(bindings.len() > 0);
+    assert!(!bindings.is_empty());
 
     // Test search with no results
     let results = graph.search_content("nonexistent", Some(10)).unwrap();
@@ -228,22 +268,28 @@ fn test_search_by_type() {
     let pod_iri = format!("ant://{}", pod_address);
 
     // Add test data with types
-    graph.put_quad(
-        "ant://subject1",
-        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
-        "http://schema.org/MediaObject",
-        Some(&pod_iri)
-    ).unwrap();
+    graph
+        .put_quad(
+            "ant://subject1",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+            "http://schema.org/MediaObject",
+            Some(&pod_iri),
+        )
+        .unwrap();
 
-    graph.put_quad(
-        "ant://subject2",
-        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
-        "http://schema.org/Person",
-        Some(&pod_iri)
-    ).unwrap();
+    graph
+        .put_quad(
+            "ant://subject2",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+            "http://schema.org/Person",
+            Some(&pod_iri),
+        )
+        .unwrap();
 
     // Test type search
-    let results = graph.search_by_type("http://schema.org/MediaObject", Some(10)).unwrap();
+    let results = graph
+        .search_by_type("http://schema.org/MediaObject", Some(10))
+        .unwrap();
     let parsed_results: serde_json::Value = serde_json::from_str(&results).unwrap();
 
     let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
@@ -262,25 +308,28 @@ fn test_search_by_predicate() {
     let pod_iri = format!("ant://{}", pod_address);
 
     // Add test data with specific predicates
-    graph.put_quad(
-        "ant://subject1",
-        "ant://colonylib/vocabulary/0.1/predicate#name",
-        "Test Name",
-        Some(&pod_iri)
-    ).unwrap();
+    graph
+        .put_quad(
+            "ant://subject1",
+            "ant://colonylib/vocabulary/0.1/predicate#name",
+            "Test Name",
+            Some(&pod_iri),
+        )
+        .unwrap();
 
-    graph.put_quad(
-        "ant://subject2",
-        "ant://colonylib/vocabulary/0.1/predicate#description",
-        "Test Description",
-        Some(&pod_iri)
-    ).unwrap();
+    graph
+        .put_quad(
+            "ant://subject2",
+            "ant://colonylib/vocabulary/0.1/predicate#description",
+            "Test Description",
+            Some(&pod_iri),
+        )
+        .unwrap();
 
     // Test predicate search
-    let results = graph.search_by_predicate(
-        "ant://colonylib/vocabulary/0.1/predicate#name",
-        Some(10)
-    ).unwrap();
+    let results = graph
+        .search_by_predicate("ant://colonylib/vocabulary/0.1/predicate#name", Some(10))
+        .unwrap();
     let parsed_results: serde_json::Value = serde_json::from_str(&results).unwrap();
 
     let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
@@ -301,19 +350,23 @@ fn test_advanced_search() {
     let pod_iri = format!("ant://{}", pod_address);
 
     // Add comprehensive test data
-    graph.put_quad(
-        "ant://subject1",
-        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
-        "http://schema.org/MediaObject",
-        Some(&pod_iri)
-    ).unwrap();
+    graph
+        .put_quad(
+            "ant://subject1",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+            "http://schema.org/MediaObject",
+            Some(&pod_iri),
+        )
+        .unwrap();
 
-    graph.put_quad(
-        "ant://subject1",
-        "ant://colonylib/vocabulary/0.1/predicate#name",
-        "Test Media File",
-        Some(&pod_iri)
-    ).unwrap();
+    graph
+        .put_quad(
+            "ant://subject1",
+            "ant://colonylib/vocabulary/0.1/predicate#name",
+            "Test Media File",
+            Some(&pod_iri),
+        )
+        .unwrap();
 
     let query = r#"
         SELECT DISTINCT ?subject ?predicate ?object ?graph WHERE {{
@@ -329,8 +382,7 @@ fn test_advanced_search() {
     let parsed_results: serde_json::Value = serde_json::from_str(&results).unwrap();
 
     let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
-    assert!(bindings.len() > 0);
-
+    assert!(!bindings.is_empty());
 }
 
 #[test]
@@ -344,12 +396,23 @@ fn test_get_pod_scratchpads() {
     let configuration_scratchpad_address = "test_config_scratchpad_123";
 
     // First create a pod entry to establish the named graph
-    graph.add_pod_entry("Test Pod", pod_address, scratchpad1, configuration_address, configuration_scratchpad_address, 0).unwrap();
+    graph
+        .add_pod_entry(
+            "Test Pod",
+            pod_address,
+            scratchpad1,
+            configuration_address,
+            configuration_scratchpad_address,
+            0,
+        )
+        .unwrap();
 
     // Add additional scratchpad to the pod
     let pod_iri = format!("ant://{}", pod_address);
     let scratchpad2_iri = format!("ant://{}", scratchpad2);
-    graph.put_quad(&scratchpad2_iri, HAS_INDEX, "1", Some(&pod_iri)).unwrap();
+    graph
+        .put_quad(&scratchpad2_iri, HAS_INDEX, "1", Some(&pod_iri))
+        .unwrap();
 
     // Test getting scratchpads for the pod
     let scratchpads = graph.get_pod_scratchpads(pod_address).unwrap();
@@ -359,7 +422,11 @@ fn test_get_pod_scratchpads() {
 
     // Test getting scratchpads for non-existent pod
     let empty_scratchpads = graph.get_pod_scratchpads("non_existent_pod").unwrap();
-    assert_eq!(empty_scratchpads.len(), 0, "Should have 0 scratchpads for non-existent pod");
+    assert_eq!(
+        empty_scratchpads.len(),
+        0,
+        "Should have 0 scratchpads for non-existent pod"
+    );
 }
 
 #[test]
@@ -372,20 +439,39 @@ fn test_clear_pod_graph() {
     let configuration_scratchpad_address = "test_config_scratchpad_clear";
 
     // Add a pod entry
-    let result = graph.add_pod_entry("Test Pod for Clearing", pod_address, scratchpad_address, configuration_address, configuration_scratchpad_address, 0);
+    let result = graph.add_pod_entry(
+        "Test Pod for Clearing",
+        pod_address,
+        scratchpad_address,
+        configuration_address,
+        configuration_scratchpad_address,
+        0,
+    );
     assert!(result.is_ok(), "Failed to add pod entry");
 
     // Verify the pod has data
     let scratchpads_before = graph.get_pod_scratchpads(pod_address).unwrap();
-    assert_eq!(scratchpads_before.len(), 1, "Should have 1 scratchpad before clearing");
+    assert_eq!(
+        scratchpads_before.len(),
+        1,
+        "Should have 1 scratchpad before clearing"
+    );
 
     // Clear the pod graph
     let clear_result = graph.clear_pod_graph(pod_address);
-    assert!(clear_result.is_ok(), "Failed to clear pod graph: {:?}", clear_result.err());
+    assert!(
+        clear_result.is_ok(),
+        "Failed to clear pod graph: {:?}",
+        clear_result.err()
+    );
 
     // Verify the pod graph is cleared
     let scratchpads_after = graph.get_pod_scratchpads(pod_address).unwrap();
-    assert_eq!(scratchpads_after.len(), 0, "Should have 0 scratchpads after clearing");
+    assert_eq!(
+        scratchpads_after.len(),
+        0,
+        "Should have 0 scratchpads after clearing"
+    );
 }
 
 #[test]
@@ -395,18 +481,29 @@ fn test_load_pod_into_graph() {
     let pod_address = "test_pod_load";
 
     // Create some test TriG data
-    let trig_data = format!(r#"
+    let trig_data = format!(
+        r#"
             <ant://test_subject> <ant://test_predicate> "test_object" .
             <ant://scratchpad123> <{}> "0" .
-    "#, HAS_INDEX);
+    "#,
+        HAS_INDEX
+    );
 
     // Load the data into the graph
     let result = graph.load_pod_into_graph(pod_address, &trig_data);
-    assert!(result.is_ok(), "Failed to load pod into graph: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to load pod into graph: {:?}",
+        result.err()
+    );
 
     // Verify the data was loaded by checking for scratchpads
     let scratchpads = graph.get_pod_scratchpads(pod_address).unwrap();
-    assert_eq!(scratchpads.len(), 1, "Should have 1 scratchpad after loading");
+    assert_eq!(
+        scratchpads.len(),
+        1,
+        "Should have 1 scratchpad after loading"
+    );
     assert!(scratchpads.contains(&"scratchpad123".to_string()));
 }
 
@@ -421,11 +518,24 @@ fn test_get_pod_references_with_add_ref() {
     let configuration_scratchpad_address = "test_config_scratchpad_refs";
 
     // Create a pod entry first
-    graph.add_pod_entry("Test Pod with References", pod_address, "scratchpad_main", configuration_address, configuration_scratchpad_address, 0).unwrap();
+    graph
+        .add_pod_entry(
+            "Test Pod with References",
+            pod_address,
+            "scratchpad_main",
+            configuration_address,
+            configuration_scratchpad_address,
+            0,
+        )
+        .unwrap();
 
     // Add pod references
-    graph.pod_ref_entry(pod_address, ref_pod1, configuration_address, true).unwrap();
-    graph.pod_ref_entry(pod_address, ref_pod2, configuration_address, true).unwrap();
+    graph
+        .pod_ref_entry(pod_address, ref_pod1, configuration_address, true)
+        .unwrap();
+    graph
+        .pod_ref_entry(pod_address, ref_pod2, configuration_address, true)
+        .unwrap();
 
     // Test getting pod references
     let references = graph.get_pod_references(pod_address).unwrap();
@@ -435,7 +545,11 @@ fn test_get_pod_references_with_add_ref() {
 
     // Test getting references for pod with no references
     let empty_refs = graph.get_pod_references("pod_with_no_refs").unwrap();
-    assert_eq!(empty_refs.len(), 0, "Should have 0 references for pod with no references");
+    assert_eq!(
+        empty_refs.len(),
+        0,
+        "Should have 0 references for pod with no references"
+    );
 }
 
 #[test]
@@ -445,27 +559,62 @@ fn test_enhanced_search_content() {
     let pod_address = "test_pod_search";
 
     // Add a pod with some searchable content
-    graph.add_pod_entry("Searchable Pod", pod_address, "search_scratchpad", "search_config", "search_config_scratchpad", 0).unwrap();
+    graph
+        .add_pod_entry(
+            "Searchable Pod",
+            pod_address,
+            "search_scratchpad",
+            "search_config",
+            "search_config_scratchpad",
+            0,
+        )
+        .unwrap();
 
     // Add some content to search for
     let pod_iri = format!("ant://{}", pod_address);
-    graph.put_quad("ant://test_file", "ant://name", "important_document.pdf", Some(&pod_iri)).unwrap();
-    graph.put_quad("ant://test_file", "ant://description", "This is a very important document", Some(&pod_iri)).unwrap();
+    graph
+        .put_quad(
+            "ant://test_file",
+            "ant://name",
+            "important_document.pdf",
+            Some(&pod_iri),
+        )
+        .unwrap();
+    graph
+        .put_quad(
+            "ant://test_file",
+            "ant://description",
+            "This is a very important document",
+            Some(&pod_iri),
+        )
+        .unwrap();
 
     // Search for content
     let search_results = graph.search_content("important", Some(10)).unwrap();
-    assert!(!search_results.is_empty(), "Search results should not be empty");
+    assert!(
+        !search_results.is_empty(),
+        "Search results should not be empty"
+    );
 
     // Parse the JSON to verify it contains our data
     let json_result: serde_json::Value = serde_json::from_str(&search_results).unwrap();
     let bindings = json_result["results"]["bindings"].as_array().unwrap();
-    assert!(bindings.len() > 0, "Should have at least one search result");
+    assert!(
+        !bindings.is_empty(),
+        "Should have at least one search result"
+    );
 
     // Verify the search found our content
     let found_important = bindings.iter().any(|binding| {
-        binding["object"]["value"].as_str().unwrap_or("").contains("important")
+        binding["object"]["value"]
+            .as_str()
+            .unwrap_or("")
+            .contains("important")
     });
-    assert!(found_important, "Search should find content containing 'important'");
+    assert!(
+        found_important,
+        "Search should find content containing 'important'"
+    );
 }
 
 #[test]
@@ -478,14 +627,47 @@ fn test_enhanced_word_based_search() {
     let pod3_address = "test_pod_depth_2";
 
     // Add pods with different depths
-    graph.add_pod_entry("Pod at Depth 0", pod1_address, "scratchpad1", "config1", "config_scratchpad1", 0).unwrap();
-    graph.add_pod_entry("Pod at Depth 1", pod2_address, "scratchpad2", "config2", "config_scratchpad2", 0).unwrap();
-    graph.add_pod_entry("Pod at Depth 2", pod3_address, "scratchpad3", "config3", "config_scratchpad3", 0).unwrap();
+    graph
+        .add_pod_entry(
+            "Pod at Depth 0",
+            pod1_address,
+            "scratchpad1",
+            "config1",
+            "config_scratchpad1",
+            0,
+        )
+        .unwrap();
+    graph
+        .add_pod_entry(
+            "Pod at Depth 1",
+            pod2_address,
+            "scratchpad2",
+            "config2",
+            "config_scratchpad2",
+            0,
+        )
+        .unwrap();
+    graph
+        .add_pod_entry(
+            "Pod at Depth 2",
+            pod3_address,
+            "scratchpad3",
+            "config3",
+            "config_scratchpad3",
+            0,
+        )
+        .unwrap();
 
     // Set different depths for the pods (using force_set for testing)
-    graph.force_set_pod_depth(pod1_address, "config1", 0).unwrap();
-    graph.force_set_pod_depth(pod2_address, "config2", 1).unwrap();
-    graph.force_set_pod_depth(pod3_address, "config3", 2).unwrap();
+    graph
+        .force_set_pod_depth(pod1_address, "config1", 0)
+        .unwrap();
+    graph
+        .force_set_pod_depth(pod2_address, "config2", 1)
+        .unwrap();
+    graph
+        .force_set_pod_depth(pod3_address, "config3", 2)
+        .unwrap();
 
     // Verify that depths were set correctly
     assert_eq!(graph.get_pod_depth(pod1_address).unwrap(), 0);
@@ -498,17 +680,43 @@ fn test_enhanced_word_based_search() {
     let pod3_iri = format!("ant://{}", pod3_address);
 
     // Pod 1 (depth 0): Contains "beatles" and "abbey" (2 matches)
-    graph.put_quad("ant://album1", "ant://title", "The Beatles Abbey Road", Some(&pod1_iri)).unwrap();
+    graph
+        .put_quad(
+            "ant://album1",
+            "ant://title",
+            "The Beatles Abbey Road",
+            Some(&pod1_iri),
+        )
+        .unwrap();
 
     // Pod 2 (depth 1): Contains "beatles", "abbey", and "road" (3 matches)
-    graph.put_quad("ant://album2", "ant://description", "The Beatles recorded Abbey Road album", Some(&pod2_iri)).unwrap();
+    graph
+        .put_quad(
+            "ant://album2",
+            "ant://description",
+            "The Beatles recorded Abbey Road album",
+            Some(&pod2_iri),
+        )
+        .unwrap();
 
     // Pod 3 (depth 2): Contains only "beatles" (1 match)
-    graph.put_quad("ant://album3", "ant://artist", "The Beatles", Some(&pod3_iri)).unwrap();
+    graph
+        .put_quad(
+            "ant://album3",
+            "ant://artist",
+            "The Beatles",
+            Some(&pod3_iri),
+        )
+        .unwrap();
 
     // Search for "beatles abbey road" - should return results ordered by match count, then by depth
-    let search_results = graph.search_content("beatles abbey road", Some(10)).unwrap();
-    assert!(!search_results.is_empty(), "Search results should not be empty");
+    let search_results = graph
+        .search_content("beatles abbey road", Some(10))
+        .unwrap();
+    assert!(
+        !search_results.is_empty(),
+        "Search results should not be empty"
+    );
 
     // Parse the JSON to verify ordering
     let json_result: serde_json::Value = serde_json::from_str(&search_results).unwrap();
@@ -520,8 +728,6 @@ fn test_enhanced_word_based_search() {
     // Then the result with 2 matches (pod1) should come second
     // Finally the result with 1 match (pod3) should come last
 
-
-
     // Verify that results are ordered by match count (descending) then by depth (ascending)
     // Both pod1 and pod2 have 3 matches, so pod1 (depth 0) should come before pod2 (depth 1)
     // Then pod3 with 1 match (depth 2) should come last
@@ -531,30 +737,46 @@ fn test_enhanced_word_based_search() {
     let third_result_text = bindings[2]["object"]["value"].as_str().unwrap_or("");
 
     // First result should be pod1 (depth 0, 3 matches)
-    assert!(first_result_text.contains("Abbey Road") && !first_result_text.contains("recorded"),
-            "First result should be pod1 with depth 0");
+    assert!(
+        first_result_text.contains("Abbey Road") && !first_result_text.contains("recorded"),
+        "First result should be pod1 with depth 0"
+    );
 
     // Second result should be pod2 (depth 1, 3 matches)
-    assert!(second_result_text.contains("recorded"),
-            "Second result should be pod2 with depth 1");
+    assert!(
+        second_result_text.contains("recorded"),
+        "Second result should be pod2 with depth 1"
+    );
 
     // Third result should be pod3 (depth 2, 1 match)
-    assert!(third_result_text == "The Beatles" && !third_result_text.contains("Abbey"),
-            "Third result should be pod3 with depth 2");
+    assert!(
+        third_result_text == "The Beatles" && !third_result_text.contains("Abbey"),
+        "Third result should be pod3 with depth 2"
+    );
 
     // Test single word search
     let single_word_results = graph.search_content("beatles", Some(10)).unwrap();
     let single_json: serde_json::Value = serde_json::from_str(&single_word_results).unwrap();
     let single_bindings = single_json["results"]["bindings"].as_array().unwrap();
-    assert!(single_bindings.len() >= 3, "Single word search should find all Beatles references");
+    assert!(
+        single_bindings.len() >= 3,
+        "Single word search should find all Beatles references"
+    );
 
     // Test empty search
     let empty_results = graph.search_content("", Some(10)).unwrap();
-    assert_eq!(empty_results, "[]", "Empty search should return empty array");
+    assert_eq!(
+        empty_results, "[]",
+        "Empty search should return empty array"
+    );
 
     // Test search with no matches
     let no_match_results = graph.search_content("nonexistent", Some(10)).unwrap();
     let no_match_json: serde_json::Value = serde_json::from_str(&no_match_results).unwrap();
     let no_match_bindings = no_match_json["results"]["bindings"].as_array().unwrap();
-    assert_eq!(no_match_bindings.len(), 0, "Search with no matches should return empty results");
+    assert_eq!(
+        no_match_bindings.len(),
+        0,
+        "Search with no matches should return empty results"
+    );
 }

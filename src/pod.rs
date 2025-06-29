@@ -1,27 +1,27 @@
-use autonomi::{AddressParseError, Bytes, Chunk, Client, SecretKey, Wallet};
-use autonomi::client::pointer::{Pointer, PointerTarget, PointerError, PointerAddress};
-use autonomi::client::ConnectError;
-use autonomi::client::scratchpad::{Scratchpad, ScratchpadError, ScratchpadAddress};
-use autonomi::client::payment::PaymentOption;
-use ant_networking::{NetworkError, GetRecordError};
+use ant_networking::{GetRecordError, NetworkError};
 use autonomi;
+use autonomi::client::ConnectError;
+use autonomi::client::payment::PaymentOption;
+use autonomi::client::pointer::{Pointer, PointerAddress, PointerError, PointerTarget};
+use autonomi::client::scratchpad::{Scratchpad, ScratchpadAddress, ScratchpadError};
+use autonomi::{AddressParseError, Bytes, Chunk, Client, SecretKey, Wallet};
 
+use alloc::string::FromUtf8Error;
+use autonomi::client::analyze::{Analysis, AnalysisError};
+use blsttc::Error as BlsttcError;
+use serde::{Deserialize, Serialize};
+use serde_json::{Error as SerdeError, Value};
+use std::fmt;
+use std::io::Error as IoError;
 use thiserror;
 use tracing::{debug, error, info, warn};
-use std::fmt;
-use serde::{Deserialize, Serialize};
-use blsttc::Error as BlsttcError;
-use alloc::string::FromUtf8Error;
-use std::io::Error as IoError;
-use autonomi::client::analyze::{AnalysisError, Analysis};
-use serde_json::{Value, Error as SerdeError};
 
-use crate::KeyStore;
-use crate::key::Error as KeyStoreError;
 use crate::DataStore;
-use crate::data::Error as DataStoreError;
 use crate::Graph;
+use crate::KeyStore;
+use crate::data::Error as DataStoreError;
 use crate::graph::Error as GraphError;
+use crate::key::Error as KeyStoreError;
 
 /// Structure representing the removal section of the update list
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -46,34 +46,45 @@ pub struct UpdateList {
 }
 use crate::graph;
 
-
 // Error handling
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-  #[error(transparent)]
-  Connect(#[from] ConnectError),
-  #[error(transparent)]
-  Pointer(#[from] PointerError),
-  #[error(transparent)]
-  Scratchpad(#[from] ScratchpadError),
-  #[error(transparent)]
-  Blsttc(#[from] BlsttcError),
-  #[error(transparent)]
-  Address(#[from] AddressParseError),
-  #[error(transparent)]
-  FromUtf8(#[from] FromUtf8Error),
-  #[error(transparent)]
-  KeyStore(#[from] KeyStoreError),
-  #[error(transparent)]
-  DataStore(#[from] DataStoreError),
-  #[error(transparent)]
-  Io(#[from] IoError),
-  #[error(transparent)]
-  Serde(#[from] SerdeError),
-  #[error(transparent)]
-  Graph(#[from] GraphError),
-  #[error("{0}")]
-  Pod(String),
+    #[error(transparent)]
+    Connect(#[from] ConnectError),
+    #[error(transparent)]
+    Pointer(Box<PointerError>),
+    #[error(transparent)]
+    Scratchpad(Box<ScratchpadError>),
+    #[error(transparent)]
+    Blsttc(#[from] BlsttcError),
+    #[error(transparent)]
+    Address(#[from] AddressParseError),
+    #[error(transparent)]
+    FromUtf8(#[from] FromUtf8Error),
+    #[error(transparent)]
+    KeyStore(#[from] KeyStoreError),
+    #[error(transparent)]
+    DataStore(#[from] DataStoreError),
+    #[error(transparent)]
+    Io(#[from] IoError),
+    #[error(transparent)]
+    Serde(#[from] SerdeError),
+    #[error(transparent)]
+    Graph(#[from] GraphError),
+    #[error("{0}")]
+    Pod(String),
+}
+
+impl From<PointerError> for Error {
+    fn from(err: PointerError) -> Self {
+        Error::Pointer(Box::new(err))
+    }
+}
+
+impl From<ScratchpadError> for Error {
+    fn from(err: ScratchpadError) -> Self {
+        Error::Scratchpad(Box::new(err))
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -97,26 +108,26 @@ pub enum ErrorKind {
 impl serde::Serialize for Error {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-      S: serde::ser::Serializer,
+        S: serde::ser::Serializer,
     {
-      let error_message = self.to_string();
-      let error_kind = match self {
-        Self::Connect(_) => ErrorKind::Connect(error_message),
-        Self::Pointer(_) => ErrorKind::Pointer(error_message),
-        Self::Scratchpad(_) => ErrorKind::Scratchpad(error_message),
-        Self::Blsttc(_) => ErrorKind::Blsttc(error_message),
-        Self::Address(_) => ErrorKind::Address(error_message),
-        Self::FromUtf8(_) => ErrorKind::FromUtf8(error_message),
-        Self::KeyStore(_) => ErrorKind::KeyStore(error_message),
-        Self::DataStore(_) => ErrorKind::DataStore(error_message),
-        Self::Io(_) => ErrorKind::Io(error_message),
-        Self::Serde(_) => ErrorKind::Serde(error_message),
-        Self::Graph(_) => ErrorKind::Graph(error_message),
-        Self::Pod(_) => ErrorKind::Pod(error_message),
-      };
-      error_kind.serialize(serializer)
+        let error_message = self.to_string();
+        let error_kind = match self {
+            Self::Connect(_) => ErrorKind::Connect(error_message),
+            Self::Pointer(_) => ErrorKind::Pointer(error_message),
+            Self::Scratchpad(_) => ErrorKind::Scratchpad(error_message),
+            Self::Blsttc(_) => ErrorKind::Blsttc(error_message),
+            Self::Address(_) => ErrorKind::Address(error_message),
+            Self::FromUtf8(_) => ErrorKind::FromUtf8(error_message),
+            Self::KeyStore(_) => ErrorKind::KeyStore(error_message),
+            Self::DataStore(_) => ErrorKind::DataStore(error_message),
+            Self::Io(_) => ErrorKind::Io(error_message),
+            Self::Serde(_) => ErrorKind::Serde(error_message),
+            Self::Graph(_) => ErrorKind::Graph(error_message),
+            Self::Pod(_) => ErrorKind::Pod(error_message),
+        };
+        error_kind.serialize(serializer)
     }
-  }
+}
 
 //#[derive(Clone)]
 pub struct PodManager<'a> {
@@ -140,7 +151,6 @@ impl<'a> fmt::Debug for PodManager<'a> {
 }
 
 impl<'a> PodManager<'a> {
-
     /// Creates a new PodManager instance with the provided components.
     ///
     /// This constructor initializes a PodManager that coordinates between the Autonomi network client,
@@ -184,13 +194,20 @@ impl<'a> PodManager<'a> {
     /// let graph = &mut Graph::open(&graph_path)?;
     /// let pod_manager = PodManager::new(client, wallet, data_store, key_store, graph).await?;
     /// ```
-    pub async fn new(client: Client,
-                     wallet: &'a Wallet,
-                     data_store: &'a mut DataStore,
-                     key_store: &'a mut KeyStore,
-                     graph: &'a mut Graph) -> Result<Self, Error> {
-
-        Ok(Self { client, wallet, data_store, key_store, graph })
+    pub async fn new(
+        client: Client,
+        wallet: &'a Wallet,
+        data_store: &'a mut DataStore,
+        key_store: &'a mut KeyStore,
+        graph: &'a mut Graph,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            client,
+            wallet,
+            data_store,
+            key_store,
+            graph,
+        })
     }
 
     // Create a new pointer key, make sure it is empty, and add it to the key store
@@ -202,7 +219,8 @@ impl<'a> PodManager<'a> {
         // If the address is being freed, unset the FREE attribute in the configuration graph
         let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
-        self.graph.use_free_pointer(pubkey.as_str(), configuration_address)?;
+        self.graph
+            .use_free_pointer(pubkey.as_str(), configuration_address)?;
 
         info!("New key: {}", key);
         let derived_key: SecretKey = SecretKey::from_hex(key.trim())?;
@@ -213,12 +231,13 @@ impl<'a> PodManager<'a> {
     async fn create_scratchpad_key(&mut self) -> Result<SecretKey, Error> {
         // Derive a new key
         info!("Deriving or using a free key");
-        let (pubkey,key) = self.key_store.add_scratchpad_key()?;
+        let (pubkey, key) = self.key_store.add_scratchpad_key()?;
 
         // If the address is being freed, unset the FREE attribute in the configuration graph
         let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
-        self.graph.use_free_scratchpad(pubkey.as_str(), configuration_address)?;
+        self.graph
+            .use_free_scratchpad(pubkey.as_str(), configuration_address)?;
 
         info!("New key: {}", key);
         let derived_key: SecretKey = SecretKey::from_hex(key.trim())?;
@@ -335,62 +354,80 @@ impl<'a> PodManager<'a> {
                             let limit = query_obj.get("limit").and_then(|v| v.as_u64());
                             self.graph.search_content(text, limit)?
                         } else {
-                            return Ok(Value::Object(serde_json::Map::from_iter([
-                                ("error".to_string(), Value::String("Missing 'text' parameter for text search".to_string()))
-                            ])));
+                            return Ok(Value::Object(serde_json::Map::from_iter([(
+                                "error".to_string(),
+                                Value::String(
+                                    "Missing 'text' parameter for text search".to_string(),
+                                ),
+                            )])));
                         }
-                    },
+                    }
                     "by_type" => {
                         // Search by RDF type
                         if let Some(type_uri) = query_obj.get("type_uri").and_then(|v| v.as_str()) {
                             let limit = query_obj.get("limit").and_then(|v| v.as_u64());
                             self.graph.search_by_type(type_uri, limit)?
                         } else {
-                            return Ok(Value::Object(serde_json::Map::from_iter([
-                                ("error".to_string(), Value::String("Missing 'type_uri' parameter for type search".to_string()))
-                            ])));
+                            return Ok(Value::Object(serde_json::Map::from_iter([(
+                                "error".to_string(),
+                                Value::String(
+                                    "Missing 'type_uri' parameter for type search".to_string(),
+                                ),
+                            )])));
                         }
-                    },
+                    }
                     "by_predicate" => {
                         // Search by predicate
-                        if let Some(predicate_uri) = query_obj.get("predicate_uri").and_then(|v| v.as_str()) {
+                        if let Some(predicate_uri) =
+                            query_obj.get("predicate_uri").and_then(|v| v.as_str())
+                        {
                             let limit = query_obj.get("limit").and_then(|v| v.as_u64());
                             self.graph.search_by_predicate(predicate_uri, limit)?
                         } else {
-                            return Ok(Value::Object(serde_json::Map::from_iter([
-                                ("error".to_string(), Value::String("Missing 'predicate_uri' parameter for predicate search".to_string()))
-                            ])));
+                            return Ok(Value::Object(serde_json::Map::from_iter([(
+                                "error".to_string(),
+                                Value::String(
+                                    "Missing 'predicate_uri' parameter for predicate search"
+                                        .to_string(),
+                                ),
+                            )])));
                         }
-                    },
+                    }
                     "advanced" => {
                         // Advanced search with multiple criteria
                         if let Some(sparql) = query_obj.get("sparql").and_then(|v| v.as_str()) {
                             self.graph.advanced_search(sparql)?
                         } else {
-                            return Ok(Value::Object(serde_json::Map::from_iter([
-                                ("error".to_string(), Value::String("Missing 'sparql' parameter for advanced search".to_string()))
-                            ])));
+                            return Ok(Value::Object(serde_json::Map::from_iter([(
+                                "error".to_string(),
+                                Value::String(
+                                    "Missing 'sparql' parameter for advanced search".to_string(),
+                                ),
+                            )])));
                         }
-                    },
+                    }
                     _ => {
-                        return Ok(Value::Object(serde_json::Map::from_iter([
-                            ("error".to_string(), Value::String(format!("Unknown search type: {}", search_type)))
-                        ])));
+                        return Ok(Value::Object(serde_json::Map::from_iter([(
+                            "error".to_string(),
+                            Value::String(format!("Unknown search type: {}", search_type)),
+                        )])));
                     }
                 }
             } else {
                 // No explicit type, treat as advanced search
-                return Ok(Value::Object(serde_json::Map::from_iter([
-                    ("error".to_string(), Value::String(format!("No search type provided: none")))
-                ])));
+                return Ok(Value::Object(serde_json::Map::from_iter([(
+                    "error".to_string(),
+                    Value::String("No search type provided: none".to_string()),
+                )])));
             }
         } else if let Some(text) = query.as_str() {
             // Simple text search if query is just a string
             self.graph.search_content(text, Some(50))?
         } else {
-            return Ok(Value::Object(serde_json::Map::from_iter([
-                ("error".to_string(), Value::String("Invalid query format. Expected object or string.".to_string()))
-            ])));
+            return Ok(Value::Object(serde_json::Map::from_iter([(
+                "error".to_string(),
+                Value::String("Invalid query format. Expected object or string.".to_string()),
+            )])));
         };
 
         // Parse the SPARQL JSON results and return them
@@ -412,38 +449,50 @@ impl<'a> PodManager<'a> {
             enhanced.insert("sparql_results".to_string(), results.clone());
 
             // Add metadata
-            enhanced.insert("search_timestamp".to_string(),
-                Value::String(chrono::Utc::now().to_rfc3339()));
+            enhanced.insert(
+                "search_timestamp".to_string(),
+                Value::String(chrono::Utc::now().to_rfc3339()),
+            );
 
             // Count results
-            if let Some(bindings) = results_obj.get("results")
+            if let Some(bindings) = results_obj
+                .get("results")
                 .and_then(|r| r.get("bindings"))
-                .and_then(|b| b.as_array()) {
-                enhanced.insert("result_count".to_string(),
-                    Value::Number(serde_json::Number::from(bindings.len())));
+                .and_then(|b| b.as_array())
+            {
+                enhanced.insert(
+                    "result_count".to_string(),
+                    Value::Number(serde_json::Number::from(bindings.len())),
+                );
 
                 // Extract unique graphs (pods) from results
                 let mut unique_graphs = std::collections::HashSet::new();
                 for binding in bindings {
-                    if let Some(graph_value) = binding.get("graph")
+                    if let Some(graph_value) = binding
+                        .get("graph")
                         .and_then(|g| g.get("value"))
-                        .and_then(|v| v.as_str()) {
+                        .and_then(|v| v.as_str())
+                    {
                         unique_graphs.insert(graph_value.to_string());
                     }
                 }
 
-                let graphs_vec: Vec<Value> = unique_graphs.into_iter()
-                    .map(|g| Value::String(g))
-                    .collect();
+                let graphs_vec: Vec<Value> = unique_graphs.into_iter().map(Value::String).collect();
                 enhanced.insert("pods_found".to_string(), Value::Array(graphs_vec));
             } else {
-                enhanced.insert("result_count".to_string(), Value::Number(serde_json::Number::from(0)));
+                enhanced.insert(
+                    "result_count".to_string(),
+                    Value::Number(serde_json::Number::from(0)),
+                );
                 enhanced.insert("pods_found".to_string(), Value::Array(vec![]));
             }
         } else {
             // If results is not an object, just wrap it
             enhanced.insert("sparql_results".to_string(), results);
-            enhanced.insert("result_count".to_string(), Value::Number(serde_json::Number::from(0)));
+            enhanced.insert(
+                "result_count".to_string(),
+                Value::Number(serde_json::Number::from(0)),
+            );
             enhanced.insert("pods_found".to_string(), Value::Array(vec![]));
         }
 
@@ -510,10 +559,11 @@ impl<'a> PodManager<'a> {
     /// - [`get_subject_data`] - Retrieve data for a specific subject
     /// - [`upload_all`] - Upload pending changes to the network
     /// - [`search`] - Search for subjects across pods
-    pub async fn put_subject_data(&mut self,
+    pub async fn put_subject_data(
+        &mut self,
         pod_address: &str,
         subject_address: &str,
-        subject_data: &str
+        subject_data: &str,
     ) -> Result<(), Error> {
         let pod_address = self.graph.check_pod_exists(pod_address)?;
         let pod_address = pod_address.trim();
@@ -522,14 +572,21 @@ impl<'a> PodManager<'a> {
 
         // Inject the JSON data into the graph using the pod address as the named graph
         // And return the resulting graph data as a TriG formatted byte vector
-        let (graph, configuration) = self.graph.put_subject_data(pod_address, subject_address, configuration_address, subject_data)?;
+        let (graph, configuration) = self.graph.put_subject_data(
+            pod_address,
+            subject_address,
+            configuration_address,
+            subject_data,
+        )?;
 
         // Process the pod data with proper scratchpad management
         self.process_pod_data(pod_address, graph).await?;
         // Update the configuration graph with the updated key count
         let num_keys = self.key_store.get_num_keys();
-        self.graph.update_key_count(configuration_address, num_keys)?;
-        self.process_pod_data(configuration_address, configuration).await?;
+        self.graph
+            .update_key_count(configuration_address, num_keys)?;
+        self.process_pod_data(configuration_address, configuration)
+            .await?;
 
         Ok(())
     }
@@ -612,7 +669,11 @@ impl<'a> PodManager<'a> {
         }
     }
 
-    async fn remove_pod_data(&mut self, pod_address: &str, pod_scratchpads: Vec<String>) -> Result<(), Error> {
+    async fn remove_pod_data(
+        &mut self,
+        pod_address: &str,
+        pod_scratchpads: Vec<String>,
+    ) -> Result<(), Error> {
         // Remove the pod address from the key store pointers list
         self.key_store.remove_pointer_key(pod_address)?;
         // Remove the pod scratchpads from the key store scratchpads list
@@ -628,9 +689,11 @@ impl<'a> PodManager<'a> {
         self.data_store.remove_pointer_file(pod_address)?;
 
         // Mark the removal of the pod pointer and scratchpads for the next upload_all operation
-        self.data_store.append_removal_list(pod_address,"pointer")?;
+        self.data_store
+            .append_removal_list(pod_address, "pointer")?;
         for scratchpad in pod_scratchpads {
-            self.data_store.append_removal_list(scratchpad.trim(), "scratchpad")?;
+            self.data_store
+                .append_removal_list(scratchpad.trim(), "scratchpad")?;
         }
 
         Ok(())
@@ -651,19 +714,24 @@ impl<'a> PodManager<'a> {
     /// # Returns
     ///
     /// Returns `Ok(())` on success, or an `Error` if scratchpad operations fail.
-    async fn process_pod_data(&mut self, pod_address: &str, graph_data: Vec<u8>) -> Result<(), Error> {
+    async fn process_pod_data(
+        &mut self,
+        pod_address: &str,
+        graph_data: Vec<u8>,
+    ) -> Result<(), Error> {
         const SCRATCHPAD_SIZE_LIMIT: usize = 4 * 1024 * 1024; // 4MB in bytes
 
         // Convert graph data to string for processing
         let graph_string: String = graph_data.into_iter().map(|b| b as char).collect();
 
         // Check current scratchpads for this pod
-        let current_scratchpads = self.get_pod_scratchpads(pod_address)?
-            .unwrap_or_else(|| vec![]);
+        let current_scratchpads = self
+            .get_pod_scratchpads(pod_address)?
+            .unwrap_or_else(Vec::new);
 
         // Calculate how many scratchpads we need for the data
         let data_size = graph_string.len();
-        let required_scratchpads = (data_size + SCRATCHPAD_SIZE_LIMIT - 1) / SCRATCHPAD_SIZE_LIMIT;
+        let required_scratchpads = data_size.div_ceil(SCRATCHPAD_SIZE_LIMIT);
         let required_scratchpads = std::cmp::max(1, required_scratchpads); // At least 1 scratchpad
 
         // Create additional scratchpads if needed
@@ -678,7 +746,8 @@ impl<'a> PodManager<'a> {
             let pod_iri = format!("ant://{}", pod_address);
             let index = (all_scratchpads.len() - 1).to_string();
 
-            self.graph.put_quad(&scratchpad_iri, graph::HAS_INDEX, &index, Some(&pod_iri))?;
+            self.graph
+                .put_quad(&scratchpad_iri, graph::HAS_INDEX, &index, Some(&pod_iri))?;
 
             // Update the key count
             let num_keys = self.key_store.get_num_keys();
@@ -695,18 +764,23 @@ impl<'a> PodManager<'a> {
         for (i, chunk) in chunks.iter().enumerate() {
             if i < all_scratchpads.len() {
                 let scratchpad_address = &all_scratchpads[i];
-                self.data_store.update_scratchpad_data(scratchpad_address.trim(), chunk)?;
-                self.data_store.add_scratchpad_to_pod(pod_address, &scratchpad_address)?;
+                self.data_store
+                    .update_scratchpad_data(scratchpad_address.trim(), chunk)?;
+                self.data_store
+                    .add_scratchpad_to_pod(pod_address, scratchpad_address)?;
             }
         }
 
         // Clear any unused scratchpads
-        for i in chunks.len()..all_scratchpads.len() {
-            let scratchpad_address = &all_scratchpads[i];
-            self.data_store.remove_scratchpad_file(scratchpad_address.trim())?;
-            self.data_store.append_removal_list(scratchpad_address.trim(), "scratchpad")?;
-            self.graph.remove_scratchpad_entry(pod_address, scratchpad_address.trim())?;
-            self.key_store.remove_scratchpad_key(scratchpad_address.trim())?;
+        for scratchpad_address in all_scratchpads.iter().skip(chunks.len()) {
+            self.data_store
+                .remove_scratchpad_file(scratchpad_address.trim())?;
+            self.data_store
+                .append_removal_list(scratchpad_address.trim(), "scratchpad")?;
+            self.graph
+                .remove_scratchpad_entry(pod_address, scratchpad_address.trim())?;
+            self.key_store
+                .remove_scratchpad_key(scratchpad_address.trim())?;
         }
 
         // Add the pod pointer address to the update list
@@ -767,8 +841,16 @@ impl<'a> PodManager<'a> {
 
         // Sort statements based on the priority of their first (subject) line
         statements.sort_by(|a, b| {
-            let a_priority = if !a.is_empty() { self.get_statement_priority(a) } else { 2 };
-            let b_priority = if !b.is_empty() { self.get_statement_priority(b) } else { 2 };
+            let a_priority = if !a.is_empty() {
+                self.get_statement_priority(a)
+            } else {
+                2
+            };
+            let b_priority = if !b.is_empty() {
+                self.get_statement_priority(b)
+            } else {
+                2
+            };
             a_priority.cmp(&b_priority)
         });
 
@@ -804,8 +886,6 @@ impl<'a> PodManager<'a> {
         2 // Everything else in the pod
     }
 
-
-
     /// Splits data into chunks that fit within the scratchpad size limit.
     ///
     /// This function intelligently splits the data while trying to preserve line boundaries
@@ -834,8 +914,9 @@ impl<'a> PodManager<'a> {
             let line_with_newline = format!("{}\n", line);
 
             // If adding this line would exceed the chunk size, start a new chunk
-            if !current_chunk.is_empty() &&
-               current_chunk.len() + line_with_newline.len() > chunk_size {
+            if !current_chunk.is_empty()
+                && current_chunk.len() + line_with_newline.len() > chunk_size
+            {
                 chunks.push(current_chunk.clone());
                 current_chunk.clear();
             }
@@ -884,7 +965,6 @@ impl<'a> PodManager<'a> {
     ///////////////////////////////////////////
     // Local data operations
     ///////////////////////////////////////////
-    
 
     /// Creates a new pod with the specified name in the local data store.
     ///
@@ -945,7 +1025,7 @@ impl<'a> PodManager<'a> {
     /// - [`add_pod_ref`] - Add a reference to another pod
     /// - [`upload_all`] - Upload the new pod to the network
     /// - [`put_subject_data`] - Add data to the pod
-    pub async fn add_pod(&mut self, pod_name: &str) -> Result<(String,String), Error> {
+    pub async fn add_pod(&mut self, pod_name: &str) -> Result<(String, String), Error> {
         let pod_address = self.add_pointer().await?;
         let pod_address = pod_address.to_hex();
         let pod_address = pod_address.as_str();
@@ -954,13 +1034,16 @@ impl<'a> PodManager<'a> {
         let scratchpad_address = scratchpad_address.as_str();
 
         // Add the scratchpad address to the pointer files
-        let _ = self.data_store.update_pointer_target(pod_address, scratchpad_address)?;
+        self.data_store
+            .update_pointer_target(pod_address, scratchpad_address)?;
 
         let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
-        let configuration_scratchpad_address = self.key_store.get_configuration_scratchpad_address()?;
+        let configuration_scratchpad_address =
+            self.key_store.get_configuration_scratchpad_address()?;
         let configuration_scratchpad_address = configuration_scratchpad_address.as_str();
-        let _ = self.data_store.update_pointer_target(configuration_address, configuration_scratchpad_address)?;
+        self.data_store
+            .update_pointer_target(configuration_address, configuration_scratchpad_address)?;
 
         // Get the number of keys to store in the graph
         let num_keys = self.key_store.get_num_keys();
@@ -973,16 +1056,18 @@ impl<'a> PodManager<'a> {
             configuration_address,
             configuration_scratchpad_address,
             num_keys,
-            )?;
+        )?;
 
         // Process the pod data with proper scratchpad management
         self.process_pod_data(pod_address, graph).await?;
 
         // Update the configuration graph with the updated key count
         let num_keys = self.key_store.get_num_keys();
-        self.graph.update_key_count(configuration_address, num_keys)?;
+        self.graph
+            .update_key_count(configuration_address, num_keys)?;
 
-        self.process_pod_data(configuration_address, configuration).await?;
+        self.process_pod_data(configuration_address, configuration)
+            .await?;
 
         Ok((pod_address.to_string(), scratchpad_address.to_string()))
     }
@@ -1065,12 +1150,18 @@ impl<'a> PodManager<'a> {
         }
 
         // Check current scratchpads for this pod
-        let pod_scratchpads = self.get_pod_scratchpads(pod_address)?
-        .unwrap_or_else(|| vec![]);
+        let pod_scratchpads = self
+            .get_pod_scratchpads(pod_address)?
+            .unwrap_or_else(Vec::new);
 
         // Remove the pod from the graph
-        let configuration = self.graph.remove_pod_entry(pod_address, pod_scratchpads.clone(), configuration_address)?;
-        self.process_pod_data(configuration_address, configuration).await?;
+        let configuration = self.graph.remove_pod_entry(
+            pod_address,
+            pod_scratchpads.clone(),
+            configuration_address,
+        )?;
+        self.process_pod_data(configuration_address, configuration)
+            .await?;
 
         // Process the pod data with proper scratchpad management
         self.remove_pod_data(pod_address, pod_scratchpads).await?;
@@ -1195,21 +1286,29 @@ impl<'a> PodManager<'a> {
     /// - [`remvoe_pod_ref`] - Remove a pod reference in a local pod
     /// - [`refresh_ref`] - Download referenced pods from the network
     /// - [`upload_all`] - Upload pod references to the network
-    pub async fn add_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
+    pub async fn add_pod_ref(
+        &mut self,
+        pod_address: &str,
+        pod_ref_address: &str,
+    ) -> Result<(), Error> {
         let pod_address = self.graph.check_pod_exists(pod_address)?;
         let pod_address = pod_address.trim();
         let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
 
         // Add the pointer address to the graph
-        let (graph, configuration) = self.graph.pod_ref_entry(pod_address, pod_ref_address, configuration_address, true)?;
+        let (graph, configuration) =
+            self.graph
+                .pod_ref_entry(pod_address, pod_ref_address, configuration_address, true)?;
 
         // Process the pod data with proper scratchpad management
         self.process_pod_data(pod_address, graph).await?;
         // Update the configuration graph with the updated key count
         let num_keys = self.key_store.get_num_keys();
-        self.graph.update_key_count(configuration_address, num_keys)?;
-        self.process_pod_data(configuration_address, configuration).await?;
+        self.graph
+            .update_key_count(configuration_address, num_keys)?;
+        self.process_pod_data(configuration_address, configuration)
+            .await?;
 
         Ok(())
     }
@@ -1256,21 +1355,29 @@ impl<'a> PodManager<'a> {
     /// - [`add_pod_ref`] - Create a pod reference in a local pod
     /// - [`refresh_ref`] - Download referenced pods from the network
     /// - [`upload_all`] - Upload pod references to the network
-    pub async fn remove_pod_ref(&mut self, pod_address: &str, pod_ref_address: &str) -> Result<(), Error> {
+    pub async fn remove_pod_ref(
+        &mut self,
+        pod_address: &str,
+        pod_ref_address: &str,
+    ) -> Result<(), Error> {
         let pod_address = self.graph.check_pod_exists(pod_address)?;
         let pod_address = pod_address.trim();
         let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
 
         // Remove the pointer address to the graph
-        let (graph, configuration) = self.graph.pod_ref_entry(pod_address, pod_ref_address, configuration_address, false)?;
+        let (graph, configuration) =
+            self.graph
+                .pod_ref_entry(pod_address, pod_ref_address, configuration_address, false)?;
 
         // Process the pod data with proper scratchpad management
         self.process_pod_data(pod_address, graph).await?;
         // Update the configuration graph with the updated key count
         let num_keys = self.key_store.get_num_keys();
-        self.graph.update_key_count(configuration_address, num_keys)?;
-        self.process_pod_data(configuration_address, configuration).await?;
+        self.graph
+            .update_key_count(configuration_address, num_keys)?;
+        self.process_pod_data(configuration_address, configuration)
+            .await?;
 
         Ok(())
     }
@@ -1278,11 +1385,14 @@ impl<'a> PodManager<'a> {
     async fn add_scratchpad(&mut self, pod_address: &str) -> Result<ScratchpadAddress, Error> {
         // Derive a new key for the pod scratchpad
         let scratchpad_key: SecretKey = self.create_scratchpad_key().await?;
-        let scratchpad_address: ScratchpadAddress = ScratchpadAddress::new(scratchpad_key.clone().public_key());
+        let scratchpad_address: ScratchpadAddress =
+            ScratchpadAddress::new(scratchpad_key.clone().public_key());
 
         // Create a new file in the pod directory from the address
-        let _ = self.data_store.create_scratchpad_file(scratchpad_address.clone().to_hex().as_str())?;
-        self.data_store.add_scratchpad_to_pod(pod_address, &scratchpad_address.to_hex())?;
+        self.data_store
+            .create_scratchpad_file(scratchpad_address.clone().to_hex().as_str())?;
+        self.data_store
+            .add_scratchpad_to_pod(pod_address, &scratchpad_address.to_hex())?;
 
         Ok(scratchpad_address)
     }
@@ -1293,8 +1403,10 @@ impl<'a> PodManager<'a> {
         let pointer_address = PointerAddress::new(pointer_key.clone().public_key());
 
         // Create a new file in the pod directory from the address
-        let _ = self.data_store.create_pointer_file(pointer_address.clone().to_hex().as_str())?;
-        self.data_store.append_update_list(pointer_address.clone().to_hex().as_str())?;
+        self.data_store
+            .create_pointer_file(pointer_address.clone().to_hex().as_str())?;
+        self.data_store
+            .append_update_list(pointer_address.clone().to_hex().as_str())?;
 
         Ok(pointer_address)
     }
@@ -1428,46 +1540,57 @@ impl<'a> PodManager<'a> {
     ///////////////////////////////////////////
     // Autonomi network operations
     ///////////////////////////////////////////
-    
+
     // Not used today, ignoring the unused warning
     #[allow(dead_code)]
     async fn get_address_type(&mut self, address: &str) -> Result<(Analysis, bool), Error> {
         // get the type stored on the network
         let mut create_mode = false;
-        let pod_type = self.client.analyze_address(address, false).await.unwrap_or_else(|e| -> Analysis {
-            match e {
-                AnalysisError::FailedGet => {
-                    info!("Address currently does not hold data: {}", address);
-                    create_mode = true;
-                    // check if address is a directory (pointer) or a file (scratchpad)
-                    // and return a dummy analysis type for processing, else
-                    // return a chunk to indicate an error
-                    if self.data_store.address_is_pointer(address).unwrap_or(false) {
-                        Analysis::Pointer(Pointer::new(
-                            &SecretKey::random(),
-                            0,
-                            PointerTarget::ScratchpadAddress(ScratchpadAddress::new(SecretKey::random().public_key())),
-                        ))
-                    } else if self.data_store.address_is_scratchpad(address).unwrap_or(false) {
-                        Analysis::Scratchpad(Scratchpad::new(
-                            &SecretKey::random(),
-                            0,
-                            &Bytes::new(),
-                            0))
-                    } else {
-                        warn!("Address is neither a pointer nor a scratchpad: {}", address);
+        let pod_type = self
+            .client
+            .analyze_address(address, false)
+            .await
+            .unwrap_or_else(|e| -> Analysis {
+                match e {
+                    AnalysisError::FailedGet => {
+                        info!("Address currently does not hold data: {}", address);
+                        create_mode = true;
+                        // check if address is a directory (pointer) or a file (scratchpad)
+                        // and return a dummy analysis type for processing, else
+                        // return a chunk to indicate an error
+                        if self.data_store.address_is_pointer(address).unwrap_or(false) {
+                            Analysis::Pointer(Pointer::new(
+                                &SecretKey::random(),
+                                0,
+                                PointerTarget::ScratchpadAddress(ScratchpadAddress::new(
+                                    SecretKey::random().public_key(),
+                                )),
+                            ))
+                        } else if self
+                            .data_store
+                            .address_is_scratchpad(address)
+                            .unwrap_or(false)
+                        {
+                            Analysis::Scratchpad(Scratchpad::new(
+                                &SecretKey::random(),
+                                0,
+                                &Bytes::new(),
+                                0,
+                            ))
+                        } else {
+                            warn!("Address is neither a pointer nor a scratchpad: {}", address);
+                            Analysis::Chunk(Chunk::new(Bytes::new()))
+                        }
+                    }
+                    _ => {
+                        warn!("Address error: {}", e);
                         Analysis::Chunk(Chunk::new(Bytes::new()))
                     }
                 }
-                _ => {
-                    warn!("Address error: {}", e);
-                    Analysis::Chunk(Chunk::new(Bytes::new()))
-                }
-            }
-        });
+            });
         Ok((pod_type, create_mode))
     }
-    
+
     /// Uploads all pending changes to the Autonomi network.
     ///
     /// This function processes the update queue and uploads all modified pods and scratchpads
@@ -1533,28 +1656,43 @@ impl<'a> PodManager<'a> {
         let update_list = self.data_store.get_update_list()?;
 
         // Process removals first
-        info!("Processing {} pointer removals and {} scratchpad removals",
-              update_list.remove.pointers.len(),
-              update_list.remove.scratchpads.len());
+        info!(
+            "Processing {} pointer removals and {} scratchpad removals",
+            update_list.remove.pointers.len(),
+            update_list.remove.scratchpads.len()
+        );
 
         // Remove pointers by updating them to point to themselves
         for pointer_address in &update_list.remove.pointers {
             debug!("Removing pointer: {}", pointer_address);
             match self.remove_pointer(pointer_address, pointer_address).await {
                 Ok(_) => info!("Successfully removed pointer: {}", pointer_address),
-                Err(e) => {
-                    match e {
-                        Error::Pointer(PointerError::CannotUpdateNewPointer) => {
-                            info!("Pointer {} not found on network, already removed", pointer_address);
-                        }
-                        Error::Pointer(PointerError::Network(NetworkError::GetRecordError(GetRecordError::RecordNotFound))) => {
-                            info!("Pointer {} not found on network, already removed", pointer_address);
-                        }
-                        _ => {
-                            error!("Failed to remove pointer {}: {}", pointer_address, e);
-                        }
+                Err(e) => match e {
+                    Error::Pointer(ref boxed_err)
+                        if matches!(**boxed_err, PointerError::CannotUpdateNewPointer) =>
+                    {
+                        info!(
+                            "Pointer {} not found on network, already removed",
+                            pointer_address
+                        );
                     }
-                }
+                    Error::Pointer(ref boxed_err)
+                        if matches!(
+                            **boxed_err,
+                            PointerError::Network(NetworkError::GetRecordError(
+                                GetRecordError::RecordNotFound
+                            ))
+                        ) =>
+                    {
+                        info!(
+                            "Pointer {} not found on network, already removed",
+                            pointer_address
+                        );
+                    }
+                    _ => {
+                        error!("Failed to remove pointer {}: {}", pointer_address, e);
+                    }
+                },
             }
         }
 
@@ -1563,25 +1701,38 @@ impl<'a> PodManager<'a> {
             debug!("Removing scratchpad: {}", scratchpad_address);
             match self.remove_scratchpad(scratchpad_address, "").await {
                 Ok(_) => info!("Successfully removed scratchpad: {}", scratchpad_address),
-                Err(e) => {
-                    match e {
-                        Error::Scratchpad(ScratchpadError::CannotUpdateNewScratchpad) => {
-                            info!("Scratchpad {} not found on network, already removed", scratchpad_address);
-                        }
-                        Error::Scratchpad(ScratchpadError::Network(NetworkError::GetRecordError(GetRecordError::RecordNotFound))) => {
-                            info!("Scratchpad {} not found on network, already removed", scratchpad_address);
-                        }
-                        _ => {
-                            error!("Failed to remove scratchpad {}: {}", scratchpad_address, e);
-                        }
+                Err(e) => match e {
+                    Error::Scratchpad(ref boxed_err)
+                        if matches!(**boxed_err, ScratchpadError::CannotUpdateNewScratchpad) =>
+                    {
+                        info!(
+                            "Scratchpad {} not found on network, already removed",
+                            scratchpad_address
+                        );
                     }
-                }
+                    Error::Scratchpad(ref boxed_err)
+                        if matches!(
+                            **boxed_err,
+                            ScratchpadError::Network(NetworkError::GetRecordError(
+                                GetRecordError::RecordNotFound
+                            ))
+                        ) =>
+                    {
+                        info!(
+                            "Scratchpad {} not found on network, already removed",
+                            scratchpad_address
+                        );
+                    }
+                    _ => {
+                        error!("Failed to remove scratchpad {}: {}", scratchpad_address, e);
+                    }
+                },
             }
         }
 
         // Process pod uploads
         info!("Processing {} pod uploads", update_list.pods.len());
-        for (pod_address, _scratchpads) in &update_list.pods {
+        for pod_address in update_list.pods.keys() {
             debug!("Uploading pod to the network: {}", pod_address);
             self.upload_pod(pod_address).await?;
         }
@@ -1672,13 +1823,28 @@ impl<'a> PodManager<'a> {
             Ok(_) => {}
             Err(e) => {
                 match e {
-                    Error::Pointer(PointerError::CannotUpdateNewPointer) => {
-                        info!("Pointer not found on network, creating new pointer: {}", address);
+                    Error::Pointer(ref boxed_err)
+                        if matches!(**boxed_err, PointerError::CannotUpdateNewPointer) =>
+                    {
+                        info!(
+                            "Pointer not found on network, creating new pointer: {}",
+                            address
+                        );
                         create_mode = true;
                     }
                     // Catch Pointer(Network(GetRecordError(RecordNotFound))) error when there is nothing on the network
-                    Error::Pointer(PointerError::Network(NetworkError::GetRecordError(GetRecordError::RecordNotFound))) => {
-                        info!("Pointer not found on network, creating new pointer: {}", address);
+                    Error::Pointer(ref boxed_err)
+                        if matches!(
+                            **boxed_err,
+                            PointerError::Network(NetworkError::GetRecordError(
+                                GetRecordError::RecordNotFound
+                            ))
+                        ) =>
+                    {
+                        info!(
+                            "Pointer not found on network, creating new pointer: {}",
+                            address
+                        );
                         create_mode = true;
                     }
                     _ => {
@@ -1687,7 +1853,7 @@ impl<'a> PodManager<'a> {
                     }
                 }
             }
-        }        
+        }
 
         // If the pointer didn't exist, call create_pointer()
         if create_mode {
@@ -1702,7 +1868,6 @@ impl<'a> PodManager<'a> {
 
         // Loop through each scratchpad address
         for scratchpad_address in scratchpads {
-
             let address = scratchpad_address.trim();
             let data = self.data_store.get_scratchpad_data(address)?;
             let data = data.trim();
@@ -1711,13 +1876,31 @@ impl<'a> PodManager<'a> {
                 Ok(_) => {}
                 Err(e) => {
                     match e {
-                        Error::Scratchpad(ScratchpadError::CannotUpdateNewScratchpad) => {
-                            info!("Scratchpad not found on network, creating new scratchpad: {}", address);
+                        Error::Scratchpad(ref boxed_err)
+                            if matches!(
+                                **boxed_err,
+                                ScratchpadError::CannotUpdateNewScratchpad
+                            ) =>
+                        {
+                            info!(
+                                "Scratchpad not found on network, creating new scratchpad: {}",
+                                address
+                            );
                             create_mode = true;
                         }
                         // Catch Scratchpad(Network(GetRecordError(RecordNotFound))) error when there is nothing on the network
-                        Error::Scratchpad(ScratchpadError::Network(NetworkError::GetRecordError(GetRecordError::RecordNotFound))) => {
-                            info!("Scratchpad not found on network, creating new scratchpad: {}", address);
+                        Error::Scratchpad(ref boxed_err)
+                            if matches!(
+                                **boxed_err,
+                                ScratchpadError::Network(NetworkError::GetRecordError(
+                                    GetRecordError::RecordNotFound
+                                ))
+                            ) =>
+                        {
+                            info!(
+                                "Scratchpad not found on network, creating new scratchpad: {}",
+                                address
+                            );
                             create_mode = true;
                         }
                         _ => {
@@ -1726,13 +1909,12 @@ impl<'a> PodManager<'a> {
                         }
                     }
                 }
-            }        
-    
+            }
+
             // If the pointer didn't exist, call create_pointer()
             if create_mode {
                 self.create_scratchpad(address, data).await?;
             }
-
         }
 
         debug!("Pod {} uploaded successfully", address);
@@ -1752,7 +1934,8 @@ impl<'a> PodManager<'a> {
 
         // Put the pointer on the network
         let payment_option = PaymentOption::from(self.wallet);
-        let (pointer_cost, _pointer_address) = self.client.pointer_put(pointer, payment_option).await?;
+        let (pointer_cost, _pointer_address) =
+            self.client.pointer_put(pointer, payment_option).await?;
         debug!("Pointer upload cost: {pointer_cost:?}");
 
         Ok(pointer_cost.to_string())
@@ -1761,9 +1944,10 @@ impl<'a> PodManager<'a> {
     async fn create_scratchpad(&mut self, address: &str, data: &str) -> Result<String, Error> {
         let key_string = self.key_store.get_scratchpad_key(address.to_string())?;
         let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
-        
+
         // Create new publicly readable scratchpad
-        let scratchpad_address: ScratchpadAddress = ScratchpadAddress::new(key.clone().public_key());
+        let scratchpad_address: ScratchpadAddress =
+            ScratchpadAddress::new(key.clone().public_key());
         let scratchpad: Scratchpad = Scratchpad::new_with_signature(
             key.clone().public_key(),
             0,
@@ -1782,7 +1966,10 @@ impl<'a> PodManager<'a> {
 
         // Put the scratchpad on the network
         let payment_option = PaymentOption::from(self.wallet);
-        let (scratchpad_cost, _scratchpad_address) = self.client.scratchpad_put(scratchpad, payment_option.clone()).await?;
+        let (scratchpad_cost, _scratchpad_address) = self
+            .client
+            .scratchpad_put(scratchpad, payment_option.clone())
+            .await?;
         debug!("Scratchpad cost: {scratchpad_cost:?}");
 
         Ok(scratchpad_cost.to_string())
@@ -1799,13 +1986,14 @@ impl<'a> PodManager<'a> {
         let target_address = ScratchpadAddress::from_hex(target)?;
         let target = PointerTarget::ScratchpadAddress(target_address);
 
-        // Update the pointer counter and target 
+        // Update the pointer counter and target
         self.client.pointer_update(&key, target).await?;
         debug!("Pointer updated");
 
         // Update the local pointer file counter
         let pointer_count = pointer.counter() + 1;
-        self.data_store.update_pointer_count(address, pointer_count.into())?;
+        self.data_store
+            .update_pointer_count(address, pointer_count.into())?;
         Ok(())
     }
 
@@ -1814,7 +2002,7 @@ impl<'a> PodManager<'a> {
         let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
 
         // get the scratchpad to make sure it exists and to get the current counter value
-        let scratchpad_address = ScratchpadAddress::from_hex(address)?;        // Lookup the key for the pod pointer from the key store
+        let scratchpad_address = ScratchpadAddress::from_hex(address)?; // Lookup the key for the pod pointer from the key store
         let scratchpad = self.client.scratchpad_get(&scratchpad_address).await?;
 
         // Update the scratchpad contents and its counter
@@ -1824,7 +2012,7 @@ impl<'a> PodManager<'a> {
             Bytes::from(data.to_owned()),
             scratchpad.counter() + 1,
             key.sign(Scratchpad::bytes_for_signature(
-                scratchpad_address.clone(),
+                scratchpad_address,
                 0,
                 &Bytes::from(data.to_owned()),
                 scratchpad.counter() + 1,
@@ -1833,7 +2021,10 @@ impl<'a> PodManager<'a> {
 
         // Put the new scratchpad on the network
         let payment_option = PaymentOption::from(self.wallet);
-        let (scratchpad_cost, _scratchpad_address) = self.client.scratchpad_put(scratchpad, payment_option.clone()).await?;
+        let (scratchpad_cost, _scratchpad_address) = self
+            .client
+            .scratchpad_put(scratchpad, payment_option.clone())
+            .await?;
         info!("Scratchpad update cost: {scratchpad_cost:?}");
         debug!("Scratchpad updated");
 
@@ -1851,21 +2042,24 @@ impl<'a> PodManager<'a> {
         let target_address = ScratchpadAddress::from_hex(target)?;
         let target = PointerTarget::ScratchpadAddress(target_address);
 
-        // Update the pointer counter and target 
+        // Update the pointer counter and target
         self.client.pointer_update(&key, target).await?;
 
         // Update the local pointer file counter
         let pointer_count = pointer.counter() + 1;
-        self.data_store.update_pointer_count(address, pointer_count.into())?;
+        self.data_store
+            .update_pointer_count(address, pointer_count.into())?;
         Ok(())
     }
 
     async fn remove_scratchpad(&mut self, address: &str, data: &str) -> Result<(), Error> {
-        let key_string = self.key_store.get_free_scratchpad_key(address.to_string())?;
+        let key_string = self
+            .key_store
+            .get_free_scratchpad_key(address.to_string())?;
         let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
 
         // get the scratchpad to make sure it exists and to get the current counter value
-        let scratchpad_address = ScratchpadAddress::from_hex(address)?;        // Lookup the key for the pod pointer from the key store
+        let scratchpad_address = ScratchpadAddress::from_hex(address)?; // Lookup the key for the pod pointer from the key store
         let scratchpad = self.client.scratchpad_get(&scratchpad_address).await?;
 
         // Update the scratchpad contents and its counter
@@ -1875,7 +2069,7 @@ impl<'a> PodManager<'a> {
             Bytes::from(data.to_owned()),
             scratchpad.counter() + 1,
             key.sign(Scratchpad::bytes_for_signature(
-                scratchpad_address.clone(),
+                scratchpad_address,
                 0,
                 &Bytes::from(data.to_owned()),
                 scratchpad.counter() + 1,
@@ -1884,7 +2078,10 @@ impl<'a> PodManager<'a> {
 
         // Put the new scratchpad on the network
         let payment_option = PaymentOption::from(self.wallet);
-        let (scratchpad_cost, _scratchpad_address) = self.client.scratchpad_put(scratchpad, payment_option.clone()).await?;
+        let (scratchpad_cost, _scratchpad_address) = self
+            .client
+            .scratchpad_put(scratchpad, payment_option.clone())
+            .await?;
         println!("Scratchpad update cost: {scratchpad_cost:?}");
 
         Ok(())
@@ -1979,7 +2176,10 @@ impl<'a> PodManager<'a> {
         // Get the configuration address
         let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
-        debug!("Refreshing configuration address: {}", configuration_address);
+        debug!(
+            "Refreshing configuration address: {}",
+            configuration_address
+        );
 
         // Download the configuration pod pointer
         let pointer_address = PointerAddress::from_hex(configuration_address)?;
@@ -1992,13 +2192,15 @@ impl<'a> PodManager<'a> {
                         return Ok(()); // Skip to the next pointer
                     }
                     // Catch Pointer(Network(GetRecordError(RecordNotFound))) error when there is nothing on the network
-                    PointerError::Network(NetworkError::GetRecordError(GetRecordError::RecordNotFound)) => {
+                    PointerError::Network(NetworkError::GetRecordError(
+                        GetRecordError::RecordNotFound,
+                    )) => {
                         warn!("Configuration pointer not found on network, skipping");
                         return Ok(()); // Skip to the next pointer
                     }
                     _ => {
                         error!("Error occurred: {:?}", e); // Log the error
-                        return Err(Error::Pointer(e)); // Propagate the error to the higher-level function
+                        return Err(Error::Pointer(Box::new(e))); // Propagate the error to the higher-level function
                     }
                 }
             }
@@ -2007,8 +2209,11 @@ impl<'a> PodManager<'a> {
         debug!("Retrieved pointer. Update count: {}", pointer.counter());
         // Check if the pointer counter is newer than the local cache. If the pointer is older, we are done.
         // The MAX condition is the special case where the pointer file is not found and we always want to refresh
-        let local_pointer_count = self.data_store.get_pointer_count(configuration_address).unwrap_or_else(|_| std::u64::MAX);
-        if pointer.counter() as u64 <= local_pointer_count && local_pointer_count != std::u64::MAX {
+        let local_pointer_count = self
+            .data_store
+            .get_pointer_count(configuration_address)
+            .unwrap_or(u64::MAX);
+        if pointer.counter() as u64 <= local_pointer_count && local_pointer_count != u64::MAX {
             info!("Local pods are up to date, skipping refresh");
             return Ok(());
         }
@@ -2031,7 +2236,7 @@ impl<'a> PodManager<'a> {
         // Load the configuration pod data into the graph database
         self.load_pod_into_graph(configuration_address, data.trim())?;
 
-        // Get the list of used and free pointers and scratchpads from the graph        
+        // Get the list of used and free pointers and scratchpads from the graph
         let mut free_pointers = self.graph.get_free_pointers(configuration_address)?;
         let mut free_scratchpads = self.graph.get_free_scratchpads(configuration_address)?;
         let pointers = self.graph.get_pointers(configuration_address)?;
@@ -2109,13 +2314,15 @@ impl<'a> PodManager<'a> {
                             continue; // Skip to the next pointer
                         }
                         // Catch Pointer(Network(GetRecordError(RecordNotFound))) error when there is nothing on the network
-                        PointerError::Network(NetworkError::GetRecordError(GetRecordError::RecordNotFound)) => {
+                        PointerError::Network(NetworkError::GetRecordError(
+                            GetRecordError::RecordNotFound,
+                        )) => {
                             warn!("Pointer not found on network, skipping: {}", address);
                             continue; // Skip to the next pointer
                         }
                         _ => {
                             error!("Error occurred: {:?}", e); // Log the error
-                            return Err(Error::Pointer(e)); // Propagate the error to the higher-level function
+                            return Err(Error::Pointer(Box::new(e))); // Propagate the error to the higher-level function
                         }
                     }
                 }
@@ -2128,8 +2335,10 @@ impl<'a> PodManager<'a> {
             if !pointer_exists {
                 info!("Pointer file does not exist, creating it");
                 self.data_store.create_pointer_file(address)?;
-                self.data_store.update_pointer_target(address, pointer.target().to_hex().as_str())?;
-                self.data_store.update_pointer_count(address, pointer.counter().into())?;
+                self.data_store
+                    .update_pointer_target(address, pointer.target().to_hex().as_str())?;
+                self.data_store
+                    .update_pointer_count(address, pointer.counter().into())?;
             }
             // Check if the pointer is newer than the local cache
             let local_pointer_count = self.data_store.get_pointer_count(address)?;
@@ -2148,10 +2357,16 @@ impl<'a> PodManager<'a> {
                 let data = self.combine_scratchpad_data(target).await?;
 
                 // Load the newly discovered pod data into the graph database
-                info!("Loading newly discovered pod into graph database: {}", address);
+                info!(
+                    "Loading newly discovered pod into graph database: {}",
+                    address
+                );
                 if !data.trim().is_empty() {
                     if let Err(e) = self.load_pod_into_graph(address, data.trim()) {
-                        warn!("Failed to load newly discovered pod data into graph for {}: {}", address, e);
+                        warn!(
+                            "Failed to load newly discovered pod data into graph for {}: {}",
+                            address, e
+                        );
                     }
                 }
 
@@ -2169,16 +2384,21 @@ impl<'a> PodManager<'a> {
     }
 
     async fn combine_scratchpad_data(&self, target: &ScratchpadAddress) -> Result<String, Error> {
-        if !self.data_store.address_is_scratchpad(target.to_hex().as_str())? {
+        if !self
+            .data_store
+            .address_is_scratchpad(target.to_hex().as_str())?
+        {
             info!("Scratchpad file does not exist, creating it");
-            self.data_store.create_scratchpad_file(target.to_hex().as_str())?;
+            self.data_store
+                .create_scratchpad_file(target.to_hex().as_str())?;
         }
         // Download the scratchpad data
         let scratchpad = self.client.scratchpad_get(target).await?;
         let data = scratchpad.encrypted_data();
         let mut data_bytes = data.to_vec();
         let mut data = String::from_utf8(data.to_vec())?;
-        self.data_store.update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
+        self.data_store
+            .update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
 
         // Manually parse the scratchpad data and get a vector of the scratchpad addresses
         let scratchpads = self.graph.get_pod_scratchpads_from_string(data.trim())?;
@@ -2193,16 +2413,24 @@ impl<'a> PodManager<'a> {
                     count += 1;
                     continue;
                 }
-                if !self.data_store.address_is_scratchpad(scratchpad_address.trim())? {
+                if !self
+                    .data_store
+                    .address_is_scratchpad(scratchpad_address.trim())?
+                {
                     info!("Scratchpad file does not exist, creating it");
-                    self.data_store.create_scratchpad_file(scratchpad_address.trim())?;
+                    self.data_store
+                        .create_scratchpad_file(scratchpad_address.trim())?;
                 }
-                let scratchpad = self.client.scratchpad_get(&ScratchpadAddress::from_hex(scratchpad_address.trim())?).await?;
+                let scratchpad = self
+                    .client
+                    .scratchpad_get(&ScratchpadAddress::from_hex(scratchpad_address.trim())?)
+                    .await?;
                 let data = scratchpad.encrypted_data();
                 let mut bytes = data.to_vec();
                 data_bytes.append(&mut bytes);
                 let data = String::from_utf8(data.to_vec())?;
-                self.data_store.update_scratchpad_data(scratchpad_address.trim(), data.trim())?;
+                self.data_store
+                    .update_scratchpad_data(scratchpad_address.trim(), data.trim())?;
                 count += 1;
             }
 
@@ -2211,7 +2439,7 @@ impl<'a> PodManager<'a> {
         }
         Ok(data)
     }
- 
+
     /// Refreshes the pod cache including referenced pods up to a specified depth.
     ///
     /// This function extends `refresh_cache()` by also discovering and downloading pods
@@ -2279,7 +2507,7 @@ impl<'a> PodManager<'a> {
     /// - [`add_pod_ref`] - Create pod references
     /// - [`search`] - Search across all cached pods
     pub async fn refresh_ref(&mut self, depth: u64) -> Result<(), Error> {
-        let _ = self.refresh_cache().await?;
+        self.refresh_cache().await?;
 
         // Process pods iteratively up to the specified depth to avoid async recursion
         let mut all_referenced_pods = Vec::new();
@@ -2299,7 +2527,8 @@ impl<'a> PodManager<'a> {
 
                 for pod_ref in pod_refs {
                     // Check if the pod_ref has already been processed or is in the current list
-                    if all_referenced_pods.contains(&pod_ref) || referenced_pods.contains(&pod_ref) {
+                    if all_referenced_pods.contains(&pod_ref) || referenced_pods.contains(&pod_ref)
+                    {
                         info!("Pod reference {} already processed, skipping", pod_ref);
                         continue;
                     }
@@ -2312,10 +2541,16 @@ impl<'a> PodManager<'a> {
                 info!("Processing referenced pod: {}", ref_address);
 
                 all_referenced_pods.push(ref_address.clone());
-                info!("Referenced pod {} not found locally, attempting to download", ref_address);
+                info!(
+                    "Referenced pod {} not found locally, attempting to download",
+                    ref_address
+                );
 
                 // Try to download the referenced pod
-                if let Err(e) = self.download_referenced_pod(&ref_address, current_depth + 1).await {
+                if let Err(e) = self
+                    .download_referenced_pod(&ref_address, current_depth + 1)
+                    .await
+                {
                     warn!("Failed to download referenced pod {}: {}", ref_address, e);
                     continue;
                 }
@@ -2362,8 +2597,15 @@ impl<'a> PodManager<'a> {
     }
 
     // Download a referenced pod from the network
-    async fn download_referenced_pod(&mut self, pod_address: &str, depth: u64) -> Result<(), Error> {
-        info!("Attempting to download referenced pod: {} at depth {}", pod_address, depth);
+    async fn download_referenced_pod(
+        &mut self,
+        pod_address: &str,
+        depth: u64,
+    ) -> Result<(), Error> {
+        info!(
+            "Attempting to download referenced pod: {} at depth {}",
+            pod_address, depth
+        );
 
         let pointer_address = PointerAddress::from_hex(pod_address)?;
         let pointer: Pointer = match self.client.pointer_get(&pointer_address).await {
@@ -2375,18 +2617,20 @@ impl<'a> PodManager<'a> {
                         return Ok(()); // Skip this pod if it doesn't exist
                     }
                     // Catch Pointer(Network(GetRecordError(RecordNotFound))) error when there is nothing on the network
-                    PointerError::Network(NetworkError::GetRecordError(GetRecordError::RecordNotFound)) => {
+                    PointerError::Network(NetworkError::GetRecordError(
+                        GetRecordError::RecordNotFound,
+                    )) => {
                         warn!("Referenced pod not found on network: {}", pod_address);
                         return Ok(()); // Skip this pod if it doesn't exist
                     }
                     _ => {
                         error!("Error occurred: {:?}", e); // Log the error
-                        return Err(Error::Pointer(e)); // Propagate the error to the higher-level function
+                        return Err(Error::Pointer(Box::new(e))); // Propagate the error to the higher-level function
                     }
                 }
-            }            
+            }
         };
-        
+
         // Check if we already have this pod locally
         let pod_exists = self.data_store.address_is_pointer(pod_address)?;
         let should_download = if pod_exists {
@@ -2394,12 +2638,16 @@ impl<'a> PodManager<'a> {
             let local_pointer_count = self.data_store.get_pointer_count(pod_address)?;
             let remote_counter = pointer.counter() as u64;
             if remote_counter > local_pointer_count {
-                info!("Remote pod is newer (counter: {} > {}), downloading update", 
-                      remote_counter, local_pointer_count);
+                info!(
+                    "Remote pod is newer (counter: {} > {}), downloading update",
+                    remote_counter, local_pointer_count
+                );
                 true
             } else {
-                info!("Local pod is up to date (counter: {} >= {}), skipping download", 
-                      local_pointer_count, remote_counter);
+                info!(
+                    "Local pod is up to date (counter: {} >= {}), skipping download",
+                    local_pointer_count, remote_counter
+                );
                 false
             }
         } else {
@@ -2427,8 +2675,10 @@ impl<'a> PodManager<'a> {
             self.load_pod_into_graph(pod_address, data.trim())?;
 
             // Update pointer information
-            self.data_store.update_pointer_target(pod_address, pointer.target().to_hex().as_str())?;
-            self.data_store.update_pointer_count(pod_address, pointer.counter().into())?;
+            self.data_store
+                .update_pointer_target(pod_address, pointer.target().to_hex().as_str())?;
+            self.data_store
+                .update_pointer_count(pod_address, pointer.counter().into())?;
 
             info!("Successfully downloaded referenced pod: {}", pod_address);
         }
@@ -2446,7 +2696,8 @@ impl<'a> PodManager<'a> {
         let configuration_address = configuration_address.as_str();
 
         // Use the graph database to update the pod depth
-        self.graph.update_pod_depth(pod_address, configuration_address, depth)?;
+        self.graph
+            .update_pod_depth(pod_address, configuration_address, depth)?;
         Ok(())
     }
 
@@ -2457,18 +2708,20 @@ impl<'a> PodManager<'a> {
 
         match self.graph.load_pod_into_graph(pod_address, pod_data) {
             Ok(_) => {
-                info!("Successfully loaded pod {} data into graph database", pod_address);
+                info!(
+                    "Successfully loaded pod {} data into graph database",
+                    pod_address
+                );
             }
             Err(e) => {
-                warn!("Failed to load pod {} data into graph database: {}", pod_address, e);
+                warn!(
+                    "Failed to load pod {} data into graph database: {}",
+                    pod_address, e
+                );
                 // Don't fail the entire operation if graph loading fails
             }
         }
 
         Ok(())
     }
-
 }
-
-
-

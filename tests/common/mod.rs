@@ -1,4 +1,4 @@
-use colonylib::{DataStore, KeyStore, Graph};
+use colonylib::{DataStore, Graph, KeyStore};
 use tempfile::TempDir;
 
 /// Helper function to create test components for integration tests

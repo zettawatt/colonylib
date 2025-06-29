@@ -1,12 +1,12 @@
-use std::fs::{File, create_dir_all, read_to_string, write, remove_file};
-use std::path::PathBuf;
 use dirs;
-use std::io::Error as IoError;
-use tracing::{error, info};
-use std::io::Write;
-use thiserror;
 use serde;
 use serde_json;
+use std::fs::{File, create_dir_all, read_to_string, remove_file, write};
+use std::io::Error as IoError;
+use std::io::Write;
+use std::path::PathBuf;
+use thiserror;
+use tracing::{error, info};
 
 // Import UpdateList from pod module
 use crate::pod::UpdateList;
@@ -28,15 +28,15 @@ pub enum ErrorKind {
 impl serde::Serialize for Error {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-      S: serde::ser::Serializer,
+        S: serde::ser::Serializer,
     {
-      let error_message = self.to_string();
-      let error_kind = match self {
-        Self::Io(_) => ErrorKind::Io(error_message),
-      };
-      error_kind.serialize(serializer)
+        let error_message = self.to_string();
+        let error_kind = match self {
+            Self::Io(_) => ErrorKind::Io(error_message),
+        };
+        error_kind.serialize(serializer)
     }
-  }
+}
 
 #[derive(Clone, Debug)]
 pub struct DataStore {
@@ -47,19 +47,23 @@ pub struct DataStore {
 
 impl DataStore {
     pub fn create() -> Result<Self, Error> {
-
-        let mut data_dir: PathBuf = dirs::data_dir().expect("the data directory path to your OS was not found");
+        let mut data_dir: PathBuf =
+            dirs::data_dir().expect("the data directory path to your OS was not found");
         data_dir.push("colony");
 
         let downloads_dir: PathBuf = dirs::download_dir().unwrap_or(data_dir.clone());
-        
+
         let mut pods_dir = data_dir.clone();
         pods_dir.push("pods");
-  
-        Ok(Self::from_paths(data_dir, pods_dir, downloads_dir)?)
+
+        Self::from_paths(data_dir, pods_dir, downloads_dir)
     }
 
-    pub fn from_paths(data_dir: PathBuf, pods_dir: PathBuf, downloads_dir: PathBuf) -> Result<Self, Error> {
+    pub fn from_paths(
+        data_dir: PathBuf,
+        pods_dir: PathBuf,
+        downloads_dir: PathBuf,
+    ) -> Result<Self, Error> {
         if !data_dir.exists() {
             create_dir_all(&data_dir)?;
             info!("Created data directory: {:?}", data_dir);
@@ -84,7 +88,11 @@ impl DataStore {
             create_dir_all(&downloads_dir)?;
             info!("Created downloads directory: {:?}", downloads_dir);
         }
-        Ok(DataStore { data_dir, pods_dir, downloads_dir })
+        Ok(DataStore {
+            data_dir,
+            pods_dir,
+            downloads_dir,
+        })
     }
 
     pub fn get_pods_dir(&self) -> PathBuf {
@@ -171,9 +179,17 @@ impl DataStore {
         }
 
         // Remove from removal list if it exists there (cross-removal behavior)
-        if let Some(pos) = update_list.remove.pointers.iter().position(|x| x == pod_address) {
+        if let Some(pos) = update_list
+            .remove
+            .pointers
+            .iter()
+            .position(|x| x == pod_address)
+        {
             update_list.remove.pointers.remove(pos);
-            info!("Removed pod address {} from pointer removal list", pod_address);
+            info!(
+                "Removed pod address {} from pointer removal list",
+                pod_address
+            );
         }
 
         // Add the pod with an empty scratchpad list (will be populated later)
@@ -201,19 +217,29 @@ impl DataStore {
                 }
             }
             "scratchpad" => {
-                if !update_list.remove.scratchpads.contains(&address.to_string()) {
+                if !update_list
+                    .remove
+                    .scratchpads
+                    .contains(&address.to_string())
+                {
                     // Remove from any pod's scratchpad list if it exists there (cross-removal behavior)
                     for (pod_address, scratchpads) in update_list.pods.iter_mut() {
                         if let Some(pos) = scratchpads.iter().position(|x| x == address) {
                             scratchpads.remove(pos);
-                            info!("Removed scratchpad address {} from pod {} update list", address, pod_address);
+                            info!(
+                                "Removed scratchpad address {} from pod {} update list",
+                                address, pod_address
+                            );
                             break;
                         }
                     }
 
                     update_list.remove.scratchpads.push(address.to_string());
                 } else {
-                    info!("Scratchpad address {} already exists in removal list", address);
+                    info!(
+                        "Scratchpad address {} already exists in removal list",
+                        address
+                    );
                     return Ok(());
                 }
             }
@@ -221,7 +247,7 @@ impl DataStore {
                 error!("Unknown address type for removal: {}", address_type);
                 return Err(Error::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
-                    format!("Unknown address type: {}", address_type)
+                    format!("Unknown address type: {}", address_type),
                 )));
             }
         }
@@ -231,17 +257,32 @@ impl DataStore {
     }
 
     /// Add a scratchpad address to a pod's scratchpad list in the update list
-    pub fn add_scratchpad_to_pod(&self, pod_address: &str, scratchpad_address: &str) -> Result<(), Error> {
+    pub fn add_scratchpad_to_pod(
+        &self,
+        pod_address: &str,
+        scratchpad_address: &str,
+    ) -> Result<(), Error> {
         let mut update_list = self.read_update_list()?;
 
         // Remove scratchpad from removal list if it exists there (cross-removal behavior)
-        if let Some(pos) = update_list.remove.scratchpads.iter().position(|x| x == scratchpad_address) {
+        if let Some(pos) = update_list
+            .remove
+            .scratchpads
+            .iter()
+            .position(|x| x == scratchpad_address)
+        {
             update_list.remove.scratchpads.remove(pos);
-            info!("Removed scratchpad address {} from removal list", scratchpad_address);
+            info!(
+                "Removed scratchpad address {} from removal list",
+                scratchpad_address
+            );
         }
 
         // Ensure the pod exists in the update list
-        let scratchpads = update_list.pods.entry(pod_address.to_string()).or_insert_with(Vec::new);
+        let scratchpads = update_list
+            .pods
+            .entry(pod_address.to_string())
+            .or_insert_with(Vec::new);
 
         // Add the scratchpad if it's not already there
         if !scratchpads.contains(&scratchpad_address.to_string()) {
@@ -264,44 +305,48 @@ impl DataStore {
         self.read_update_list()
     }
 
-    pub fn update_pointer_target(&self, pointer_address: &str, scratchpad_address: &str) -> Result<(), Error> {
+    pub fn update_pointer_target(
+        &self,
+        pointer_address: &str,
+        scratchpad_address: &str,
+    ) -> Result<(), Error> {
         // Update the first line with the scratchpad address, keeping the second line unchanged
         let mut pointer_path = self.get_pointers_dir();
         pointer_path.push(pointer_address);
-    
+
         let mut contents = String::new();
         if pointer_path.exists() {
             contents = read_to_string(&pointer_path)?;
         }
-    
+
         let mut lines = contents.lines();
         let _ = lines.next(); // Skip the first line
         let second_line = lines.next().unwrap_or("0").to_string(); // Get the second line or default to an empty string
-    
+
         let mut pointer_file = File::create(&pointer_path)?; // Overwrite the file
         writeln!(pointer_file, "{}", scratchpad_address)?; // Write the new first line
         writeln!(pointer_file, "{}", second_line)?; // Write the second line back
-    
+
         Ok(())
     }
-    
+
     pub fn update_pointer_count(&self, pointer_address: &str, count: u64) -> Result<(), Error> {
         // Update the second line with the count, keeping the first line unchanged
         let mut pointer_path = self.get_pointers_dir();
         pointer_path.push(pointer_address);
-    
+
         let mut contents = String::new();
         if pointer_path.exists() {
             contents = read_to_string(&pointer_path)?;
         }
-    
+
         let mut lines = contents.lines();
         let first_line = lines.next().unwrap_or("").to_string(); // Get the first line or default to an empty string
-    
+
         let mut pointer_file = File::create(&pointer_path)?; // Overwrite the file
         writeln!(pointer_file, "{}", first_line)?; // Write the first line back
         writeln!(pointer_file, "{}", count)?; // Write the new second line
-    
+
         Ok(())
     }
 
@@ -379,26 +424,22 @@ impl DataStore {
     pub fn address_is_pointer(&self, address: &str) -> Result<bool, Error> {
         let mut pod_path = self.get_pointers_dir();
         pod_path.push(address);
-    
+
         if pod_path.exists() && pod_path.is_file() {
             return Ok(true);
         }
-    
+
         Ok(false) // Address is not a directory (pointer)
     }
 
     pub fn address_is_scratchpad(&self, address: &str) -> Result<bool, Error> {
         let mut pod_path = self.get_scratchpads_dir();
         pod_path.push(address); // Append the address to the base directory path
-    
+
         if pod_path.exists() && pod_path.is_file() {
             return Ok(true);
         }
-    
+
         Ok(false)
     }
-
 }
-
-
-
