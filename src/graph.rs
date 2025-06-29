@@ -319,9 +319,8 @@ impl Graph {
         self.store.clear_graph(pod)?;
 
         // Remove the pod from the configuration graph
-        let update = format!(
-            "DELETE WHERE {{ GRAPH <{configuration_iri}> {{ <{pod_iri}> ?p ?o . }} }}"
-        );
+        let update =
+            format!("DELETE WHERE {{ GRAPH <{configuration_iri}> {{ <{pod_iri}> ?p ?o . }} }}");
         self.store.update(update.as_str())?;
 
         for scratchpad in pod_scratchpads.clone() {
@@ -364,9 +363,8 @@ impl Graph {
         let pod = NamedNodeRef::new(pod_iri)?;
 
         // Update the pod name
-        let update = format!(
-            "DELETE WHERE {{ GRAPH <{pod_iri}> {{ <{pod_iri}> <{HAS_NAME}> ?o . }} }}"
-        );
+        let update =
+            format!("DELETE WHERE {{ GRAPH <{pod_iri}> {{ <{pod_iri}> <{HAS_NAME}> ?o . }} }}");
         debug!("Delete existing pod name string: {}", update);
         self.store.update(update.as_str())?;
 
@@ -420,17 +418,14 @@ impl Graph {
         let configuration_iri = configuration_iri.as_str();
 
         // Remove the depth object if it already exists in the configuration graph
-        let update = format!(
-            "DELETE WHERE {{ GRAPH <{configuration_iri}> {{ <{pod_ref_iri}> ?p ?o . }} }}"
-        );
+        let update =
+            format!("DELETE WHERE {{ GRAPH <{configuration_iri}> {{ <{pod_ref_iri}> ?p ?o . }} }}");
         debug!("Delete pod_ref from configuration graph string: {}", update);
         self.store.update(update.as_str())?;
 
         // Delete existing data for the subject in the pod graph
         // This query deletes all triples for the subject in the specified pod graph
-        let update = format!(
-            "DELETE WHERE {{ GRAPH <{pod_iri}> {{ <{pod_ref_iri}> ?p ?o . }} }}"
-        );
+        let update = format!("DELETE WHERE {{ GRAPH <{pod_iri}> {{ <{pod_ref_iri}> ?p ?o . }} }}");
         debug!("Delete pod_ref from pod string: {}", update);
 
         self.store.update(update.as_str())?;
@@ -507,9 +502,7 @@ impl Graph {
 
         // Delete existing data for the subject in the pod graph
         // This query deletes all triples for the subject in the specified pod graph
-        let update = format!(
-            "DELETE WHERE {{ GRAPH <{pod_iri}> {{ <{subject_iri}> ?p ?o . }} }}"
-        );
+        let update = format!("DELETE WHERE {{ GRAPH <{pod_iri}> {{ <{subject_iri}> ?p ?o . }} }}");
         debug!("Delete string: {}", update);
 
         self.store.update(update.as_str())?;
@@ -642,9 +635,8 @@ impl Graph {
                 pod_address, current_depth, new_depth
             );
 
-            let delete_query = format!(
-                "DELETE WHERE {{ GRAPH ?graph {{ <{pod_iri}> <{HAS_DEPTH}> ?depth . }} }}"
-            );
+            let delete_query =
+                format!("DELETE WHERE {{ GRAPH ?graph {{ <{pod_iri}> <{HAS_DEPTH}> ?depth . }} }}");
             debug!("Delete depth query: {}", delete_query);
             self.store.update(delete_query.as_str())?;
 
@@ -692,9 +684,8 @@ impl Graph {
 
     // Get all pods at a specific depth
     pub fn get_pods_at_depth(&self, depth: u64) -> Result<Vec<String>, Error> {
-        let query = format!(
-            "SELECT ?pod WHERE {{ GRAPH ?graph {{ ?pod <{HAS_DEPTH}> \"{depth}\" . }} }}"
-        );
+        let query =
+            format!("SELECT ?pod WHERE {{ GRAPH ?graph {{ ?pod <{HAS_DEPTH}> \"{depth}\" . }} }}");
         debug!("Pods at depth query: {}", query);
 
         let mut pods = Vec::new();
