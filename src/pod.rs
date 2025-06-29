@@ -409,7 +409,7 @@ impl<'a> PodManager<'a> {
                     _ => {
                         return Ok(Value::Object(serde_json::Map::from_iter([(
                             "error".to_string(),
-                            Value::String(format!("Unknown search type: {}", search_type)),
+                            Value::String(format!("Unknown search type: {search_type}")),
                         )])));
                     }
                 }
@@ -742,8 +742,8 @@ impl<'a> PodManager<'a> {
             all_scratchpads.push(new_address.clone());
 
             // Add the new scratchpad to the graph with proper pod_index
-            let scratchpad_iri = format!("ant://{}", new_address);
-            let pod_iri = format!("ant://{}", pod_address);
+            let scratchpad_iri = format!("ant://{new_address}");
+            let pod_iri = format!("ant://{pod_address}");
             let index = (all_scratchpads.len() - 1).to_string();
 
             self.graph
@@ -907,11 +907,11 @@ impl<'a> PodManager<'a> {
         let data_with_newline = if data.ends_with('\n') {
             data.to_string()
         } else {
-            format!("{}\n", data)
+            format!("{data}\n")
         };
 
         for line in data_with_newline.lines() {
-            let line_with_newline = format!("{}\n", line);
+            let line_with_newline = format!("{line}\n");
 
             // If adding this line would exceed the chunk size, start a new chunk
             if !current_chunk.is_empty()
@@ -938,7 +938,7 @@ impl<'a> PodManager<'a> {
                     if let Ok(chunk_str) = std::str::from_utf8(chunk_bytes) {
                         // Only add newline to the last chunk of this line
                         if chunk_end == line_bytes.len() {
-                            chunks.push(format!("{}\n", chunk_str));
+                            chunks.push(format!("{chunk_str}\n"));
                         } else {
                             chunks.push(chunk_str.to_string());
                         }

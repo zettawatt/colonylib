@@ -247,7 +247,7 @@ impl DataStore {
                 error!("Unknown address type for removal: {}", address_type);
                 return Err(Error::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
-                    format!("Unknown address type: {}", address_type),
+                    format!("Unknown address type: {address_type}"),
                 )));
             }
         }
@@ -324,8 +324,8 @@ impl DataStore {
         let second_line = lines.next().unwrap_or("0").to_string(); // Get the second line or default to an empty string
 
         let mut pointer_file = File::create(&pointer_path)?; // Overwrite the file
-        writeln!(pointer_file, "{}", scratchpad_address)?; // Write the new first line
-        writeln!(pointer_file, "{}", second_line)?; // Write the second line back
+        writeln!(pointer_file, "{scratchpad_address}")?; // Write the new first line
+        writeln!(pointer_file, "{second_line}")?; // Write the second line back
 
         Ok(())
     }
@@ -344,8 +344,8 @@ impl DataStore {
         let first_line = lines.next().unwrap_or("").to_string(); // Get the first line or default to an empty string
 
         let mut pointer_file = File::create(&pointer_path)?; // Overwrite the file
-        writeln!(pointer_file, "{}", first_line)?; // Write the first line back
-        writeln!(pointer_file, "{}", count)?; // Write the new second line
+        writeln!(pointer_file, "{first_line}")?; // Write the first line back
+        writeln!(pointer_file, "{count}")?; // Write the new second line
 
         Ok(())
     }

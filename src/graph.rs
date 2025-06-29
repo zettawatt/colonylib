@@ -195,13 +195,13 @@ impl Graph {
         num_keys: u64,
     ) -> Result<(Vec<u8>, Vec<u8>), Error> {
         // Add a new pod
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
         let pod_iri = pod_iri.as_str();
         let pod = NamedNodeRef::new(pod_iri)?;
         self.store.insert_named_graph(pod)?;
 
         // Get the configuration IRI and create a configuration graph if it doesn't exist
-        let configuration_iri = format!("ant://{}", configuration_address);
+        let configuration_iri = format!("ant://{configuration_address}");
         let configuration_iri = configuration_iri.as_str();
         let config = NamedNodeRef::new(configuration_iri)?;
         self.store.insert_named_graph(config)?;
@@ -210,9 +210,9 @@ impl Graph {
         self.update_key_count(configuration_address, num_keys)?;
 
         // Enter in scratchpad quad
-        let scratchpad_iri = format!("ant://{}", scratchpad_address);
+        let scratchpad_iri = format!("ant://{scratchpad_address}");
         let scratchpad_iri = scratchpad_iri.as_str();
-        let configuration_scratchpad_iri = format!("ant://{}", configuration_scratchpad_address);
+        let configuration_scratchpad_iri = format!("ant://{configuration_scratchpad_address}");
         let configuration_scratchpad_iri = configuration_scratchpad_iri.as_str();
         let date = Utc::now().to_rfc3339();
         let date = date.as_str();
@@ -264,8 +264,7 @@ impl Graph {
         // check if the given pod_address is actually the NAME of a pod
         // if so, get the pod's address from the graph
         let query = format!(
-            "SELECT ?pod WHERE {{ GRAPH ?graph {{ ?pod <{}> \"{}\" . }} }}",
-            HAS_NAME, pod_address
+            "SELECT ?pod WHERE {{ GRAPH ?graph {{ ?pod <{HAS_NAME}> \"{pod_address}\" . }} }}"
         );
         debug!("Pod exists query: {}", query);
 
@@ -287,7 +286,7 @@ impl Graph {
         }
 
         // Otherwise check to make sure the pod graph exists and pass it through
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
         let pod_iri = pod_iri.as_str();
         let pod = NamedNodeRef::new(pod_iri)?;
         if self.store.contains_named_graph(pod)? {
@@ -307,12 +306,12 @@ impl Graph {
         pod_scratchpads: Vec<String>,
         configuration_address: &str,
     ) -> Result<Vec<u8>, Error> {
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
         let pod_iri = pod_iri.as_str();
         let pod = NamedNodeRef::new(pod_iri)?;
 
         // Get the configuration IRI
-        let configuration_iri = format!("ant://{}", configuration_address);
+        let configuration_iri = format!("ant://{configuration_address}");
         let configuration_iri = configuration_iri.as_str();
         let config = NamedNodeRef::new(configuration_iri)?;
 
@@ -321,17 +320,15 @@ impl Graph {
 
         // Remove the pod from the configuration graph
         let update = format!(
-            "DELETE WHERE {{ GRAPH <{}> {{ <{}> ?p ?o . }} }}",
-            configuration_iri, pod_iri
+            "DELETE WHERE {{ GRAPH <{configuration_iri}> {{ <{pod_iri}> ?p ?o . }} }}"
         );
         self.store.update(update.as_str())?;
 
         for scratchpad in pod_scratchpads.clone() {
-            let scratchpad_iri = format!("ant://{}", scratchpad);
+            let scratchpad_iri = format!("ant://{scratchpad}");
             let scratchpad_iri = scratchpad_iri.as_str();
             let update = format!(
-                "DELETE WHERE {{ GRAPH <{}> {{ <{}> ?p ?o . }} }}",
-                configuration_iri, scratchpad_iri
+                "DELETE WHERE {{ GRAPH <{configuration_iri}> {{ <{scratchpad_iri}> ?p ?o . }} }}"
             );
             self.store.update(update.as_str())?;
         }
@@ -339,7 +336,7 @@ impl Graph {
         // Set the pod_address and pod_scratchpads to UNUSED in the configuration graph
         let _quad = self.put_quad(pod_iri, HAS_ADDR_TYPE, FREED_POD, Some(configuration_iri))?;
         for scratchpad in pod_scratchpads {
-            let scratchpad_iri = format!("ant://{}", scratchpad);
+            let scratchpad_iri = format!("ant://{scratchpad}");
             let scratchpad_iri = scratchpad_iri.as_str();
             let _quad = self.put_quad(
                 scratchpad_iri,
@@ -362,14 +359,13 @@ impl Graph {
         pod_address: &str,
         new_name: &str,
     ) -> Result<Vec<u8>, Error> {
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
         let pod_iri = pod_iri.as_str();
         let pod = NamedNodeRef::new(pod_iri)?;
 
         // Update the pod name
         let update = format!(
-            "DELETE WHERE {{ GRAPH <{}> {{ <{}> <{}> ?o . }} }}",
-            pod_iri, pod_iri, HAS_NAME
+            "DELETE WHERE {{ GRAPH <{pod_iri}> {{ <{pod_iri}> <{HAS_NAME}> ?o . }} }}"
         );
         debug!("Delete existing pod name string: {}", update);
         self.store.update(update.as_str())?;
@@ -391,16 +387,15 @@ impl Graph {
         pod_address: &str,
         scratchpad_address: &str,
     ) -> Result<(), Error> {
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
         let pod_iri = pod_iri.as_str();
 
-        let scratchpad_iri = format!("ant://{}", scratchpad_address);
+        let scratchpad_iri = format!("ant://{scratchpad_address}");
         let scratchpad_iri = scratchpad_iri.as_str();
 
         // Remove the depth object if it already exists in the configuration graph
         let update = format!(
-            "DELETE WHERE {{ GRAPH <{}> {{ <{}> <{}> ?o . }} }}",
-            pod_iri, scratchpad_iri, HAS_INDEX
+            "DELETE WHERE {{ GRAPH <{pod_iri}> {{ <{scratchpad_iri}> <{HAS_INDEX}> ?o . }} }}"
         );
         debug!("Delete unused scratchpad from pod string: {}", update);
         self.store.update(update.as_str())?;
@@ -415,19 +410,18 @@ impl Graph {
         configuration_address: &str,
         add: bool,
     ) -> Result<(Vec<u8>, Vec<u8>), Error> {
-        let pod_ref_iri = format!("ant://{}", pod_ref_address);
+        let pod_ref_iri = format!("ant://{pod_ref_address}");
         let pod_ref_iri = pod_ref_iri.as_str();
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
         let pod_iri = pod_iri.as_str();
 
         // Get the configuration IRI
-        let configuration_iri = format!("ant://{}", configuration_address);
+        let configuration_iri = format!("ant://{configuration_address}");
         let configuration_iri = configuration_iri.as_str();
 
         // Remove the depth object if it already exists in the configuration graph
         let update = format!(
-            "DELETE WHERE {{ GRAPH <{}> {{ <{}> ?p ?o . }} }}",
-            configuration_iri, pod_ref_iri
+            "DELETE WHERE {{ GRAPH <{configuration_iri}> {{ <{pod_ref_iri}> ?p ?o . }} }}"
         );
         debug!("Delete pod_ref from configuration graph string: {}", update);
         self.store.update(update.as_str())?;
@@ -435,8 +429,7 @@ impl Graph {
         // Delete existing data for the subject in the pod graph
         // This query deletes all triples for the subject in the specified pod graph
         let update = format!(
-            "DELETE WHERE {{ GRAPH <{}> {{ <{}> ?p ?o . }} }}",
-            pod_iri, pod_ref_iri
+            "DELETE WHERE {{ GRAPH <{pod_iri}> {{ <{pod_ref_iri}> ?p ?o . }} }}"
         );
         debug!("Delete pod_ref from pod string: {}", update);
 
@@ -474,13 +467,12 @@ impl Graph {
         configuration_address: &str,
         num_keys: u64,
     ) -> Result<(), Error> {
-        let configuration_iri = format!("ant://{}", configuration_address);
+        let configuration_iri = format!("ant://{configuration_address}");
         let configuration_iri = configuration_iri.as_str();
 
         // Remove the key count object if it already exists in the configuration graph
         let update = format!(
-            "DELETE WHERE {{ GRAPH <{}> {{ <{}> <{}> ?o . }} }}",
-            configuration_iri, configuration_iri, KEY_COUNT
+            "DELETE WHERE {{ GRAPH <{configuration_iri}> {{ <{configuration_iri}> <{KEY_COUNT}> ?o . }} }}"
         );
         self.store.update(update.as_str())?;
 
@@ -502,22 +494,21 @@ impl Graph {
         configuration_address: &str,
         data: &str,
     ) -> Result<(Vec<u8>, Vec<u8>), Error> {
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
         let pod_iri = pod_iri.as_str();
         let pod = NamedNodeRef::new(pod_iri)?;
-        let subject_iri = format!("ant://{}", subject_address);
+        let subject_iri = format!("ant://{subject_address}");
         let subject_iri = subject_iri.as_str();
 
         // Get the configuration IRI
-        let configuration_iri = format!("ant://{}", configuration_address);
+        let configuration_iri = format!("ant://{configuration_address}");
         let configuration_iri = configuration_iri.as_str();
         let config = NamedNodeRef::new(configuration_iri)?;
 
         // Delete existing data for the subject in the pod graph
         // This query deletes all triples for the subject in the specified pod graph
         let update = format!(
-            "DELETE WHERE {{ GRAPH <{}> {{ <{}> ?p ?o . }} }}",
-            pod_iri, subject_iri
+            "DELETE WHERE {{ GRAPH <{pod_iri}> {{ <{subject_iri}> ?p ?o . }} }}"
         );
         debug!("Delete string: {}", update);
 
@@ -542,8 +533,7 @@ impl Graph {
 
         // Update modified date
         let delete_query = format!(
-            "DELETE WHERE {{ GRAPH <{}> {{ <{}> <{}> ?date . }} }}",
-            pod_iri, pod_iri, HAS_MODIFIED_DATE
+            "DELETE WHERE {{ GRAPH <{pod_iri}> {{ <{pod_iri}> <{HAS_MODIFIED_DATE}> ?date . }} }}"
         );
         debug!("Delete existing modified date query: {}", delete_query);
         self.store.update(delete_query.as_str())?;
@@ -566,7 +556,7 @@ impl Graph {
     }
 
     pub fn get_subject_data(&self, subject_address: &str) -> Result<String, Error> {
-        let subject_iri = format!("ant://{}", subject_address);
+        let subject_iri = format!("ant://{subject_address}");
 
         let query = format!(
             "SELECT ?graph ?predicate ?object WHERE {{ GRAPH ?graph {{ <{}> ?predicate ?object . }} }}",
@@ -587,11 +577,10 @@ impl Graph {
 
     // Get the depth of a pod from the graph database
     pub fn get_pod_depth(&self, pod_address: &str) -> Result<u64, Error> {
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
 
         let query = format!(
-            "SELECT ?depth WHERE {{ GRAPH ?graph {{ <{}> <{}> ?depth . }} }}",
-            pod_iri, HAS_DEPTH
+            "SELECT ?depth WHERE {{ GRAPH ?graph {{ <{pod_iri}> <{HAS_DEPTH}> ?depth . }} }}"
         );
         debug!("Depth query: {}", query);
 
@@ -640,8 +629,8 @@ impl Graph {
         new_depth: u64,
         force: bool,
     ) -> Result<(), Error> {
-        let pod_iri = format!("ant://{}", pod_address);
-        let configuration_iri = format!("ant://{}", configuration_address);
+        let pod_iri = format!("ant://{pod_address}");
+        let configuration_iri = format!("ant://{configuration_address}");
 
         // First, check if there's an existing depth
         let current_depth = self.get_pod_depth(pod_address)?;
@@ -654,8 +643,7 @@ impl Graph {
             );
 
             let delete_query = format!(
-                "DELETE WHERE {{ GRAPH ?graph {{ <{}> <{}> ?depth . }} }}",
-                pod_iri, HAS_DEPTH
+                "DELETE WHERE {{ GRAPH ?graph {{ <{pod_iri}> <{HAS_DEPTH}> ?depth . }} }}"
             );
             debug!("Delete depth query: {}", delete_query);
             self.store.update(delete_query.as_str())?;
@@ -681,8 +669,7 @@ impl Graph {
     // Get the largest pod depth in the graph database
     pub fn get_max_pod_depth(&self) -> Result<u64, Error> {
         let query = format!(
-            "SELECT (MAX(?depth) AS ?max_depth) WHERE {{ GRAPH ?graph {{ ?pod <{}> ?depth . }} }}",
-            HAS_DEPTH
+            "SELECT (MAX(?depth) AS ?max_depth) WHERE {{ GRAPH ?graph {{ ?pod <{HAS_DEPTH}> ?depth . }} }}"
         );
         debug!("Max depth query: {}", query);
 
@@ -706,8 +693,7 @@ impl Graph {
     // Get all pods at a specific depth
     pub fn get_pods_at_depth(&self, depth: u64) -> Result<Vec<String>, Error> {
         let query = format!(
-            "SELECT ?pod WHERE {{ GRAPH ?graph {{ ?pod <{}> \"{}\" . }} }}",
-            HAS_DEPTH, depth
+            "SELECT ?pod WHERE {{ GRAPH ?graph {{ ?pod <{HAS_DEPTH}> \"{depth}\" . }} }}"
         );
         debug!("Pods at depth query: {}", query);
 
@@ -731,12 +717,11 @@ impl Graph {
 
     // Get all pod references from the graph data
     pub fn get_pod_references(&self, pod_address: &str) -> Result<Vec<String>, Error> {
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
 
         // Query for all objects in the pod's named graph that are ant:// URIs
         let query = format!(
-            "SELECT DISTINCT ?pod_ref WHERE {{ GRAPH <{}> {{ ?pod_ref <{}> <{}> . }} }}",
-            pod_iri, HAS_ADDR_TYPE, POD_REF
+            "SELECT DISTINCT ?pod_ref WHERE {{ GRAPH <{pod_iri}> {{ ?pod_ref <{HAS_ADDR_TYPE}> <{POD_REF}> . }} }}"
         );
         debug!("Pod references query: {}", query);
 
@@ -764,12 +749,11 @@ impl Graph {
 
     // Get all free pointers from the graph data
     pub fn get_free_pointers(&self, pod_address: &str) -> Result<Vec<String>, Error> {
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
 
         // Query for all objects in the pod's named graph that are ant:// URIs
         let query = format!(
-            "SELECT DISTINCT ?pod_ref WHERE {{ GRAPH <{}> {{ ?pod_ref <{}> <{}> . }} }}",
-            pod_iri, HAS_ADDR_TYPE, FREED_POD
+            "SELECT DISTINCT ?pod_ref WHERE {{ GRAPH <{pod_iri}> {{ ?pod_ref <{HAS_ADDR_TYPE}> <{FREED_POD}> . }} }}"
         );
         debug!("Free pointers query: {}", query);
 
@@ -797,12 +781,11 @@ impl Graph {
 
     // Get all free scratchpads from the graph data
     pub fn get_free_scratchpads(&self, pod_address: &str) -> Result<Vec<String>, Error> {
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
 
         // Query for all objects in the pod's named graph that are ant:// URIs
         let query = format!(
-            "SELECT DISTINCT ?pod_ref WHERE {{ GRAPH <{}> {{ ?pod_ref <{}> <{}> . }} }}",
-            pod_iri, HAS_ADDR_TYPE, FREED_DATA
+            "SELECT DISTINCT ?pod_ref WHERE {{ GRAPH <{pod_iri}> {{ ?pod_ref <{HAS_ADDR_TYPE}> <{FREED_DATA}> . }} }}"
         );
         debug!("Free scratchpads query: {}", query);
 
@@ -830,12 +813,11 @@ impl Graph {
 
     // Get all pointers from the graph data
     pub fn get_pointers(&self, pod_address: &str) -> Result<Vec<String>, Error> {
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
 
         // Query for all objects in the pod's named graph that are ant:// URIs
         let query = format!(
-            "SELECT DISTINCT ?pod_ref WHERE {{ GRAPH <{}> {{ ?pod_ref <{}> <{}> . }} }}",
-            pod_iri, HAS_ADDR_TYPE, POD
+            "SELECT DISTINCT ?pod_ref WHERE {{ GRAPH <{pod_iri}> {{ ?pod_ref <{HAS_ADDR_TYPE}> <{POD}> . }} }}"
         );
         debug!("Pointers query: {}", query);
 
@@ -859,12 +841,11 @@ impl Graph {
 
     // Get all scratchpads from the graph data
     pub fn get_scratchpads(&self, pod_address: &str) -> Result<Vec<String>, Error> {
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
 
         // Query for all objects in the pod's named graph that are ant:// URIs
         let query = format!(
-            "SELECT DISTINCT ?pod_ref WHERE {{ GRAPH <{}> {{ ?pod_ref <{}> <{}> . }} }}",
-            pod_iri, HAS_ADDR_TYPE, DATA
+            "SELECT DISTINCT ?pod_ref WHERE {{ GRAPH <{pod_iri}> {{ ?pod_ref <{HAS_ADDR_TYPE}> <{DATA}> . }} }}"
         );
         debug!("Scratchpads query: {}", query);
 
@@ -892,11 +873,10 @@ impl Graph {
 
     // Get the key count from the graph data
     pub fn get_key_count(&self, pod_address: &str) -> Result<u64, Error> {
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
 
         let query = format!(
-            "SELECT ?count WHERE {{ GRAPH <{}> {{ <{}> <{}> ?count . }} }}",
-            pod_iri, pod_iri, KEY_COUNT
+            "SELECT ?count WHERE {{ GRAPH <{pod_iri}> {{ <{pod_iri}> <{KEY_COUNT}> ?count . }} }}"
         );
         debug!("Key count query: {}", query);
 
@@ -917,19 +897,18 @@ impl Graph {
 
     // Get all subjects in a pod
     pub fn get_pod_subjects(&self, pod_address: &str) -> Result<Vec<String>, Error> {
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
 
         // Query for all objects in the pod's named graph that are ant:// URIs
         let query = format!(
             r#"
             SELECT DISTINCT ?subject WHERE {{
-                GRAPH <{}> {{
+                GRAPH <{pod_iri}> {{
                     ?subject ?p ?o .
                     FILTER(STRSTARTS(STR(?subject), "ant://"))
                 }}
             }}
-            "#,
-            pod_iri
+            "#
         );
         debug!("Pod subjects query: {}", query);
 
@@ -961,7 +940,7 @@ impl Graph {
                 {{
                     SELECT DISTINCT ?subject WHERE {{
                         GRAPH ?filter_graph {{
-                            ?subject <{}> <{}> .
+                            ?subject <{HAS_ADDR_TYPE}> <{POD}> .
                         }}
                     }}
                 }}
@@ -970,8 +949,7 @@ impl Graph {
                 }}
             }}
             ORDER BY ?subject ?predicate
-            "#,
-            HAS_ADDR_TYPE, POD
+            "#
         );
         debug!("My pods query: {}", query);
         let results = self.store.query(query.as_str()).unwrap_or_else(|e| {
@@ -992,7 +970,7 @@ impl Graph {
     // Load TriG data into the graph database
     pub fn load_pod_into_graph(&mut self, pod_address: &str, trig_data: &str) -> Result<(), Error> {
         if !trig_data.trim().is_empty() {
-            let pod_iri = format!("ant://{}", pod_address);
+            let pod_iri = format!("ant://{pod_address}");
             let pod_iri = pod_iri.as_str();
             let pod = NamedNodeRef::new(pod_iri)?;
 
@@ -1021,7 +999,7 @@ impl Graph {
     // Search for content across all graphs
     pub fn search_content(&self, search_text: &str, limit: Option<u64>) -> Result<String, Error> {
         let limit_clause = if let Some(l) = limit {
-            format!("LIMIT {}", l)
+            format!("LIMIT {l}")
         } else {
             String::new()
         };
@@ -1038,8 +1016,7 @@ impl Graph {
         for term in &search_terms {
             let escaped_term = term.replace("\"", "\\\"");
             subquery_term_filters.push(format!(
-                "CONTAINS(LCASE(STR(?filter_object)), LCASE(\"{}\"))",
-                escaped_term
+                "CONTAINS(LCASE(STR(?filter_object)), LCASE(\"{escaped_term}\"))"
             ));
         }
         let subquery_combined_filter = subquery_term_filters.join(" || ");
@@ -1049,8 +1026,7 @@ impl Graph {
         for term in &search_terms {
             let escaped_term = term.replace("\"", "\\\"");
             match_expressions.push(format!(
-                "IF(CONTAINS(LCASE(STR(?object)), LCASE(\"{}\")), 1, 0)",
-                escaped_term
+                "IF(CONTAINS(LCASE(STR(?object)), LCASE(\"{escaped_term}\")), 1, 0)"
             ));
         }
         let match_count_expr = match_expressions.join(" + ");
@@ -1058,12 +1034,12 @@ impl Graph {
         let query = format!(
             r#"
             SELECT ?subject ?predicate ?object ?graph ?depth
-                   (({}) AS ?match_count) WHERE {{
+                   (({match_count_expr}) AS ?match_count) WHERE {{
                 {{
                     SELECT DISTINCT ?subject WHERE {{
                         GRAPH ?filter_graph {{
                             ?subject ?filter_predicate ?filter_object .
-                            FILTER(isLiteral(?filter_object) && ({}))
+                            FILTER(isLiteral(?filter_object) && ({subquery_combined_filter}))
                         }}
                     }}
                 }}
@@ -1073,14 +1049,13 @@ impl Graph {
                 OPTIONAL {{
                     # Look for depth in any graph (typically configuration graphs)
                     GRAPH ?config_graph {{
-                        ?graph <{}> ?depth .
+                        ?graph <{HAS_DEPTH}> ?depth .
                     }}
                 }}
             }}
             ORDER BY DESC(?match_count) ASC(COALESCE(?depth, 999999)) ?graph ?subject
-            {}
-            "#,
-            match_count_expr, subquery_combined_filter, HAS_DEPTH, limit_clause
+            {limit_clause}
+            "#
         );
 
         debug!("Enhanced search query: {}", query);
@@ -1170,7 +1145,7 @@ impl Graph {
     //FIXME: order the results by pod depth
     pub fn search_by_type(&self, type_uri: &str, limit: Option<u64>) -> Result<String, Error> {
         let limit_clause = if let Some(l) = limit {
-            format!("LIMIT {}", l)
+            format!("LIMIT {l}")
         } else {
             String::new()
         };
@@ -1179,13 +1154,12 @@ impl Graph {
             r#"
             SELECT DISTINCT ?subject ?graph WHERE {{
                 GRAPH ?graph {{
-                    ?subject <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <{}> .
+                    ?subject <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <{type_uri}> .
                 }}
             }}
             ORDER BY ?graph ?subject
-            {}
-            "#,
-            type_uri, limit_clause
+            {limit_clause}
+            "#
         );
 
         debug!("Type search query: {}", query);
@@ -1211,7 +1185,7 @@ impl Graph {
         limit: Option<u64>,
     ) -> Result<String, Error> {
         let limit_clause = if let Some(l) = limit {
-            format!("LIMIT {}", l)
+            format!("LIMIT {l}")
         } else {
             String::new()
         };
@@ -1220,13 +1194,12 @@ impl Graph {
             r#"
             SELECT DISTINCT ?subject ?object ?graph WHERE {{
                 GRAPH ?graph {{
-                    ?subject <{}> ?object .
+                    ?subject <{predicate_uri}> ?object .
                 }}
             }}
             ORDER BY ?graph ?subject
-            {}
-            "#,
-            predicate_uri, limit_clause
+            {limit_clause}
+            "#
         );
 
         debug!("Predicate search query: {}", query);
@@ -1285,8 +1258,7 @@ impl Graph {
         if let Some(type_uri) = criteria.get("type").and_then(|v| v.as_str()) {
             if !type_uri.is_empty() {
                 where_clauses.push(format!(
-                    "?subject <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <{}> .",
-                    type_uri
+                    "?subject <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <{type_uri}> ."
                 ));
             }
         }
@@ -1294,7 +1266,7 @@ impl Graph {
         // Handle predicate filter
         if let Some(predicate) = criteria.get("predicate").and_then(|v| v.as_str()) {
             if !predicate.is_empty() {
-                where_clauses.push(format!("?subject <{}> ?object .", predicate));
+                where_clauses.push(format!("?subject <{predicate}> ?object ."));
             }
         }
 
@@ -1304,7 +1276,7 @@ impl Graph {
                 let _pod_iri = if pod_address.starts_with("ant://") {
                     pod_address.to_string()
                 } else {
-                    format!("ant://{}", pod_address)
+                    format!("ant://{pod_address}")
                 };
                 // This will be used in the GRAPH clause
             }
@@ -1331,14 +1303,13 @@ impl Graph {
             r#"
             SELECT DISTINCT ?subject ?predicate ?object ?graph WHERE {{
                 GRAPH ?graph {{
-                    {}
-                    {}
+                    {where_clause}
+                    {filter_clause}
                 }}
             }}
             ORDER BY ?graph ?subject
-            LIMIT {}
-            "#,
-            where_clause, filter_clause, limit
+            LIMIT {limit}
+            "#
         );
 
         debug!("Advanced search query: {}", query);
@@ -1353,12 +1324,11 @@ impl Graph {
 
     // Get all scratchpad addresses for a pod
     pub fn get_pod_scratchpads(&self, pod_address: &str) -> Result<Vec<String>, Error> {
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
 
         // Query for all scratchpad addresses in the pod's named graph
         let query = format!(
-            "SELECT DISTINCT ?scratchpad ?index WHERE {{ GRAPH <{}> {{ ?scratchpad <{}> ?index . }} }}",
-            pod_iri, HAS_INDEX
+            "SELECT DISTINCT ?scratchpad ?index WHERE {{ GRAPH <{pod_iri}> {{ ?scratchpad <{HAS_INDEX}> ?index . }} }}"
         );
         debug!("Pod scratchpads query: {}", query);
 
@@ -1447,7 +1417,7 @@ impl Graph {
 
     // Clear a specific pod graph
     pub fn clear_pod_graph(&mut self, pod_address: &str) -> Result<(), Error> {
-        let pod_iri = format!("ant://{}", pod_address);
+        let pod_iri = format!("ant://{pod_address}");
         let pod_node = NamedNodeRef::new(&pod_iri)?;
         self.store.clear_graph(pod_node)?;
         debug!("Cleared graph for pod: {}", pod_address);
@@ -1459,15 +1429,14 @@ impl Graph {
         address: &str,
         configuration_address: &str,
     ) -> Result<(), Error> {
-        let address_iri = format!("ant://{}", address);
+        let address_iri = format!("ant://{address}");
         let address_iri = address_iri.as_str();
-        let configuration_iri = format!("ant://{}", configuration_address);
+        let configuration_iri = format!("ant://{configuration_address}");
         let configuration_iri = configuration_iri.as_str();
 
         // Remove the pod from the configuration graph
         let update = format!(
-            "DELETE WHERE {{ GRAPH <{}> {{ <{}> <{}> <{}> . }} }}",
-            configuration_iri, address_iri, HAS_ADDR_TYPE, FREED_POD
+            "DELETE WHERE {{ GRAPH <{configuration_iri}> {{ <{address_iri}> <{HAS_ADDR_TYPE}> <{FREED_POD}> . }} }}"
         );
         debug!("Delete pod from configuration graph string: {}", update);
         self.store.update(update.as_str())?;
@@ -1479,15 +1448,14 @@ impl Graph {
         address: &str,
         configuration_address: &str,
     ) -> Result<(), Error> {
-        let address_iri = format!("ant://{}", address);
+        let address_iri = format!("ant://{address}");
         let address_iri = address_iri.as_str();
-        let configuration_iri = format!("ant://{}", configuration_address);
+        let configuration_iri = format!("ant://{configuration_address}");
         let configuration_iri = configuration_iri.as_str();
 
         // Remove the pod from the configuration graph
         let update = format!(
-            "DELETE WHERE {{ GRAPH <{}> {{ <{}> <{}> <{}> . }} }}",
-            configuration_iri, address_iri, HAS_ADDR_TYPE, FREED_DATA
+            "DELETE WHERE {{ GRAPH <{configuration_iri}> {{ <{address_iri}> <{HAS_ADDR_TYPE}> <{FREED_DATA}> . }} }}"
         );
         debug!("Delete pod from configuration graph string: {}", update);
         self.store.update(update.as_str())?;
