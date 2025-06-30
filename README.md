@@ -130,6 +130,9 @@ async fn refresh_cache(&mut self) -> Result<(), Error>
 
 // Download referenced pods up to specified depth
 async fn refresh_ref(&mut self, depth: u64) -> Result<(), Error>
+
+// Get the current list of pods that need to be uploaded in JSON format
+fn get_update_list(&self) -> Result<serde_json::Value, Error>
 ```
 
 ### Pod Discovery and Listing

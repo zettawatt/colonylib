@@ -2568,7 +2568,10 @@ impl<'a> PodManager<'a> {
                         continue;
                     }
 
-                    info!("Checking newly downloaded pod {} for references", pod_address);
+                    info!(
+                        "Checking newly downloaded pod {} for references",
+                        pod_address
+                    );
                     let pod_refs = self.get_pod_references(&pod_address)?;
 
                     for pod_ref in pod_refs {
@@ -2578,7 +2581,10 @@ impl<'a> PodManager<'a> {
                             continue;
                         }
 
-                        info!("Processing referenced pod from newly downloaded: {}", pod_ref);
+                        info!(
+                            "Processing referenced pod from newly downloaded: {}",
+                            pod_ref
+                        );
 
                         // Try to download the referenced pod
                         if let Err(e) = self
@@ -2767,15 +2773,15 @@ impl<'a> PodManager<'a> {
         Ok(())
     }
     /// Returns the current update list in JSON format
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// Returns a JSON object containing the update list, or an `Error` if:
     /// - The update list cannot be read from local storage
     /// - JSON serialization fails
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```ignore
     /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
     /// let update_list = pod_manager.get_update_list()?;
@@ -2783,9 +2789,9 @@ impl<'a> PodManager<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    /// 
+    ///
     /// # Related Functions
-    /// 
+    ///
     /// - [`upload_all`] - Uploads all pending changes to the network
     /// - [`refresh_cache`] - Downloads updates from the network
     /// - [`refresh_ref`] - Downloads referenced pods from the network
@@ -2795,9 +2801,9 @@ impl<'a> PodManager<'a> {
     /// - [`rename_pod`] - Renames a pod that needs uploading
     /// - [`add_pod_ref`] - Adds a pod reference that needs uploading
     /// - [`remove_pod_ref`] - Removes a pod reference that needs uploading
-    /// 
+    ///
     /// # JSON Format
-    /// 
+    ///
     /// The returned JSON object has the following structure:
     /// ```json
     /// {
@@ -2805,18 +2811,18 @@ impl<'a> PodManager<'a> {
     ///     "remove": ["pod_address_3", "pod_address_4", ...]
     /// }
     /// ```
-    /// 
+    ///
     /// The "update" array contains addresses of pods that need to be updated or created on the network.
     /// The "remove" array contains addresses of pods that need to be removed from the network.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns an error if:
     /// - The update list cannot be read from local storage
     /// - JSON serialization fails
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```ignore
     /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
     /// let update_list = pod_manager.get_update_list()?;
@@ -2824,7 +2830,7 @@ impl<'a> PodManager<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    /// 
+    ///
     pub fn get_update_list(&self) -> Result<Value, Error> {
         let update_list = self.data_store.get_update_list()?;
 
