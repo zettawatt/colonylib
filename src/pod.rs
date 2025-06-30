@@ -1,9 +1,8 @@
-use ant_networking::{GetRecordError, NetworkError};
 use autonomi;
-use autonomi::client::ConnectError;
 use autonomi::client::payment::PaymentOption;
 use autonomi::client::pointer::{Pointer, PointerAddress, PointerError, PointerTarget};
 use autonomi::client::scratchpad::{Scratchpad, ScratchpadAddress, ScratchpadError};
+use autonomi::client::{ConnectError, GetError};
 use autonomi::{AddressParseError, Bytes, Chunk, Client, SecretKey, Wallet};
 
 use alloc::string::FromUtf8Error;
@@ -1680,9 +1679,7 @@ impl<'a> PodManager<'a> {
                     Error::Pointer(ref boxed_err)
                         if matches!(
                             **boxed_err,
-                            PointerError::Network(NetworkError::GetRecordError(
-                                GetRecordError::RecordNotFound
-                            ))
+                            PointerError::GetError(GetError::RecordNotFound)
                         ) =>
                     {
                         info!(
@@ -1714,9 +1711,7 @@ impl<'a> PodManager<'a> {
                     Error::Scratchpad(ref boxed_err)
                         if matches!(
                             **boxed_err,
-                            ScratchpadError::Network(NetworkError::GetRecordError(
-                                GetRecordError::RecordNotFound
-                            ))
+                            ScratchpadError::GetError(GetError::RecordNotFound)
                         ) =>
                     {
                         info!(
@@ -1837,9 +1832,7 @@ impl<'a> PodManager<'a> {
                     Error::Pointer(ref boxed_err)
                         if matches!(
                             **boxed_err,
-                            PointerError::Network(NetworkError::GetRecordError(
-                                GetRecordError::RecordNotFound
-                            ))
+                            PointerError::GetError(GetError::RecordNotFound)
                         ) =>
                     {
                         info!(
@@ -1893,9 +1886,7 @@ impl<'a> PodManager<'a> {
                         Error::Scratchpad(ref boxed_err)
                             if matches!(
                                 **boxed_err,
-                                ScratchpadError::Network(NetworkError::GetRecordError(
-                                    GetRecordError::RecordNotFound
-                                ))
+                                ScratchpadError::GetError(GetError::RecordNotFound)
                             ) =>
                         {
                             info!(
@@ -1994,7 +1985,7 @@ impl<'a> PodManager<'a> {
         // Update the local pointer file counter
         let pointer_count = pointer.counter() + 1;
         self.data_store
-            .update_pointer_count(address, pointer_count.into())?;
+            .update_pointer_count(address, pointer_count)?;
         Ok(())
     }
 
@@ -2049,7 +2040,7 @@ impl<'a> PodManager<'a> {
         // Update the local pointer file counter
         let pointer_count = pointer.counter() + 1;
         self.data_store
-            .update_pointer_count(address, pointer_count.into())?;
+            .update_pointer_count(address, pointer_count)?;
         Ok(())
     }
 
@@ -2193,9 +2184,7 @@ impl<'a> PodManager<'a> {
                         return Ok(()); // Skip to the next pointer
                     }
                     // Catch Pointer(Network(GetRecordError(RecordNotFound))) error when there is nothing on the network
-                    PointerError::Network(NetworkError::GetRecordError(
-                        GetRecordError::RecordNotFound,
-                    )) => {
+                    PointerError::GetError(GetError::RecordNotFound) => {
                         warn!("Configuration pointer not found on network, skipping");
                         return Ok(()); // Skip to the next pointer
                     }
@@ -2315,9 +2304,7 @@ impl<'a> PodManager<'a> {
                             continue; // Skip to the next pointer
                         }
                         // Catch Pointer(Network(GetRecordError(RecordNotFound))) error when there is nothing on the network
-                        PointerError::Network(NetworkError::GetRecordError(
-                            GetRecordError::RecordNotFound,
-                        )) => {
+                        PointerError::GetError(GetError::RecordNotFound) => {
                             warn!("Pointer not found on network, skipping: {}", address);
                             continue; // Skip to the next pointer
                         }
@@ -2339,7 +2326,7 @@ impl<'a> PodManager<'a> {
                 self.data_store
                     .update_pointer_target(address, pointer.target().to_hex().as_str())?;
                 self.data_store
-                    .update_pointer_count(address, pointer.counter().into())?;
+                    .update_pointer_count(address, pointer.counter())?;
             }
             // Check if the pointer is newer than the local cache
             let local_pointer_count = self.data_store.get_pointer_count(address)?;
@@ -2665,9 +2652,7 @@ impl<'a> PodManager<'a> {
                         return Ok(()); // Skip this pod if it doesn't exist
                     }
                     // Catch Pointer(Network(GetRecordError(RecordNotFound))) error when there is nothing on the network
-                    PointerError::Network(NetworkError::GetRecordError(
-                        GetRecordError::RecordNotFound,
-                    )) => {
+                    PointerError::GetError(GetError::RecordNotFound) => {
                         warn!("Referenced pod not found on network: {}", pod_address);
                         return Ok(()); // Skip this pod if it doesn't exist
                     }
@@ -2726,7 +2711,7 @@ impl<'a> PodManager<'a> {
             self.data_store
                 .update_pointer_target(pod_address, pointer.target().to_hex().as_str())?;
             self.data_store
-                .update_pointer_count(pod_address, pointer.counter().into())?;
+                .update_pointer_count(pod_address, pointer.counter())?;
 
             info!("Successfully downloaded referenced pod: {}", pod_address);
         }

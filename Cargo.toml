@@ -1,6 +1,6 @@
 [package]
 name = "colonylib"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 authors = ["Chuck McClish"]
 description = "A library implementing the Colony metadata framework on Autonomi"
@@ -17,7 +17,7 @@ incremental = true
 
 [dependencies]
 ant-networking = "0.3.12"
-autonomi = "0.4.6"
+autonomi = "0.5.0"
 bip39 = { version = "2.1.0", features = ["rand"] }
 blsttc = "8.0.2"
 borsh = {version = "1.5.7", features = ["derive", "borsh-derive"]}

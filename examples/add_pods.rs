@@ -57,8 +57,8 @@ async fn main() {
     // Add pod 1 with ant girl image metadata
     println!("\n=== Adding Pod 1 ===");
     let (pointer_address1, scratchpad_address1) = podman.add_pod("Pod 1").await.unwrap();
-    println!("Pod 1 - Pointer address: {}", pointer_address1);
-    println!("Pod 1 - Scratchpad address: {}", scratchpad_address1);
+    println!("Pod 1 - Pointer address: {pointer_address1}");
+    println!("Pod 1 - Scratchpad address: {scratchpad_address1}");
 
     let file_data1 = json!({
         "@context": {"schema": "http://schema.org/"},
@@ -69,7 +69,7 @@ async fn main() {
         "schema:contentSize": "2MB"
     });
     let file_data1_str = serde_json::to_string(&file_data1).unwrap();
-    println!("Adding file data to Pod 1: {}", file_data1_str);
+    println!("Adding file data to Pod 1: {file_data1_str}");
 
     podman
         .put_subject_data(
@@ -83,8 +83,8 @@ async fn main() {
     // Add pod 2 with audio file metadata
     println!("\n=== Adding Pod 2 ===");
     let (pointer_address2, scratchpad_address2) = podman.add_pod("Pod 2").await.unwrap();
-    println!("Pod 2 - Pointer address: {}", pointer_address2);
-    println!("Pod 2 - Scratchpad address: {}", scratchpad_address2);
+    println!("Pod 2 - Pointer address: {pointer_address2}");
+    println!("Pod 2 - Scratchpad address: {scratchpad_address2}");
 
     let file_data2 = json!({
         "@context": {"schema": "http://schema.org/"},
@@ -95,7 +95,7 @@ async fn main() {
         "schema:contentSize": "4MB"
     });
     let file_data2_str = serde_json::to_string(&file_data2).unwrap();
-    println!("Adding file data to Pod 2: {}", file_data2_str);
+    println!("Adding file data to Pod 2: {file_data2_str}");
 
     podman
         .put_subject_data(
@@ -127,7 +127,7 @@ async fn main() {
         "schema:contentSize": "3MB"
     });
     let file_data2_str = serde_json::to_string(&file_data2).unwrap();
-    println!("Adding additional file data to Pod 2: {}", file_data2_str);
+    println!("Adding additional file data to Pod 2: {file_data2_str}");
 
     podman
         .put_subject_data(
@@ -143,7 +143,7 @@ async fn main() {
     let subjects = podman.list_pod_subjects(pointer_address2.trim()).unwrap();
     println!("Subjects in Pod 2:");
     for subject in subjects {
-        println!("Subject ID: {}", subject);
+        println!("Subject ID: {subject}");
     }
 
     println!("\n=== List My Pods ===");
@@ -164,11 +164,8 @@ async fn main() {
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
     println!("\n=== Summary ===");
-    println!("Pod 1 (ant_girl.png): {}", pointer_address1);
-    println!(
-        "Pod 2 (BegBlag.mp3 and something.mp3): {}",
-        pointer_address2
-    );
+    println!("Pod 1 (ant_girl.png): {pointer_address1}");
+    println!("Pod 2 (BegBlag.mp3 and something.mp3): {pointer_address2}");
     println!("Both pods have been successfully created and uploaded to the network.");
 }
 

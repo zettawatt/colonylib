@@ -141,7 +141,7 @@ async fn main() {
             );
         }
         Err(e) => {
-            println!("Failed to retrieve subject data: {}", e);
+            println!("Failed to retrieve subject data: {e}");
         }
     }
 

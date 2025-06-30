@@ -48,9 +48,9 @@ fn test_enhanced_word_based_search() {
     graph.update_pod_depth(pod3_address, "config3", 2).unwrap();
 
     // Add content with varying match counts
-    let pod1_iri = format!("ant://{}", pod1_address);
-    let pod2_iri = format!("ant://{}", pod2_address);
-    let pod3_iri = format!("ant://{}", pod3_address);
+    let pod1_iri = format!("ant://{pod1_address}");
+    let pod2_iri = format!("ant://{pod2_address}");
+    let pod3_iri = format!("ant://{pod3_address}");
 
     // Pod 1 (depth 0): Contains "beatles" and "abbey" (2 matches)
     graph
@@ -117,9 +117,7 @@ fn test_enhanced_word_based_search() {
 
     assert!(
         first_match_count >= last_match_count,
-        "Results should be ordered by match count (descending): first={}, last={}",
-        first_match_count,
-        last_match_count
+        "Results should be ordered by match count (descending): first={first_match_count}, last={last_match_count}"
     );
 
     // Test single word search
@@ -165,7 +163,7 @@ fn test_word_splitting_and_or_logic() {
         )
         .unwrap();
 
-    let pod_iri = format!("ant://{}", pod_address);
+    let pod_iri = format!("ant://{pod_address}");
 
     // Add content that matches different combinations of words
     graph
@@ -231,7 +229,7 @@ fn test_quoted_phrase_search() {
         )
         .unwrap();
 
-    let pod_iri = format!("ant://{}", pod_address);
+    let pod_iri = format!("ant://{pod_address}");
 
     // Add content with exact phrases and individual words
     graph
@@ -300,8 +298,7 @@ fn test_quoted_phrase_search() {
 
         assert!(
             has_the || has_beatles || has_abbey_road_phrase,
-            "Result '{}' should contain at least one search term",
-            text
+            "Result '{text}' should contain at least one search term"
         );
     }
 }
@@ -322,7 +319,7 @@ fn test_multiple_quoted_phrases() {
         )
         .unwrap();
 
-    let pod_iri = format!("ant://{}", pod_address);
+    let pod_iri = format!("ant://{pod_address}");
 
     // Add content to test multiple quoted phrases
     graph
@@ -413,14 +410,13 @@ fn test_search_term_parsing() {
             let result = graph.search_content(input, Some(1)).unwrap();
             assert_eq!(
                 result, "[]",
-                "Empty search '{}' should return empty results",
-                input
+                "Empty search '{input}' should return empty results"
             );
         } else {
             // For non-empty searches, just verify they don't crash and return valid JSON
             let result = graph.search_content(input, Some(1)).unwrap();
             let _: serde_json::Value = serde_json::from_str(&result)
-                .unwrap_or_else(|_| panic!("Search '{}' should return valid JSON", input));
+                .unwrap_or_else(|_| panic!("Search '{input}' should return valid JSON"));
         }
     }
 }

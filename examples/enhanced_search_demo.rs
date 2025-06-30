@@ -48,9 +48,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     graph.update_pod_depth(pod3, "config3", 2)?;
 
     // Add content with varying match patterns
-    let pod1_iri = format!("ant://{}", pod1);
-    let pod2_iri = format!("ant://{}", pod2);
-    let pod3_iri = format!("ant://{}", pod3);
+    let pod1_iri = format!("ant://{pod1}");
+    let pod2_iri = format!("ant://{pod2}");
+    let pod3_iri = format!("ant://{pod3}");
 
     // Pod 1 (depth 0): Contains "beatles" and "abbey" (2 matches for "beatles abbey road")
     graph.put_quad(

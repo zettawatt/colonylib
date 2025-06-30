@@ -165,9 +165,8 @@ fn test_get_pod_references() {
         @prefix ant: <ant://> .
             <ant://referenced_pod1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <ant://colonylib/v1/ref> .
             <ant://referenced_pod2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <ant://colonylib/v1/ref> .
-            <ant://{}> <http://schema.org/name> "Some Name" .
-    "#,
-        pod_address
+            <ant://{pod_address}> <http://schema.org/name> "Some Name" .
+    "#
     );
 
     // Load the test data
@@ -182,7 +181,7 @@ fn test_get_pod_references() {
 
     // Should not contain vocabulary URIs or the pod itself
     assert!(!references.iter().any(|r| r.contains("/vocabulary/")));
-    assert!(!references.contains(&format!("ant://{}", pod_address)));
+    assert!(!references.contains(&format!("ant://{pod_address}")));
 }
 
 #[test]
@@ -208,7 +207,7 @@ fn test_search_content() {
 
     // Add some test data
     let pod_address = "test_pod";
-    let pod_iri = format!("ant://{}", pod_address);
+    let pod_iri = format!("ant://{pod_address}");
 
     // Add test triples with searchable content
     graph
@@ -265,7 +264,7 @@ fn test_search_by_type() {
     let (graph, _temp_dir) = create_test_graph();
 
     let pod_address = "test_pod";
-    let pod_iri = format!("ant://{}", pod_address);
+    let pod_iri = format!("ant://{pod_address}");
 
     // Add test data with types
     graph
@@ -305,7 +304,7 @@ fn test_search_by_predicate() {
     let (graph, _temp_dir) = create_test_graph();
 
     let pod_address = "test_pod";
-    let pod_iri = format!("ant://{}", pod_address);
+    let pod_iri = format!("ant://{pod_address}");
 
     // Add test data with specific predicates
     graph
@@ -347,7 +346,7 @@ fn test_advanced_search() {
     let (graph, _temp_dir) = create_test_graph();
 
     let pod_address = "test_pod";
-    let pod_iri = format!("ant://{}", pod_address);
+    let pod_iri = format!("ant://{pod_address}");
 
     // Add comprehensive test data
     graph
@@ -408,8 +407,8 @@ fn test_get_pod_scratchpads() {
         .unwrap();
 
     // Add additional scratchpad to the pod
-    let pod_iri = format!("ant://{}", pod_address);
-    let scratchpad2_iri = format!("ant://{}", scratchpad2);
+    let pod_iri = format!("ant://{pod_address}");
+    let scratchpad2_iri = format!("ant://{scratchpad2}");
     graph
         .put_quad(&scratchpad2_iri, HAS_INDEX, "1", Some(&pod_iri))
         .unwrap();
@@ -484,9 +483,8 @@ fn test_load_pod_into_graph() {
     let trig_data = format!(
         r#"
             <ant://test_subject> <ant://test_predicate> "test_object" .
-            <ant://scratchpad123> <{}> "0" .
-    "#,
-        HAS_INDEX
+            <ant://scratchpad123> <{HAS_INDEX}> "0" .
+    "#
     );
 
     // Load the data into the graph
@@ -571,7 +569,7 @@ fn test_enhanced_search_content() {
         .unwrap();
 
     // Add some content to search for
-    let pod_iri = format!("ant://{}", pod_address);
+    let pod_iri = format!("ant://{pod_address}");
     graph
         .put_quad(
             "ant://test_file",
@@ -675,9 +673,9 @@ fn test_enhanced_word_based_search() {
     assert_eq!(graph.get_pod_depth(pod3_address).unwrap(), 2);
 
     // Add content with varying match counts
-    let pod1_iri = format!("ant://{}", pod1_address);
-    let pod2_iri = format!("ant://{}", pod2_address);
-    let pod3_iri = format!("ant://{}", pod3_address);
+    let pod1_iri = format!("ant://{pod1_address}");
+    let pod2_iri = format!("ant://{pod2_address}");
+    let pod3_iri = format!("ant://{pod3_address}");
 
     // Pod 1 (depth 0): Contains "beatles" and "abbey" (2 matches)
     graph

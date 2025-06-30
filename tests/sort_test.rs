@@ -94,12 +94,12 @@ mod tests {
 
         println!("Original data:");
         for (i, line) in test_data.lines().enumerate() {
-            println!("{}: {}", i, line);
+            println!("{i}: {line}");
         }
 
         println!("\nSorted data:");
         for (i, line) in lines.iter().enumerate() {
-            println!("{}: {}", i, line);
+            println!("{i}: {line}");
         }
 
         // Verify that the multi-line statement with index predicate comes first
@@ -222,7 +222,7 @@ mod tests {
 
         println!("Priority test - Sorted data:");
         for (i, line) in lines.iter().enumerate() {
-            println!("{}: {}", i, line);
+            println!("{i}: {line}");
         }
 
         // Verify priority ordering: index statements first, then pod_ref, then others

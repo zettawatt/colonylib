@@ -183,7 +183,7 @@ fn test_graph_pod_entry_creation() {
     let config_string = String::from_utf8(config_data).unwrap();
 
     // The function creates data about the scratchpad, not the pod address directly
-    assert!(trig_string.contains(&format!("ant://{}", scratchpad_address)));
+    assert!(trig_string.contains(&format!("ant://{scratchpad_address}")));
     // Check for the actual predicate URIs
     assert!(trig_string.contains("colonylib/v1") || config_string.contains("colonylib/v1"));
     // Note: depth is stored in the default graph, not in the pod's named graph

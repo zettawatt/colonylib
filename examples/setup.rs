@@ -63,9 +63,9 @@ async fn main() {
         .unwrap();
     println!("Network created");
     let balance = get_balance_of_tokens(wallet).await.unwrap();
-    println!("Balance of tokens: {}", balance);
+    println!("Balance of tokens: {balance}");
     let balance = get_balance_of_gas_tokens(wallet).await.unwrap();
-    println!("Balance of gas tokens: {}", balance);
+    println!("Balance of gas tokens: {balance}");
 
     println!("\n=== Refreshing All Known Pods ===");
     podman.refresh_ref(3).await.unwrap();
