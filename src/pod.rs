@@ -2511,64 +2511,105 @@ impl<'a> PodManager<'a> {
         self.refresh_cache().await?;
 
         // Process pods iteratively up to the specified depth to avoid async recursion
-        let mut all_referenced_pods = Vec::new();
-        let mut graph_depth = self.graph.get_max_pod_depth()?;
+        let mut all_processed_pods = std::collections::HashSet::new();
         let mut current_depth: u64 = 0;
+
         loop {
             info!("Processing pod references at depth {}", current_depth);
 
             // Get all pods at the current depth
             let pod_addresses = self.get_pods_at_depth(current_depth)?;
-            let mut referenced_pods = Vec::new();
+            let mut newly_downloaded_pods = Vec::new();
 
             // Walk through each pod graph and check if it references other pods
             for pod_address in pod_addresses {
+                // Skip if we've already processed this pod
+                if all_processed_pods.contains(&pod_address) {
+                    continue;
+                }
+
                 info!("Checking pod {} for references", pod_address);
                 let pod_refs = self.get_pod_references(&pod_address)?;
 
                 for pod_ref in pod_refs {
-                    // Check if the pod_ref has already been processed or is in the current list
-                    if all_referenced_pods.contains(&pod_ref) || referenced_pods.contains(&pod_ref)
-                    {
+                    // Check if the pod_ref has already been processed
+                    if all_processed_pods.contains(&pod_ref) {
                         info!("Pod reference {} already processed, skipping", pod_ref);
                         continue;
                     }
-                    referenced_pods.push(pod_ref);
+
+                    info!("Processing referenced pod: {}", pod_ref);
+
+                    // Try to download the referenced pod
+                    if let Err(e) = self
+                        .download_referenced_pod(&pod_ref, current_depth + 1)
+                        .await
+                    {
+                        warn!("Failed to download referenced pod {}: {}", pod_ref, e);
+                        continue;
+                    }
+
+                    // Add to newly downloaded pods for processing in this iteration
+                    newly_downloaded_pods.push(pod_ref);
                 }
+
+                // Mark this pod as processed
+                all_processed_pods.insert(pod_address);
             }
 
-            // Download each referenced pod that we don't already have
-            for ref_address in referenced_pods {
-                info!("Processing referenced pod: {}", ref_address);
+            // Process newly downloaded pods for their references in the same iteration
+            let mut pods_to_process = newly_downloaded_pods;
+            while !pods_to_process.is_empty() {
+                let mut next_batch = Vec::new();
 
-                all_referenced_pods.push(ref_address.clone());
-                info!(
-                    "Referenced pod {} not found locally, attempting to download",
-                    ref_address
-                );
+                for pod_address in pods_to_process {
+                    // Skip if we've already processed this pod
+                    if all_processed_pods.contains(&pod_address) {
+                        continue;
+                    }
 
-                // Try to download the referenced pod
-                if let Err(e) = self
-                    .download_referenced_pod(&ref_address, current_depth + 1)
-                    .await
-                {
-                    warn!("Failed to download referenced pod {}: {}", ref_address, e);
-                    continue;
+                    info!("Checking newly downloaded pod {} for references", pod_address);
+                    let pod_refs = self.get_pod_references(&pod_address)?;
+
+                    for pod_ref in pod_refs {
+                        // Check if the pod_ref has already been processed
+                        if all_processed_pods.contains(&pod_ref) {
+                            info!("Pod reference {} already processed, skipping", pod_ref);
+                            continue;
+                        }
+
+                        info!("Processing referenced pod from newly downloaded: {}", pod_ref);
+
+                        // Try to download the referenced pod
+                        if let Err(e) = self
+                            .download_referenced_pod(&pod_ref, current_depth + 1)
+                            .await
+                        {
+                            warn!("Failed to download referenced pod {}: {}", pod_ref, e);
+                            continue;
+                        }
+
+                        // Add to next batch for processing
+                        next_batch.push(pod_ref);
+                    }
+
+                    // Mark this pod as processed
+                    all_processed_pods.insert(pod_address);
                 }
+
+                pods_to_process = next_batch;
             }
 
-            // Update the graph depth if we found new deeper pods
-            if current_depth >= graph_depth {
-                graph_depth = self.graph.get_max_pod_depth()?;
-            }
-
+            // Check if we should continue to the next depth
             if depth > 0 && current_depth >= depth {
                 info!("Reached specified depth {}, stopping processing", depth);
                 break;
             }
 
-            if current_depth >= graph_depth {
-                info!("Reached maximum graph depth, stopping processing");
+            // Check if there are any pods at the next depth
+            let next_depth_pods = self.get_pods_at_depth(current_depth + 1)?;
+            if next_depth_pods.is_empty() {
+                info!("No more pods found at deeper levels, stopping processing");
                 break;
             }
 
