@@ -51,9 +51,7 @@ async fn main() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         &mut KeyStore::from_mnemonic(mnemonic).unwrap()
     };
-    key_store
-        .set_wallet_key(LOCAL_PRIVATE_KEY.to_string())
-        .unwrap();
+    key_store.add_wallet_key("main", LOCAL_PRIVATE_KEY).unwrap();
 
     let graph_path = data_store.get_graph_path();
     let graph = &mut Graph::open(&graph_path).unwrap();

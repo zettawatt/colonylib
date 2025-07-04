@@ -63,7 +63,7 @@ impl serde::Serialize for Error {
 
 #[derive(BorshDeserialize, BorshSerialize, Clone)]
 pub struct KeyStore {
-    wallet_key: Vec<u8>,
+    wallet_key: HashMap<String, Vec<u8>>,
     mnemonic: String,
     main_sk: Vec<u8>,
     pointers: HashMap<Vec<u8>, Vec<u8>>,
@@ -75,8 +75,13 @@ pub struct KeyStore {
 
 impl fmt::Debug for KeyStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let wallet_keys_debug: HashMap<String, String> = self
+            .wallet_key
+            .iter()
+            .map(|(k, v)| (k.clone(), hex::encode(v)))
+            .collect();
         f.debug_struct("KeyStore")
-            .field("wallet_key", &hex::encode(&self.wallet_key))
+            .field("wallet_key", &wallet_keys_debug)
             .field("mnemonic", &self.mnemonic)
             .field("main_sk", &hex::encode(&self.main_sk))
             .field("pointers", &self.get_pointers())
@@ -166,7 +171,7 @@ impl KeyStore {
         scratchpads.insert(scratchpad_pubkey, scratchpad_key);
 
         Ok(KeyStore {
-            wallet_key: SecretKey::default().to_bytes().to_vec(),
+            wallet_key: HashMap::new(),
             mnemonic: mnemonic.to_string(),
             main_sk: main_sk.to_bytes(),
             pointers: pointers
@@ -197,16 +202,38 @@ impl KeyStore {
         self.mnemonic.clone()
     }
 
-    pub fn set_wallet_key(&mut self, wallet_key: String) -> Result<(), Error> {
-        let wallet_key = remove_0x_prefix(wallet_key.as_str());
-        self.wallet_key = hex::decode(wallet_key)?;
-        debug!("Wallet key set: {}", hex::encode(self.wallet_key.clone()));
+    pub fn add_wallet_key(&mut self, name: &str, wallet_key: &str) -> Result<(), Error> {
+        let wallet_key = remove_0x_prefix(wallet_key);
+        let decoded_key = hex::decode(wallet_key)?;
+        self.wallet_key
+            .insert(name.to_string(), decoded_key.clone());
+        debug!(
+            "Wallet key added for '{}': {}",
+            name,
+            hex::encode(decoded_key)
+        );
         Ok(())
     }
 
-    pub fn get_wallet_key(&self) -> String {
-        debug!("Wallet key: {}", hex::encode(self.wallet_key.clone()));
-        hex::encode(self.wallet_key.clone())
+    pub fn get_wallet_key(&self, name: &str) -> Result<String, Error> {
+        match self.wallet_key.get(name) {
+            Some(key) => {
+                let encoded_key = hex::encode(key);
+                debug!("Wallet key for '{}': {}", name, encoded_key);
+                Ok(encoded_key)
+            }
+            None => Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Wallet key '{name}' not found"),
+            ))),
+        }
+    }
+
+    pub fn get_wallet_keys(&self) -> HashMap<String, String> {
+        self.wallet_key
+            .iter()
+            .map(|(k, v)| (k.clone(), hex::encode(v)))
+            .collect()
     }
 
     pub fn get_configuration_address(&self) -> Result<String, Error> {

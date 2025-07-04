@@ -94,6 +94,19 @@ Colonylib is organized into four core modules that work together to provide a co
 
 The main entry point for colonylib is the `PodManager` struct, which provides a high-level interface for all pod operations. Here are the key methods:
 
+### Wallet Key Management
+
+```rust
+// Add a new wallet key with a name
+async fn add_wallet_key(&mut self, name: &str, wallet_key: &str) -> Result<(), Error>
+
+// Retrieve a specific wallet key by name
+async fn get_wallet_key(&self, name: &str) -> Result<String, Error>
+
+// Retrieve all wallet keys
+fn get_wallet_keys(&self) -> HashMap<String, String>
+```
+
 ### Core Pod Operations
 
 ```rust

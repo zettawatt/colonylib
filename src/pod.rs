@@ -10,6 +10,7 @@ use autonomi::client::analyze::{Analysis, AnalysisError};
 use blsttc::Error as BlsttcError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Error as SerdeError, Value};
+use std::collections::HashMap;
 use std::fmt;
 use std::io::Error as IoError;
 use thiserror;
@@ -188,7 +189,7 @@ impl<'a> PodManager<'a> {
     ///     let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     ///     &mut KeyStore::from_mnemonic(mnemonic)?
     /// };
-    /// let _ = key_store.set_wallet_key(PRIVATE_KEY.to_string())?;
+    /// let _ = key_store.add_wallet_key("main", PRIVATE_KEY)?;
     /// let graph_path = data_store.get_graph_path();
     /// let graph = &mut Graph::open(&graph_path)?;
     /// let pod_manager = PodManager::new(client, wallet, data_store, key_store, graph).await?;
@@ -2836,5 +2837,132 @@ impl<'a> PodManager<'a> {
         }
         update_list_json.insert("remove".to_string(), Value::Array(remove_array));
         Ok(Value::Object(update_list_json))
+    }
+
+    /// Adds a new wallet key to the key store with the specified name.
+    ///
+    /// This function stores a wallet private key in the key store using a human-readable name
+    /// as the identifier. The wallet key is stored in hexadecimal format and can be retrieved
+    /// later using the same name. Multiple wallet keys can be stored with different names.
+    ///
+    /// # Parameters
+    ///
+    /// * `name` - A string identifier for the wallet key (e.g., "main", "backup", "testnet")
+    /// * `wallet_key` - The private key as a hexadecimal string (with or without "0x" prefix)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if the wallet key was successfully added to the key store.
+    ///
+    /// Returns an `Error` if:
+    /// - The wallet key is not a valid hexadecimal string
+    /// - The key store update fails
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // Add a main wallet key
+    /// let main_key = "0x1234512345123451234512345123451234512345123451234512345123451234";
+    /// pod_manager.add_wallet_key("main", main_key).await?;
+    ///
+    /// // Add a backup wallet key
+    /// let backup_key = "abcdabcde12345abcde12345abcde12345abcde12345abcde12345eabcde12345";
+    /// pod_manager.add_wallet_key("backup", backup_key).await?;
+    ///
+    /// // Add a testnet wallet key
+    /// let testnet_key = "0x1234567890123456789012345678901234567890123456789012345678901234";
+    /// pod_manager.add_wallet_key("testnet", testnet_key).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`get_wallet_key`] - Retrieve a wallet key by name
+    /// - [`get_wallet_keys`] - Retrieve all wallet keys
+    pub async fn add_wallet_key(&mut self, name: &str, wallet_key: &str) -> Result<(), Error> {
+        self.key_store.add_wallet_key(name, wallet_key)?;
+        Ok(())
+    }
+
+    /// Retrieves a wallet key from the key store by name.
+    ///
+    /// This function looks up a previously stored wallet key using its name identifier
+    /// and returns the private key as a hexadecimal string. The key must have been
+    /// previously added using the `add_wallet_key` function.
+    ///
+    /// # Parameters
+    ///
+    /// * `name` - The string identifier for the wallet key to retrieve
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(String)` containing the wallet private key as a hexadecimal string.
+    ///
+    /// Returns an `Error` if:
+    /// - No wallet key exists with the specified name
+    /// - The key store lookup fails
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // First add a wallet key
+    /// let main_key = "0x1234512345123451234512345123451234512345123451234512345123451234";
+    /// pod_manager.add_wallet_key("main", main_key).await?;
+    ///
+    /// // Later retrieve the wallet key
+    /// let retrieved_key = pod_manager.get_wallet_key("main").await?;
+    /// assert_eq!(retrieved_key, "");
+    ///
+    /// // Try to get a non-existent key (will return an error)
+    /// match pod_manager.get_wallet_key("nonexistent").await {
+    ///     Ok(_) => panic!("Should not find non-existent key"),
+    ///     Err(_) => println!("Key not found as expected"),
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`add_wallet_key`] - Add a new wallet key with a name
+    /// - [`get_wallet_keys`] - Retrieve all wallet keys
+    pub async fn get_wallet_key(&self, name: &str) -> Result<String, Error> {
+        let key = self.key_store.get_wallet_key(name)?;
+        Ok(key)
+    }
+
+    /// Retrieves all wallet keys from the key store.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `HashMap` containing all wallet keys, with the key name as the key and the hexadecimal key as the value.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // First add a wallet key
+    /// let main_key = "0x1234512345123451234512345123451234512345123451234512345123451234";
+    /// pod_manager.add_wallet_key("main", main_key).await?;
+    ///
+    /// // Later retrieve all wallet keys
+    /// let wallet_keys = pod_manager.get_wallet_keys();
+    /// for (name, key) in wallet_keys {
+    ///     println!("Wallet key '{}' has value: {}", name, key);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    ///
+    /// # Related Functions
+    ///
+    /// - [`add_wallet_key`] - Add a new wallet key with a name
+    /// - [`get_wallet_key`] - Retrieve a specific wallet key by name
+    pub fn get_wallet_keys(&self) -> HashMap<String, String> {
+        self.key_store.get_wallet_keys()
     }
 }
