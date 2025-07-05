@@ -293,9 +293,10 @@ cargo run --example search
 1. **Text search**: Find pods containing specific words
 2. **Type search**: Query by RDF type (e.g., MediaObject, Document)
 3. **Predicate search**: Find resources with specific properties
-4. **Advanced search**: Combine multiple criteria
-5. **Subject retrieval**: Get complete metadata for specific resources
-6. **Pod listing**: Enumerate all user pods and their contents
+4. **Browse**: List all subjects with their name, type, and description, ordered by pod depth
+5. **Advanced search**: Combine multiple criteria
+6. **Subject retrieval**: Get complete metadata for specific resources
+7. **Pod listing**: Enumerate all user pods and their contents
 
 ### Running the Examples
 

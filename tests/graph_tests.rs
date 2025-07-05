@@ -778,3 +778,215 @@ fn test_enhanced_word_based_search() {
         "Search with no matches should return empty results"
     );
 }
+
+#[test]
+fn test_browse_with_pod_depth_ordering() {
+    let (graph, _temp_dir) = create_test_graph();
+
+    // Create test pods at different depths
+    let pod1_address = "pod1_depth0";
+    let pod2_address = "pod2_depth1";
+    let pod3_address = "pod3_depth2";
+
+    let pod1_iri = format!("ant://{pod1_address}");
+    let pod2_iri = format!("ant://{pod2_address}");
+    let pod3_iri = format!("ant://{pod3_address}");
+
+    // Add pod depth information to configuration graphs
+    graph
+        .put_quad(
+            &pod1_iri,
+            "ant://colonylib/v1/depth",
+            "0",
+            Some("ant://config"),
+        )
+        .unwrap();
+    graph
+        .put_quad(
+            &pod2_iri,
+            "ant://colonylib/v1/depth",
+            "1",
+            Some("ant://config"),
+        )
+        .unwrap();
+    graph
+        .put_quad(
+            &pod3_iri,
+            "ant://colonylib/v1/depth",
+            "2",
+            Some("ant://config"),
+        )
+        .unwrap();
+
+    // Add subjects with names to each pod
+    graph
+        .put_quad(
+            "ant://subject1",
+            "http://schema.org/name",
+            "Subject at depth 0",
+            Some(&pod1_iri),
+        )
+        .unwrap();
+    graph
+        .put_quad(
+            "ant://subject1",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+            "http://schema.org/MediaObject",
+            Some(&pod1_iri),
+        )
+        .unwrap();
+    graph
+        .put_quad(
+            "ant://subject1",
+            "http://schema.org/description",
+            "A media object at depth 0",
+            Some(&pod1_iri),
+        )
+        .unwrap();
+
+    graph
+        .put_quad(
+            "ant://subject2",
+            "http://schema.org/name",
+            "Subject at depth 1",
+            Some(&pod2_iri),
+        )
+        .unwrap();
+    graph
+        .put_quad(
+            "ant://subject2",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+            "http://schema.org/Document",
+            Some(&pod2_iri),
+        )
+        .unwrap();
+
+    graph
+        .put_quad(
+            "ant://subject3",
+            "http://schema.org/name",
+            "Subject at depth 2",
+            Some(&pod3_iri),
+        )
+        .unwrap();
+
+    // Test browse functionality
+    let browse_results = graph.browse(Some(10)).unwrap();
+    assert!(
+        !browse_results.is_empty(),
+        "Browse results should not be empty"
+    );
+
+    // Parse the JSON to verify ordering
+    let json_result: serde_json::Value = serde_json::from_str(&browse_results).unwrap();
+    let bindings = json_result["results"]["bindings"].as_array().unwrap();
+    assert!(
+        bindings.len() >= 3,
+        "Should have at least 3 browse results, found: {}",
+        bindings.len()
+    );
+
+    // Verify that results are ordered by depth (ascending)
+    let mut previous_depth: Option<u64> = None;
+    for binding in bindings {
+        if let Some(depth_value) = binding.get("depth") {
+            if let Some(depth_str) = depth_value.get("value").and_then(|v| v.as_str()) {
+                if let Ok(depth) = depth_str.parse::<u64>() {
+                    if let Some(prev_depth) = previous_depth {
+                        assert!(
+                            depth >= prev_depth,
+                            "Results should be ordered by depth (ascending)"
+                        );
+                    }
+                    previous_depth = Some(depth);
+                }
+            }
+        }
+    }
+
+    // Verify that all expected subjects are present
+    let subject_names: Vec<String> = bindings
+        .iter()
+        .filter_map(|binding| {
+            binding
+                .get("name")
+                .and_then(|name| name.get("value"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .collect();
+
+    assert!(
+        subject_names.contains(&"Subject at depth 0".to_string()),
+        "Should contain subject at depth 0"
+    );
+    assert!(
+        subject_names.contains(&"Subject at depth 1".to_string()),
+        "Should contain subject at depth 1"
+    );
+    assert!(
+        subject_names.contains(&"Subject at depth 2".to_string()),
+        "Should contain subject at depth 2"
+    );
+}
+
+#[test]
+fn test_browse_with_limit() {
+    let (graph, _temp_dir) = create_test_graph();
+
+    let pod_address = "test_pod_browse";
+    let pod_iri = format!("ant://{pod_address}");
+
+    // Add multiple subjects
+    for i in 1..=5 {
+        graph
+            .put_quad(
+                &format!("ant://subject{i}"),
+                "http://schema.org/name",
+                &format!("Subject {i}"),
+                Some(&pod_iri),
+            )
+            .unwrap();
+    }
+
+    // Test browse with limit
+    let browse_results = graph.browse(Some(3)).unwrap();
+    let json_result: serde_json::Value = serde_json::from_str(&browse_results).unwrap();
+    let bindings = json_result["results"]["bindings"].as_array().unwrap();
+
+    assert!(
+        bindings.len() <= 3,
+        "Browse results should respect the limit"
+    );
+}
+
+#[test]
+fn test_browse_without_limit() {
+    let (graph, _temp_dir) = create_test_graph();
+
+    let pod_address = "test_pod_browse_no_limit";
+    let pod_iri = format!("ant://{pod_address}");
+
+    // Add a subject
+    graph
+        .put_quad(
+            "ant://subject_no_limit",
+            "http://schema.org/name",
+            "Subject without limit",
+            Some(&pod_iri),
+        )
+        .unwrap();
+
+    // Test browse without limit
+    let browse_results = graph.browse(None).unwrap();
+    assert!(
+        !browse_results.is_empty(),
+        "Browse results should not be empty"
+    );
+
+    let json_result: serde_json::Value = serde_json::from_str(&browse_results).unwrap();
+    assert!(
+        json_result.get("results").is_some(),
+        "Results should have proper structure"
+    );
+}

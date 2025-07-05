@@ -126,7 +126,21 @@ async fn main() {
         serde_json::to_string_pretty(&res).unwrap()
     );
 
-    // Example 6: Retrieve specific subject data
+    // Example 6: Browse all subjects ordered by pod depth
+    println!("\n=== Browse Subjects ===");
+    let res = podman
+        .search(json!({
+            "type": "browse",
+            "limit": 20
+        }))
+        .await
+        .unwrap();
+    println!(
+        "Browse results: {}",
+        serde_json::to_string_pretty(&res).unwrap()
+    );
+
+    // Example 7: Retrieve specific subject data
     println!("\n=== Subject Data Retrieval ===");
     match podman
         .get_subject_data("5467c38f2591ddf840161dfd8536bfff594be4e455bf2630e841de846d49029a")

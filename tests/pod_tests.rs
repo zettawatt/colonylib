@@ -543,3 +543,100 @@ fn test_data_splitting_helper_functions() {
     println!("Created {} chunks from test data", chunks.len());
     println!("Created {} chunks from large line", chunks_large.len());
 }
+
+#[tokio::test]
+async fn test_pod_manager_browse_search() {
+    let (_data_store, _key_store, graph, _temp_dir) = create_test_components();
+
+    // Create test pods at different depths
+    let pod1_address = "browse_pod1";
+    let pod2_address = "browse_pod2";
+    let pod1_iri = format!("ant://{pod1_address}");
+    let pod2_iri = format!("ant://{pod2_address}");
+
+    // Add pod depth information
+    graph
+        .put_quad(
+            &pod1_iri,
+            "ant://colonylib/v1/depth",
+            "0",
+            Some("ant://config"),
+        )
+        .unwrap();
+    graph
+        .put_quad(
+            &pod2_iri,
+            "ant://colonylib/v1/depth",
+            "1",
+            Some("ant://config"),
+        )
+        .unwrap();
+
+    // Add subjects with names
+    graph
+        .put_quad(
+            "ant://browse_subject1",
+            "http://schema.org/name",
+            "Browse Subject 1",
+            Some(&pod1_iri),
+        )
+        .unwrap();
+    graph
+        .put_quad(
+            "ant://browse_subject1",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+            "http://schema.org/MediaObject",
+            Some(&pod1_iri),
+        )
+        .unwrap();
+    graph
+        .put_quad(
+            "ant://browse_subject1",
+            "http://schema.org/description",
+            "First browse subject",
+            Some(&pod1_iri),
+        )
+        .unwrap();
+
+    graph
+        .put_quad(
+            "ant://browse_subject2",
+            "http://schema.org/name",
+            "Browse Subject 2",
+            Some(&pod2_iri),
+        )
+        .unwrap();
+
+    // Test browse search directly on graph
+    let browse_results = graph.browse(Some(10)).unwrap();
+    let parsed_results: serde_json::Value = serde_json::from_str(&browse_results).unwrap();
+
+    // Verify results structure
+    assert!(parsed_results.get("results").is_some());
+    let bindings = parsed_results["results"]["bindings"].as_array().unwrap();
+    assert!(!bindings.is_empty(), "Browse should return results");
+
+    // Verify that subjects are present
+    let subject_names: Vec<String> = bindings
+        .iter()
+        .filter_map(|binding| {
+            binding
+                .get("name")
+                .and_then(|name| name.get("value"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .collect();
+
+    assert!(
+        subject_names.contains(&"Browse Subject 1".to_string()),
+        "Should contain Browse Subject 1"
+    );
+    assert!(
+        subject_names.contains(&"Browse Subject 2".to_string()),
+        "Should contain Browse Subject 2"
+    );
+
+    println!("Browse search test completed successfully!");
+    println!("Found {} subjects in browse results", bindings.len());
+}

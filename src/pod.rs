@@ -251,9 +251,9 @@ impl<'a> PodManager<'a> {
     /// Performs a comprehensive search across all pod data using various search strategies.
     ///
     /// This function provides a flexible search interface that supports multiple search types
-    /// including text search, type-based search, predicate-based search, and advanced SPARQL queries.
-    /// The search operates across all loaded pods in the graph database and returns enhanced
-    /// results with metadata.
+    /// including text search, type-based search, predicate-based search, browse functionality,
+    /// and advanced SPARQL queries. The search operates across all loaded pods in the graph
+    /// database and returns enhanced results with metadata.
     ///
     /// # Parameters
     ///
@@ -298,6 +298,15 @@ impl<'a> PodManager<'a> {
     /// }
     /// ```
     ///
+    /// ## Browse
+    /// ```json
+    /// {
+    ///   "type": "browse",
+    ///   "limit": 100
+    /// }
+    /// ```
+    /// Browse all subjects with their name, type, and description, ordered by pod depth.
+    ///
     /// # Returns
     ///
     /// Returns a JSON object containing:
@@ -330,6 +339,13 @@ impl<'a> PodManager<'a> {
     ///     "limit": 10
     /// });
     /// let results = pod_manager.search(type_search).await?;
+    ///
+    /// // Browse all subjects ordered by pod depth
+    /// let browse_search = json!({
+    ///     "type": "browse",
+    ///     "limit": 50
+    /// });
+    /// let results = pod_manager.search(browse_search).await?;
     ///
     /// // Advanced SPARQL query
     /// let advanced_search = json!({
@@ -405,6 +421,11 @@ impl<'a> PodManager<'a> {
                                 ),
                             )])));
                         }
+                    }
+                    "browse" => {
+                        // Browse all subjects ordered by pod depth
+                        let limit = query_obj.get("limit").and_then(|v| v.as_u64());
+                        self.graph.browse(limit)?
                     }
                     _ => {
                         return Ok(Value::Object(serde_json::Map::from_iter([(

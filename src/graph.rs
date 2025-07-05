@@ -996,6 +996,45 @@ impl Graph {
         Ok(())
     }
 
+    // Browse all subjects on the network and return their name, @type, and description
+    // ordered by pod depth
+    pub fn browse(&self, limit: Option<u64>) -> Result<String, Error> {
+        let limit_clause = if let Some(l) = limit {
+            format!("LIMIT {l}")
+        } else {
+            String::new()
+        };
+
+        let query = format!(
+            r#"
+            SELECT DISTINCT ?subject ?name ?type ?description ?graph ?depth WHERE {{
+                GRAPH ?graph {{
+                    ?subject <{HAS_NAME}> ?name .
+                    OPTIONAL {{ ?subject <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> ?type . }}
+                    OPTIONAL {{ ?subject <http://schema.org/description> ?description . }}
+                }}
+                OPTIONAL {{
+                    # Look for depth in any graph (typically configuration graphs)
+                    GRAPH ?config_graph {{
+                        ?graph <{HAS_DEPTH}> ?depth .
+                    }}
+                }}
+            }}
+            ORDER BY ASC(COALESCE(?depth, 999999)) ?graph ?subject
+            {limit_clause}
+            "#
+        );
+
+        debug!("Browse query: {}", query);
+
+        let results = self.store.query(query.as_str())?;
+        let buffer = results.write(Vec::new(), QueryResultsFormat::Json)?;
+        let json_str = String::from_utf8(buffer)?;
+
+        debug!("Browse results: {}", json_str);
+        Ok(json_str)
+    }
+
     // Search for content across all graphs
     pub fn search_content(&self, search_text: &str, limit: Option<u64>) -> Result<String, Error> {
         let limit_clause = if let Some(l) = limit {
