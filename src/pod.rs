@@ -2902,6 +2902,7 @@ impl<'a> PodManager<'a> {
     ///
     /// - [`get_wallet_key`] - Retrieve a wallet key by name
     /// - [`get_wallet_keys`] - Retrieve all wallet keys
+    /// - [`remove_wallet_key`] - Remove a wallet key by name
     pub async fn add_wallet_key(&mut self, name: &str, wallet_key: &str) -> Result<(), Error> {
         self.key_store.add_wallet_key(name, wallet_key)?;
         Ok(())
@@ -2949,6 +2950,7 @@ impl<'a> PodManager<'a> {
     /// # Related Functions
     ///
     /// - [`add_wallet_key`] - Add a new wallet key with a name
+    /// - [`remove_wallet_key`] - Remove a wallet key by name
     /// - [`get_wallet_keys`] - Retrieve all wallet keys
     pub async fn get_wallet_key(&self, name: &str) -> Result<String, Error> {
         let key = self.key_store.get_wallet_key(name)?;
@@ -2983,7 +2985,46 @@ impl<'a> PodManager<'a> {
     ///
     /// - [`add_wallet_key`] - Add a new wallet key with a name
     /// - [`get_wallet_key`] - Retrieve a specific wallet key by name
+    /// - [`remove_wallet_key`] - Remove a wallet key by name
     pub fn get_wallet_keys(&self) -> HashMap<String, String> {
         self.key_store.get_wallet_keys()
+    }
+
+    /// Removes a wallet key from the key store by name.
+    ///
+    /// # Parameters
+    ///
+    /// * `name` - The string identifier for the wallet key to remove
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if the wallet key was successfully removed from the key store.
+    ///
+    /// Returns an `Error` if:
+    /// - No wallet key exists with the specified name
+    /// - The key store update fails
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // First add a wallet key
+    /// let main_key = "0x1234512345123451234512345123451234512345123451234512345123451234";
+    /// pod_manager.add_wallet_key("main", main_key).await?;
+    ///
+    /// // Later remove the wallet key
+    /// pod_manager.remove_wallet_key("main").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`add_wallet_key`] - Add a new wallet key with a name
+    /// - [`get_wallet_key`] - Retrieve a specific wallet key by name
+    /// - [`get_wallet_keys`] - Retrieve all wallet keys
+    pub fn remove_wallet_key(&mut self, name: &str) -> Result<(), Error> {
+        self.key_store.remove_wallet_key(name)?;
+        Ok(())
     }
 }

@@ -215,6 +215,19 @@ impl KeyStore {
         Ok(())
     }
 
+    pub fn remove_wallet_key(&mut self, name: &str) -> Result<(), Error> {
+        match self.wallet_key.remove(name) {
+            Some(_) => {
+                debug!("Wallet key removed for '{}'", name);
+                Ok(())
+            }
+            None => Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Wallet key '{name}' not found"),
+            ))),
+        }
+    }
+
     pub fn get_wallet_key(&self, name: &str) -> Result<String, Error> {
         match self.wallet_key.get(name) {
             Some(key) => {
