@@ -1007,11 +1007,12 @@ impl Graph {
 
         let query = format!(
             r#"
-            SELECT DISTINCT ?subject ?name ?type ?description ?graph ?depth WHERE {{
+            SELECT DISTINCT ?subject ?name ?type ?description ?size ?graph ?depth WHERE {{
                 GRAPH ?graph {{
                     ?subject <{HAS_NAME}> ?name .
                     OPTIONAL {{ ?subject <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> ?type . }}
                     OPTIONAL {{ ?subject <http://schema.org/description> ?description . }}
+                    OPTIONAL {{ ?subject <http://schema.org/contentSize> ?size . }}
                 }}
                 OPTIONAL {{
                     # Look for depth in any graph (typically configuration graphs)
