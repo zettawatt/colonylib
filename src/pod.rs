@@ -3661,6 +3661,40 @@ impl<'a> PodManager<'a> {
         self.key_store.get_wallet_keys()
     }
 
+    /// Retrieves all wallet addresses from the key store.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `HashMap` containing all wallet addresses, with the key name as the key and the hexadecimal address as the value.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // First add a wallet key
+    /// let main_key = "0x1234512345123451234512345123451234512345123451234512345123451234";
+    /// pod_manager.add_wallet_key("main", main_key).await?;
+    ///
+    /// // Later retrieve all wallet addresses
+    /// let wallet_addresses = pod_manager.get_wallet_addresses();
+    /// for (name, address) in wallet_addresses {
+    ///     println!("Wallet address for '{}' is: {}", name, address);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`add_wallet_key`] - Add a new wallet key with a name
+    /// - [`get_wallet_key`] - Retrieve a specific wallet key by name
+    /// - [`get_wallet_keys`] - Retrieve all wallet keys
+    /// - [`remove_wallet_key`] - Remove a wallet key by name
+    /// - [`get_wallet_keys`] - Retrieve all wallet keys
+    pub fn get_wallet_addresses(&self) -> HashMap<String, String> {
+        self.key_store.get_wallet_addresses()
+    }
+
     /// Removes a wallet key from the key store by name.
     ///
     /// # Parameters

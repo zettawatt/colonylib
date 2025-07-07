@@ -249,6 +249,21 @@ impl KeyStore {
             .collect()
     }
 
+    pub fn get_wallet_addresses(&self) -> HashMap<String, String> {
+        // Get the list of wallet keys
+        let wallet_keys = self.get_wallet_keys();
+
+        // Return the list of wallet addresses by deriving them from the wallet keys
+        wallet_keys
+            .iter()
+            .map(|(k, v)| {
+                let secret_key = SecretKey::from_hex(v).unwrap();
+                let pubkey = secret_key.public_key();
+                (k.clone(), pubkey.to_hex())
+            })
+            .collect()
+    }
+
     pub fn get_configuration_address(&self) -> Result<String, Error> {
         // Get the first derived key
         let main_sk_array: [u8; 32] = self
