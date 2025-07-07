@@ -24,6 +24,7 @@ borsh = {version = "1.5.7", features = ["derive", "borsh-derive"]}
 chrono = "0.4.41"
 cocoon = "0.4.3"
 dirs = "6.0.0"
+futures = "0.3.31"
 hex = "0.4.3"
 oxigraph = "0.4.11"
 oxjsonld = "0.1.0"

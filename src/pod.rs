@@ -8,6 +8,7 @@ use autonomi::{AddressParseError, Bytes, Chunk, Client, SecretKey, Wallet};
 use alloc::string::FromUtf8Error;
 use autonomi::client::analyze::{Analysis, AnalysisError};
 use blsttc::Error as BlsttcError;
+use futures::future::{join_all, try_join_all};
 use serde::{Deserialize, Serialize};
 use serde_json::{Error as SerdeError, Value};
 use std::collections::HashMap;
@@ -2152,41 +2153,6 @@ impl<'a> PodManager<'a> {
     /// - [`upload_all`] - Upload local changes before refreshing
     /// - [`search`] - Search across refreshed pod data
     pub async fn refresh_cache(&mut self) -> Result<(), Error> {
-        // Loop through the next 3 derived keys and check if they contain data on the network
-        // This is to ensure that we have all of the relevant keys in our key store
-        // let mut count: u64 = 0;
-        // let base_count = count.clone();
-        // loop {
-        //     let address = self.key_store.get_address_at_index(self.key_store.get_num_keys() as u64 + count)?;
-        //     info!("Checking address: {}", address);
-        //     let (address_type, create_mode) = self.get_address_type(address.as_str()).await?;
-        //     if create_mode {
-        //         info!("Address is empty, increment count!");
-        //         count += 1;
-        //     } else {
-        //         info!("Address is not empty, processing type: {:?}", address_type);
-        //         match address_type {
-        //             Analysis::Pointer(_) => {
-        //                 info!("Address is a pointer, adding key");
-        //                 self.key_store.add_pointer_key()?;
-        //             }
-        //             Analysis::Scratchpad(_) => {
-        //                 info!("Address is a scratchpad, adding key");
-        //                 self.key_store.add_scratchpad_key()?;
-        //             }
-        //             _ => {
-        //                 info!("Address is neither a pointer nor a scratchpad, marking key as bad");
-        //                 self.key_store.add_bad_key()?;
-        //             }
-        //         }
-        //         count = base_count;
-        //     }
-        //     if count > 2 {
-        //         info!("No new addresses found, done with refresh!");
-        //         break;
-        //     }
-        // }
-
         // Get the configuration address
         let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
@@ -2312,12 +2278,46 @@ impl<'a> PodManager<'a> {
 
         // Once the key store is updated, proceed with the normal refresh
 
-        // Get the list of local pointers from the key store
-        for (address, _key) in self.key_store.get_pointers() {
-            let address = address.trim();
-            info!("Checking pointer: {}", address);
-            let pointer_address = PointerAddress::from_hex(address)?;
-            let pointer = match self.client.pointer_get(&pointer_address).await {
+        // Get the list of local pointers from the key store and fetch them concurrently
+        let pointer_addresses: Vec<(String, PointerAddress)> = self
+            .key_store
+            .get_pointers()
+            .into_keys()
+            .filter_map(|address| {
+                let address = address.trim().to_string();
+                let pointer_address = PointerAddress::from_hex(&address);
+                match pointer_address {
+                    Ok(pa) => Some((address, pa)),
+                    Err(e) => {
+                        error!("Invalid pointer address {}: {:?}", address, e);
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        info!("Fetching {} pointers concurrently", pointer_addresses.len());
+
+        // Create futures for all pointer fetches
+        let pointer_futures: Vec<_> = pointer_addresses
+            .iter()
+            .map(|(address, pointer_address)| {
+                let client = &self.client;
+                let address = address.clone();
+                async move {
+                    info!("Checking pointer: {}", address);
+                    let result = client.pointer_get(pointer_address).await;
+                    (address, result)
+                }
+            })
+            .collect();
+
+        // Execute all pointer fetches concurrently
+        let pointer_results = join_all(pointer_futures).await;
+
+        // Process the results
+        for (address, pointer_result) in pointer_results {
+            let pointer = match pointer_result {
                 Ok(pointer) => pointer,
                 Err(e) => {
                     match e {
@@ -2341,17 +2341,17 @@ impl<'a> PodManager<'a> {
             info!("Pointer found: {:?}", pointer);
 
             // Check if the pointer file exists in the local data store
-            let pointer_exists = self.data_store.address_is_pointer(address)?;
+            let pointer_exists = self.data_store.address_is_pointer(&address)?;
             if !pointer_exists {
                 info!("Pointer file does not exist, creating it");
-                self.data_store.create_pointer_file(address)?;
+                self.data_store.create_pointer_file(&address)?;
                 self.data_store
-                    .update_pointer_target(address, pointer.target().to_hex().as_str())?;
+                    .update_pointer_target(&address, pointer.target().to_hex().as_str())?;
                 self.data_store
-                    .update_pointer_count(address, pointer.counter())?;
+                    .update_pointer_count(&address, pointer.counter())?;
             }
             // Check if the pointer is newer than the local cache
-            let local_pointer_count = self.data_store.get_pointer_count(address)?;
+            let local_pointer_count = self.data_store.get_pointer_count(&address)?;
             if (pointer.counter() as u64 > local_pointer_count) || !pointer_exists {
                 info!("Pointer is newer, updating scratchpad(s)");
                 let target = pointer.target();
@@ -2372,7 +2372,7 @@ impl<'a> PodManager<'a> {
                     address
                 );
                 if !data.trim().is_empty() {
-                    if let Err(e) = self.load_pod_into_graph(address, data.trim()) {
+                    if let Err(e) = self.load_pod_into_graph(&address, data.trim()) {
                         warn!(
                             "Failed to load newly discovered pod data into graph for {}: {}",
                             address, e
@@ -2381,7 +2381,7 @@ impl<'a> PodManager<'a> {
                 }
 
                 // Set the depth attribute to 0 (local pod)
-                if let Err(e) = self.update_pod_depth(address, 0) {
+                if let Err(e) = self.update_pod_depth(&address, 0) {
                     warn!("Failed to update pod depth for {}: {}", address, e);
                 }
 
@@ -2415,33 +2415,53 @@ impl<'a> PodManager<'a> {
         // If 1, load the file directly as it is a standalone TriG formatted file
         // Else, if more than 1, download the other scratchpads
         if scratchpads.len() > 1 {
-            let mut count = 0;
+            // Skip the first scratchpad (already downloaded) and prepare the rest for concurrent download
+            let additional_scratchpads: Vec<String> = scratchpads.into_iter().skip(1).collect();
 
-            // Create new scratchpad files and download them from the network
-            for scratchpad_address in scratchpads {
-                if count == 0 {
-                    count += 1;
-                    continue;
+            if !additional_scratchpads.is_empty() {
+                info!(
+                    "Downloading {} additional scratchpads concurrently",
+                    additional_scratchpads.len()
+                );
+
+                // Create scratchpad files for those that don't exist
+                for scratchpad_address in &additional_scratchpads {
+                    if !self
+                        .data_store
+                        .address_is_scratchpad(scratchpad_address.trim())?
+                    {
+                        info!("Scratchpad file does not exist, creating it");
+                        self.data_store
+                            .create_scratchpad_file(scratchpad_address.trim())?;
+                    }
                 }
-                if !self
-                    .data_store
-                    .address_is_scratchpad(scratchpad_address.trim())?
-                {
-                    info!("Scratchpad file does not exist, creating it");
+
+                // Create futures for all scratchpad downloads
+                let scratchpad_futures: Vec<_> = additional_scratchpads
+                    .iter()
+                    .map(|scratchpad_address| {
+                        let client = &self.client;
+                        let address = scratchpad_address.trim().to_string();
+                        async move {
+                            let scratchpad_addr = ScratchpadAddress::from_hex(&address)?;
+                            let scratchpad = client.scratchpad_get(&scratchpad_addr).await?;
+                            let data = scratchpad.encrypted_data();
+                            let bytes = data.to_vec();
+                            let data_string = String::from_utf8(data.to_vec())?;
+                            Ok::<(String, Vec<u8>, String), Error>((address, bytes, data_string))
+                        }
+                    })
+                    .collect();
+
+                // Execute all scratchpad downloads concurrently
+                let scratchpad_results = try_join_all(scratchpad_futures).await?;
+
+                // Process the results
+                for (address, bytes, data_string) in scratchpad_results {
+                    data_bytes.extend(bytes);
                     self.data_store
-                        .create_scratchpad_file(scratchpad_address.trim())?;
+                        .update_scratchpad_data(&address, data_string.trim())?;
                 }
-                let scratchpad = self
-                    .client
-                    .scratchpad_get(&ScratchpadAddress::from_hex(scratchpad_address.trim())?)
-                    .await?;
-                let data = scratchpad.encrypted_data();
-                let mut bytes = data.to_vec();
-                data_bytes.append(&mut bytes);
-                let data = String::from_utf8(data.to_vec())?;
-                self.data_store
-                    .update_scratchpad_data(scratchpad_address.trim(), data.trim())?;
-                count += 1;
             }
 
             // Convert the data bytes into a string
@@ -2528,17 +2548,20 @@ impl<'a> PodManager<'a> {
 
             // Get all pods at the current depth
             let pod_addresses = self.get_pods_at_depth(current_depth)?;
-            let mut newly_downloaded_pods = Vec::new();
+            let mut newly_downloaded_pods: Vec<String> = Vec::new();
+
+            // Collect all pod references that need to be downloaded
+            let mut pod_refs_to_download: Vec<String> = Vec::new();
 
             // Walk through each pod graph and check if it references other pods
-            for pod_address in pod_addresses {
+            for pod_address in &pod_addresses {
                 // Skip if we've already processed this pod
-                if all_processed_pods.contains(&pod_address) {
+                if all_processed_pods.contains(pod_address) {
                     continue;
                 }
 
                 info!("Checking pod {} for references", pod_address);
-                let pod_refs = self.get_pod_references(&pod_address)?;
+                let pod_refs = self.get_pod_references(pod_address)?;
 
                 for pod_ref in pod_refs {
                     // Check if the pod_ref has already been processed
@@ -2547,33 +2570,38 @@ impl<'a> PodManager<'a> {
                         continue;
                     }
 
-                    info!("Processing referenced pod: {}", pod_ref);
-
-                    // Try to download the referenced pod
-                    if let Err(e) = self
-                        .download_referenced_pod(&pod_ref, current_depth + 1)
-                        .await
-                    {
-                        warn!("Failed to download referenced pod {}: {}", pod_ref, e);
-                        continue;
-                    }
-
-                    // Add to newly downloaded pods for processing in this iteration
-                    newly_downloaded_pods.push(pod_ref);
+                    info!("Queuing referenced pod for download: {}", pod_ref);
+                    pod_refs_to_download.push(pod_ref);
                 }
+            }
 
-                // Mark this pod as processed
+            // Download all referenced pods using optimized batch download
+            if !pod_refs_to_download.is_empty() {
+                info!(
+                    "Downloading {} referenced pods with concurrent network operations",
+                    pod_refs_to_download.len()
+                );
+
+                let successful_downloads = self
+                    .download_referenced_pods_batch(&pod_refs_to_download, current_depth + 1)
+                    .await?;
+                newly_downloaded_pods.extend(successful_downloads);
+            }
+
+            // Mark all processed pods
+            for pod_address in pod_addresses {
                 all_processed_pods.insert(pod_address);
             }
 
             // Process newly downloaded pods for their references in the same iteration
             let mut pods_to_process = newly_downloaded_pods;
             while !pods_to_process.is_empty() {
-                let mut next_batch = Vec::new();
+                let mut pod_refs_to_download: Vec<String> = Vec::new();
 
-                for pod_address in pods_to_process {
+                // Collect all references from newly downloaded pods
+                for pod_address in &pods_to_process {
                     // Skip if we've already processed this pod
-                    if all_processed_pods.contains(&pod_address) {
+                    if all_processed_pods.contains(pod_address) {
                         continue;
                     }
 
@@ -2581,7 +2609,7 @@ impl<'a> PodManager<'a> {
                         "Checking newly downloaded pod {} for references",
                         pod_address
                     );
-                    let pod_refs = self.get_pod_references(&pod_address)?;
+                    let pod_refs = self.get_pod_references(pod_address)?;
 
                     for pod_ref in pod_refs {
                         // Check if the pod_ref has already been processed
@@ -2590,25 +2618,25 @@ impl<'a> PodManager<'a> {
                             continue;
                         }
 
-                        info!(
-                            "Processing referenced pod from newly downloaded: {}",
-                            pod_ref
-                        );
-
-                        // Try to download the referenced pod
-                        if let Err(e) = self
-                            .download_referenced_pod(&pod_ref, current_depth + 1)
-                            .await
-                        {
-                            warn!("Failed to download referenced pod {}: {}", pod_ref, e);
-                            continue;
-                        }
-
-                        // Add to next batch for processing
-                        next_batch.push(pod_ref);
+                        info!("Queuing referenced pod from newly downloaded: {}", pod_ref);
+                        pod_refs_to_download.push(pod_ref);
                     }
+                }
 
-                    // Mark this pod as processed
+                // Download all referenced pods using batch download
+                let next_batch = if !pod_refs_to_download.is_empty() {
+                    info!(
+                        "Batch downloading {} referenced pods from newly downloaded pods",
+                        pod_refs_to_download.len()
+                    );
+                    self.download_referenced_pods_batch(&pod_refs_to_download, current_depth + 1)
+                        .await?
+                } else {
+                    Vec::new()
+                };
+
+                // Mark all processed pods
+                for pod_address in pods_to_process {
                     all_processed_pods.insert(pod_address);
                 }
 
@@ -2653,95 +2681,143 @@ impl<'a> PodManager<'a> {
         Ok(self.graph.get_pod_references(pod_address)?)
     }
 
-    // Download a referenced pod from the network
-    async fn download_referenced_pod(
+    // Download multiple referenced pods with concurrent network operations
+    async fn download_referenced_pods_batch(
         &mut self,
-        pod_address: &str,
+        pod_addresses: &[String],
         depth: u64,
-    ) -> Result<(), Error> {
+    ) -> Result<Vec<String>, Error> {
         info!(
-            "Attempting to download referenced pod: {} at depth {}",
-            pod_address, depth
+            "Batch downloading {} referenced pods at depth {} with concurrent network operations",
+            pod_addresses.len(),
+            depth
         );
 
-        let pointer_address = PointerAddress::from_hex(pod_address)?;
-        let pointer: Pointer = match self.client.pointer_get(&pointer_address).await {
-            Ok(pointer) => pointer,
-            Err(e) => {
-                match e {
-                    PointerError::CannotUpdateNewPointer => {
-                        warn!("Referenced pod not found on network: {}", pod_address);
-                        return Ok(()); // Skip this pod if it doesn't exist
-                    }
-                    // Catch Pointer(Network(GetRecordError(RecordNotFound))) error when there is nothing on the network
-                    PointerError::GetError(GetError::RecordNotFound) => {
-                        warn!("Referenced pod not found on network: {}", pod_address);
-                        return Ok(()); // Skip this pod if it doesn't exist
-                    }
-                    _ => {
-                        error!("Error occurred: {:?}", e); // Log the error
-                        return Err(Error::Pointer(Box::new(e))); // Propagate the error to the higher-level function
-                    }
+        // Step 1: Fetch all pointers concurrently
+        let pointer_futures: Vec<_> = pod_addresses
+            .iter()
+            .map(|pod_address| {
+                let client = &self.client;
+                let address = pod_address.clone();
+                async move {
+                    let pointer_address = PointerAddress::from_hex(&address)?;
+                    let result = client.pointer_get(&pointer_address).await;
+                    Ok::<(String, Result<Pointer, PointerError>), Error>((address, result))
                 }
-            }
-        };
+            })
+            .collect();
 
-        // Check if we already have this pod locally
-        let pod_exists = self.data_store.address_is_pointer(pod_address)?;
-        let should_download = if pod_exists {
-            // Check if the remote version is newer than our local version
-            let local_pointer_count = self.data_store.get_pointer_count(pod_address)?;
-            let remote_counter = pointer.counter() as u64;
-            if remote_counter > local_pointer_count {
-                info!(
-                    "Remote pod is newer (counter: {} > {}), downloading update",
-                    remote_counter, local_pointer_count
-                );
-                true
-            } else {
-                info!(
-                    "Local pod is up to date (counter: {} >= {}), skipping download",
-                    local_pointer_count, remote_counter
-                );
-                false
-            }
-        } else {
-            // Pod doesn't exist locally, download it
-            info!("Pod doesn't exist locally, downloading for the first time");
-            // Create local pointer file
-            self.data_store.create_pointer_file(pod_address)?;
-            true
-        };
+        let pointer_results = try_join_all(pointer_futures).await?;
 
-        if should_download {
-            // Download the scratchpad data
-            let target = pointer.target();
-            let target = match target {
-                PointerTarget::ScratchpadAddress(scratchpad_address) => scratchpad_address,
-                _ => {
-                    error!("Pointer target is not a scratchpad address");
-                    return Ok(());
+        // Step 2: Process pointer results and determine which pods need downloading
+        let mut pods_to_download: Vec<(String, Pointer)> = Vec::new();
+        let mut successful_downloads: Vec<String> = Vec::new();
+
+        for (pod_address, pointer_result) in pointer_results {
+            let pointer = match pointer_result {
+                Ok(pointer) => pointer,
+                Err(e) => {
+                    match e {
+                        PointerError::CannotUpdateNewPointer => {
+                            warn!("Referenced pod not found on network: {}", pod_address);
+                            continue; // Skip this pod if it doesn't exist
+                        }
+                        PointerError::GetError(GetError::RecordNotFound) => {
+                            warn!("Referenced pod not found on network: {}", pod_address);
+                            continue; // Skip this pod if it doesn't exist
+                        }
+                        _ => {
+                            error!("Error occurred for pod {}: {:?}", pod_address, e);
+                            continue; // Skip this pod on error
+                        }
+                    }
                 }
             };
 
-            let data = self.combine_scratchpad_data(target).await?;
+            // Check if we need to download this pod
+            let pod_exists = self.data_store.address_is_pointer(&pod_address)?;
+            let should_download = if pod_exists {
+                let local_pointer_count = self.data_store.get_pointer_count(&pod_address)?;
+                let remote_counter = pointer.counter() as u64;
+                if remote_counter > local_pointer_count {
+                    info!(
+                        "Remote pod is newer (counter: {} > {}), queuing for download: {}",
+                        remote_counter, local_pointer_count, pod_address
+                    );
+                    true
+                } else {
+                    info!(
+                        "Local pod is up to date (counter: {} >= {}), skipping: {}",
+                        local_pointer_count, remote_counter, pod_address
+                    );
+                    false
+                }
+            } else {
+                info!(
+                    "Pod doesn't exist locally, queuing for download: {}",
+                    pod_address
+                );
+                self.data_store.create_pointer_file(&pod_address)?;
+                true
+            };
 
-            // Load the downloaded pod data into the graph database
-            self.load_pod_into_graph(pod_address, data.trim())?;
+            if should_download {
+                pods_to_download.push((pod_address.clone(), pointer));
+            }
 
-            // Update pointer information
-            self.data_store
-                .update_pointer_target(pod_address, pointer.target().to_hex().as_str())?;
-            self.data_store
-                .update_pointer_count(pod_address, pointer.counter())?;
-
-            info!("Successfully downloaded referenced pod: {}", pod_address);
+            // Always update depth and mark as processed
+            self.update_pod_depth(&pod_address, depth)?;
+            successful_downloads.push(pod_address);
         }
 
-        // Always update the depth in the graph database, even if we didn't download
-        self.update_pod_depth(pod_address, depth)?;
+        // Step 3: Download scratchpad data for pods that need it
+        for (pod_address, pointer) in pods_to_download {
+            let target = match pointer.target() {
+                PointerTarget::ScratchpadAddress(scratchpad_address) => scratchpad_address,
+                _ => {
+                    error!(
+                        "Pointer target is not a scratchpad address for pod: {}",
+                        pod_address
+                    );
+                    continue;
+                }
+            };
 
-        Ok(())
+            // Download and process the scratchpad data
+            match self.combine_scratchpad_data(target).await {
+                Ok(data) => {
+                    // Load the downloaded pod data into the graph database
+                    if let Err(e) = self.load_pod_into_graph(&pod_address, data.trim()) {
+                        warn!("Failed to load pod {} into graph: {}", pod_address, e);
+                        continue;
+                    }
+
+                    // Update pointer information
+                    if let Err(e) = self
+                        .data_store
+                        .update_pointer_target(&pod_address, pointer.target().to_hex().as_str())
+                    {
+                        warn!("Failed to update pointer target for {}: {}", pod_address, e);
+                    }
+                    if let Err(e) = self
+                        .data_store
+                        .update_pointer_count(&pod_address, pointer.counter())
+                    {
+                        warn!("Failed to update pointer count for {}: {}", pod_address, e);
+                    }
+
+                    info!("Successfully downloaded referenced pod: {}", pod_address);
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to download scratchpad data for pod {}: {}",
+                        pod_address, e
+                    );
+                }
+            }
+        }
+
+        Ok(successful_downloads)
     }
 
     // Update the depth attribute of a pod in the graph database

@@ -1888,6 +1888,7 @@ dependencies = [
  "chrono",
  "cocoon",
  "dirs",
+ "futures",
  "hex 0.4.3",
  "oxigraph",
  "oxjsonld",
