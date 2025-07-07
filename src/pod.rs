@@ -60,12 +60,32 @@ pub enum BatchOperation {
 /// Results from batch operations
 #[derive(Debug, Clone)]
 pub enum BatchResult {
-    PointerGetResult { address: String, success: bool, data: Option<String> },
-    PointerPutResult { address: String, success: bool },
-    PointerUpdateResult { address: String, success: bool },
-    ScratchpadGetResult { address: String, success: bool, data: Option<String> },
-    ScratchpadPutResult { address: String, success: bool },
-    ScratchpadUpdateResult { address: String, success: bool },
+    PointerGetResult {
+        address: String,
+        success: bool,
+        data: Option<String>,
+    },
+    PointerPutResult {
+        address: String,
+        success: bool,
+    },
+    PointerUpdateResult {
+        address: String,
+        success: bool,
+    },
+    ScratchpadGetResult {
+        address: String,
+        success: bool,
+        data: Option<String>,
+    },
+    ScratchpadPutResult {
+        address: String,
+        success: bool,
+    },
+    ScratchpadUpdateResult {
+        address: String,
+        success: bool,
+    },
 }
 
 /// Preprocessed batch of operations ready for concurrent execution
@@ -1710,23 +1730,36 @@ impl<'a> PodManager<'a> {
     /// - [`refresh_cache`] - Downloads updates from the network
     pub async fn upload_all(&mut self) -> Result<(), Error> {
         let update_list = self.data_store.get_update_list()?;
-        info!("Starting upload_all with {} pods to upload", update_list.pods.len());
+        info!(
+            "Starting upload_all with {} pods to upload",
+            update_list.pods.len()
+        );
 
         // Phase 1: Preprocess all operations and collect data
         let mut removal_operations = Vec::new();
         let mut upload_operations = Vec::new();
 
         // Preprocess removals
-        info!("Preprocessing {} pointer removals and {} scratchpad removals",
-              update_list.remove.pointers.len(),
-              update_list.remove.scratchpads.len());
+        info!(
+            "Preprocessing {} pointer removals and {} scratchpad removals",
+            update_list.remove.pointers.len(),
+            update_list.remove.scratchpads.len()
+        );
 
         for pointer_address in &update_list.remove.pointers {
-            removal_operations.push(("pointer".to_string(), pointer_address.clone(), pointer_address.clone()));
+            removal_operations.push((
+                "pointer".to_string(),
+                pointer_address.clone(),
+                pointer_address.clone(),
+            ));
         }
 
         for scratchpad_address in &update_list.remove.scratchpads {
-            removal_operations.push(("scratchpad".to_string(), scratchpad_address.clone(), "".to_string()));
+            removal_operations.push((
+                "scratchpad".to_string(),
+                scratchpad_address.clone(),
+                "".to_string(),
+            ));
         }
 
         // Preprocess uploads
@@ -1740,7 +1773,11 @@ impl<'a> PodManager<'a> {
             let target = target.trim();
 
             // Add pointer upload operation
-            upload_operations.push(("pointer".to_string(), address.to_string(), target.to_string()));
+            upload_operations.push((
+                "pointer".to_string(),
+                address.to_string(),
+                target.to_string(),
+            ));
 
             // Get all scratchpads for this pod
             let data = self.data_store.get_scratchpad_data(target)?;
@@ -1750,15 +1787,23 @@ impl<'a> PodManager<'a> {
             for scratchpad_address in scratchpads {
                 let scratchpad_address = scratchpad_address.trim();
                 let scratchpad_data = self.data_store.get_scratchpad_data(scratchpad_address)?;
-                upload_operations.push(("scratchpad".to_string(), scratchpad_address.to_string(), scratchpad_data.trim().to_string()));
+                upload_operations.push((
+                    "scratchpad".to_string(),
+                    scratchpad_address.to_string(),
+                    scratchpad_data.trim().to_string(),
+                ));
             }
         }
 
         // Phase 2: Execute all operations with maximum concurrency - removals and uploads simultaneously
-        info!("Executing {} removal operations and {} upload operations concurrently",
-              removal_operations.len(), upload_operations.len());
+        info!(
+            "Executing {} removal operations and {} upload operations concurrently",
+            removal_operations.len(),
+            upload_operations.len()
+        );
 
-        self.execute_all_operations_concurrent(removal_operations, upload_operations).await?;
+        self.execute_all_operations_concurrent(removal_operations, upload_operations)
+            .await?;
 
         // Clear out the update list
         self.data_store.clear_update_list()?;
@@ -1940,8 +1985,6 @@ impl<'a> PodManager<'a> {
         Ok(())
     }
 
-
-
     async fn create_pointer(&mut self, address: &str, target: &str) -> Result<String, Error> {
         let key_string = self.key_store.get_pointer_key(address.to_string())?;
         let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
@@ -2056,7 +2099,7 @@ impl<'a> PodManager<'a> {
     async fn execute_all_operations_concurrent(
         &mut self,
         removal_operations: Vec<(String, String, String)>,
-        upload_operations: Vec<(String, String, String)>
+        upload_operations: Vec<(String, String, String)>,
     ) -> Result<(), Error> {
         // Phase 1: Collect all keys and prepare data structures upfront
         let mut removal_data = Vec::new();
@@ -2130,7 +2173,10 @@ impl<'a> PodManager<'a> {
                             info!("Successfully removed pointer: {}", addr_clone);
                         }
                         Err(_) => {
-                            info!("Pointer {} not found on network, already removed", addr_clone);
+                            info!(
+                                "Pointer {} not found on network, already removed",
+                                addr_clone
+                            );
                         }
                     }
                     Ok::<(), Error>(())
@@ -2155,11 +2201,16 @@ impl<'a> PodManager<'a> {
                                     scratchpad.counter() + 1,
                                 )),
                             );
-                            client.scratchpad_put(updated_scratchpad, payment_opt).await?;
+                            client
+                                .scratchpad_put(updated_scratchpad, payment_opt)
+                                .await?;
                             info!("Successfully removed scratchpad: {}", addr_clone);
                         }
                         Err(_) => {
-                            info!("Scratchpad {} not found on network, already removed", addr_clone);
+                            info!(
+                                "Scratchpad {} not found on network, already removed",
+                                addr_clone
+                            );
                         }
                     }
                     Ok::<(), Error>(())
@@ -2188,7 +2239,8 @@ impl<'a> PodManager<'a> {
                 } else {
                     // Create new pointer
                     let target_address = ScratchpadAddress::from_hex(&target_clone)?;
-                    let pointer = Pointer::new(&key, 0, PointerTarget::ScratchpadAddress(target_address));
+                    let pointer =
+                        Pointer::new(&key, 0, PointerTarget::ScratchpadAddress(target_address));
                     client.pointer_put(pointer, payment_opt).await?;
                     debug!("Successfully created pointer: {}", addr_clone);
                 }
@@ -2223,7 +2275,9 @@ impl<'a> PodManager<'a> {
                                 existing_scratchpad.counter() + 1,
                             )),
                         );
-                        client.scratchpad_put(updated_scratchpad, payment_opt.clone()).await?;
+                        client
+                            .scratchpad_put(updated_scratchpad, payment_opt.clone())
+                            .await?;
                         debug!("Successfully updated scratchpad: {}", addr_clone);
                     }
                     Err(_) => {
@@ -2250,23 +2304,14 @@ impl<'a> PodManager<'a> {
         }
 
         // Execute ALL operations concurrently
-        info!("Executing {} total client operations concurrently", all_futures.len());
+        info!(
+            "Executing {} total client operations concurrently",
+            all_futures.len()
+        );
         try_join_all(all_futures).await?;
 
         Ok(())
     }
-
-
-
-
-
-
-
-
-
-
-
-
 
     /// Refreshes the local cache by discovering and downloading user created pods from the Autonomi network.
     ///
@@ -2373,12 +2418,16 @@ impl<'a> PodManager<'a> {
         };
         debug!("Retrieved scratchpad address: {}", target.to_hex());
 
-        // Download the configuration pod data
-        let data = self.combine_scratchpad_data(target).await?;
+        // Download the configuration pod data using concurrent approach
+        let scratchpad_operations = vec![(
+            configuration_address.to_string(),
+            *target,
+            true,
+            pointer.counter() as u64,
+        )];
+        self.execute_scratchpad_operations_concurrent(scratchpad_operations)
+            .await?;
         debug!("Retrieved scratchpad data");
-
-        // Load the configuration pod data into the graph database
-        self.load_pod_into_graph(configuration_address, data.trim())?;
 
         // Get the list of used and free pointers and scratchpads from the graph
         let mut free_pointers = self.graph.get_free_pointers(configuration_address)?;
@@ -2444,7 +2493,7 @@ impl<'a> PodManager<'a> {
 
         // Once the key store is updated, proceed with the normal refresh
 
-        // Get the list of local pointers from the key store and fetch them concurrently
+        // Get the list of local pointers from the key store and process them with maximum concurrency
         let pointer_addresses: Vec<(String, PointerAddress)> = self
             .key_store
             .get_pointers()
@@ -2462,9 +2511,28 @@ impl<'a> PodManager<'a> {
             })
             .collect();
 
-        info!("Fetching {} pointers concurrently", pointer_addresses.len());
+        info!(
+            "Processing {} pointers with maximum concurrency",
+            pointer_addresses.len()
+        );
 
-        // Create futures for all pointer fetches
+        // Execute all operations with maximum concurrency
+        self.execute_refresh_cache_concurrent(pointer_addresses)
+            .await?;
+        Ok(())
+    }
+
+    /// Execute refresh cache operations with maximum concurrency - all client operations run simultaneously
+    async fn execute_refresh_cache_concurrent(
+        &mut self,
+        pointer_addresses: Vec<(String, PointerAddress)>,
+    ) -> Result<(), Error> {
+        // Phase 1: Fetch all pointers concurrently
+        info!(
+            "Phase 1: Fetching {} pointers concurrently",
+            pointer_addresses.len()
+        );
+
         let pointer_futures: Vec<_> = pointer_addresses
             .iter()
             .map(|(address, pointer_address)| {
@@ -2478,30 +2546,28 @@ impl<'a> PodManager<'a> {
             })
             .collect();
 
-        // Execute all pointer fetches concurrently
         let pointer_results = join_all(pointer_futures).await;
 
-        // Process the results
+        // Phase 2: Collect all scratchpad operations that need to be performed
+        let mut scratchpad_operations: Vec<(String, ScratchpadAddress, bool, u64)> = Vec::new(); // (address, scratchpad_addr, pointer_exists, counter)
+
         for (address, pointer_result) in pointer_results {
             let pointer = match pointer_result {
                 Ok(pointer) => pointer,
-                Err(e) => {
-                    match e {
-                        PointerError::CannotUpdateNewPointer => {
-                            warn!("Pointer not found on network, skipping: {}", address);
-                            continue; // Skip to the next pointer
-                        }
-                        // Catch Pointer(Network(GetRecordError(RecordNotFound))) error when there is nothing on the network
-                        PointerError::GetError(GetError::RecordNotFound) => {
-                            warn!("Pointer not found on network, skipping: {}", address);
-                            continue; // Skip to the next pointer
-                        }
-                        _ => {
-                            error!("Error occurred: {:?}", e); // Log the error
-                            return Err(Error::Pointer(Box::new(e))); // Propagate the error to the higher-level function
-                        }
+                Err(e) => match e {
+                    PointerError::CannotUpdateNewPointer => {
+                        warn!("Pointer not found on network, skipping: {}", address);
+                        continue;
                     }
-                }
+                    PointerError::GetError(GetError::RecordNotFound) => {
+                        warn!("Pointer not found on network, skipping: {}", address);
+                        continue;
+                    }
+                    _ => {
+                        error!("Error occurred: {:?}", e);
+                        return Err(Error::Pointer(Box::new(e)));
+                    }
+                },
             };
 
             info!("Pointer found: {:?}", pointer);
@@ -2516,13 +2582,12 @@ impl<'a> PodManager<'a> {
                 self.data_store
                     .update_pointer_count(&address, pointer.counter())?;
             }
+
             // Check if the pointer is newer than the local cache
             let local_pointer_count = self.data_store.get_pointer_count(&address)?;
             if (pointer.counter() as u64 > local_pointer_count) || !pointer_exists {
-                info!("Pointer is newer, updating scratchpad(s)");
-                let target = pointer.target();
-                // get the scratchpad address from the pointer target
-                let target = match target {
+                info!("Pointer is newer, queuing scratchpad update");
+                let target = match pointer.target() {
                     PointerTarget::ScratchpadAddress(scratchpad_address) => scratchpad_address,
                     _ => {
                         error!("Pointer target is not a scratchpad address, skipping");
@@ -2530,110 +2595,476 @@ impl<'a> PodManager<'a> {
                     }
                 };
 
-                let data = self.combine_scratchpad_data(target).await?;
+                scratchpad_operations.push((
+                    address,
+                    *target,
+                    pointer_exists,
+                    pointer.counter() as u64,
+                ));
+            } else {
+                info!("Pointer is up to date");
+            }
+        }
 
-                // Load the newly discovered pod data into the graph database
-                info!(
-                    "Loading newly discovered pod into graph database: {}",
-                    address
-                );
-                if !data.trim().is_empty() {
-                    if let Err(e) = self.load_pod_into_graph(&address, data.trim()) {
+        // Phase 3: Execute all scratchpad operations with maximum concurrency
+        if !scratchpad_operations.is_empty() {
+            info!(
+                "Phase 3: Processing {} scratchpad operations with maximum concurrency",
+                scratchpad_operations.len()
+            );
+            self.execute_scratchpad_operations_concurrent(scratchpad_operations)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Execute scratchpad operations with maximum concurrency - all client operations run simultaneously
+    async fn execute_scratchpad_operations_concurrent(
+        &mut self,
+        scratchpad_operations: Vec<(String, ScratchpadAddress, bool, u64)>,
+    ) -> Result<(), Error> {
+        // Phase 1: Download main scratchpads concurrently to discover additional scratchpads
+        info!(
+            "Phase 1: Downloading {} main scratchpads concurrently",
+            scratchpad_operations.len()
+        );
+
+        let main_scratchpad_futures: Vec<_> = scratchpad_operations
+            .iter()
+            .map(
+                |(pod_address, scratchpad_address, _pointer_exists, _counter)| {
+                    let client = &self.client;
+                    let address = *scratchpad_address;
+                    let pod_addr = pod_address.clone();
+                    async move {
+                        match client.scratchpad_get(&address).await {
+                            Ok(scratchpad) => {
+                                let data = scratchpad.encrypted_data();
+                                let data_string = String::from_utf8(data.to_vec())?;
+                                Ok((pod_addr, address.to_hex(), data_string))
+                            }
+                            Err(e) => {
+                                info!("Main scratchpad not found on network: {}", address.to_hex());
+                                Err(Error::Scratchpad(Box::new(e)))
+                            }
+                        }
+                    }
+                },
+            )
+            .collect();
+
+        let main_results = join_all(main_scratchpad_futures).await;
+
+        // Phase 2: Collect all additional scratchpad addresses from main scratchpads
+        let mut all_scratchpad_operations: Vec<(String, ScratchpadAddress, usize)> = Vec::new(); // (pod_address, scratchpad_addr, order_index)
+        let mut pod_main_data: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+
+        for result in main_results.into_iter() {
+            match result {
+                Ok((pod_address, scratchpad_hex, data_string)) => {
+                    // Store main scratchpad data
+                    pod_main_data.insert(pod_address.clone(), data_string.clone());
+
+                    // Create scratchpad file if it doesn't exist
+                    if !self.data_store.address_is_scratchpad(&scratchpad_hex)? {
+                        info!("Scratchpad file does not exist, creating it");
+                        self.data_store.create_scratchpad_file(&scratchpad_hex)?;
+                    }
+                    self.data_store
+                        .update_scratchpad_data(&scratchpad_hex, data_string.trim())?;
+
+                    // Parse to find additional scratchpads
+                    if let Ok(scratchpads) = self
+                        .graph
+                        .get_pod_scratchpads_from_string(data_string.trim())
+                    {
+                        if scratchpads.len() > 1 {
+                            // Add additional scratchpads (skip first one which is the main one we already have)
+                            for (j, additional_address) in
+                                scratchpads.into_iter().skip(1).enumerate()
+                            {
+                                if let Ok(addr) =
+                                    ScratchpadAddress::from_hex(additional_address.trim())
+                                {
+                                    all_scratchpad_operations.push((
+                                        pod_address.clone(),
+                                        addr,
+                                        j + 1,
+                                    )); // +1 because main is index 0
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(_) => {
+                    // Skip failed main scratchpad downloads
+                    continue;
+                }
+            }
+        }
+
+        // Phase 3: Download ALL additional scratchpads concurrently
+        if !all_scratchpad_operations.is_empty() {
+            info!(
+                "Phase 3: Downloading {} additional scratchpads concurrently",
+                all_scratchpad_operations.len()
+            );
+
+            let additional_futures: Vec<_> = all_scratchpad_operations
+                .iter()
+                .map(|(pod_address, scratchpad_address, order_index)| {
+                    let client = &self.client;
+                    let address = *scratchpad_address;
+                    let pod_addr = pod_address.clone();
+                    let index = *order_index;
+                    async move {
+                        // Create scratchpad file if it doesn't exist
+                        let scratchpad_hex = address.to_hex();
+
+                        match client.scratchpad_get(&address).await {
+                            Ok(scratchpad) => {
+                                let data = scratchpad.encrypted_data();
+                                let data_string = String::from_utf8(data.to_vec())?;
+                                Ok((pod_addr, scratchpad_hex, data_string, index))
+                            }
+                            Err(e) => {
+                                info!(
+                                    "Additional scratchpad not found on network: {}",
+                                    scratchpad_hex
+                                );
+                                Err(Error::Scratchpad(Box::new(e)))
+                            }
+                        }
+                    }
+                })
+                .collect();
+
+            let additional_results = join_all(additional_futures).await;
+
+            // Phase 4: Group additional scratchpad data by pod and sort by order
+            let mut pod_additional_data: std::collections::HashMap<
+                String,
+                Vec<(usize, String, String)>,
+            > = std::collections::HashMap::new();
+
+            for result in additional_results {
+                match result {
+                    Ok((pod_address, scratchpad_hex, data_string, order_index)) => {
+                        // Create scratchpad file if it doesn't exist
+                        if !self.data_store.address_is_scratchpad(&scratchpad_hex)? {
+                            info!("Scratchpad file does not exist, creating it");
+                            self.data_store.create_scratchpad_file(&scratchpad_hex)?;
+                        }
+                        self.data_store
+                            .update_scratchpad_data(&scratchpad_hex, data_string.trim())?;
+
+                        pod_additional_data.entry(pod_address).or_default().push((
+                            order_index,
+                            scratchpad_hex,
+                            data_string,
+                        ));
+                    }
+                    Err(_) => {
+                        // Skip failed additional scratchpad downloads
+                        continue;
+                    }
+                }
+            }
+
+            // Phase 5: Combine all data for each pod in correct order
+            for (pod_address, main_data) in pod_main_data {
+                let mut combined_data = main_data;
+
+                if let Some(mut additional_data) = pod_additional_data.remove(&pod_address) {
+                    // Sort additional data by order index to preserve order
+                    additional_data.sort_by_key(|(order_index, _, _)| *order_index);
+
+                    // Append additional data in order
+                    for (_, _, data_string) in additional_data {
+                        combined_data.push_str(&data_string);
+                    }
+                }
+
+                // Load the pod data into the graph database
+                info!("Loading pod into graph database: {}", pod_address);
+                if !combined_data.trim().is_empty() {
+                    if let Err(e) = self.load_pod_into_graph(&pod_address, combined_data.trim()) {
                         warn!(
-                            "Failed to load newly discovered pod data into graph for {}: {}",
-                            address, e
+                            "Failed to load pod data into graph for {}: {}",
+                            pod_address, e
                         );
                     }
                 }
 
                 // Set the depth attribute to 0 (local pod)
-                if let Err(e) = self.update_pod_depth(&address, 0) {
-                    warn!("Failed to update pod depth for {}: {}", address, e);
+                if let Err(e) = self.update_pod_depth(&pod_address, 0) {
+                    warn!("Failed to update pod depth for {}: {}", pod_address, e);
                 }
 
-                info!("Successfully updated graph database for pod: {}", address);
-            } else {
-                info!("Pointer is up to date");
-            }
-        }
-        Ok(())
-    }
-
-    async fn combine_scratchpad_data(&self, target: &ScratchpadAddress) -> Result<String, Error> {
-        if !self
-            .data_store
-            .address_is_scratchpad(target.to_hex().as_str())?
-        {
-            info!("Scratchpad file does not exist, creating it");
-            self.data_store
-                .create_scratchpad_file(target.to_hex().as_str())?;
-        }
-        // Download the scratchpad data
-        let scratchpad = self.client.scratchpad_get(target).await?;
-        let data = scratchpad.encrypted_data();
-        let mut data_bytes = data.to_vec();
-        let mut data = String::from_utf8(data.to_vec())?;
-        self.data_store
-            .update_scratchpad_data(target.to_hex().as_str(), data.trim())?;
-
-        // Manually parse the scratchpad data and get a vector of the scratchpad addresses
-        let scratchpads = self.graph.get_pod_scratchpads_from_string(data.trim())?;
-        // If 1, load the file directly as it is a standalone TriG formatted file
-        // Else, if more than 1, download the other scratchpads
-        if scratchpads.len() > 1 {
-            // Skip the first scratchpad (already downloaded) and prepare the rest for concurrent download
-            let additional_scratchpads: Vec<String> = scratchpads.into_iter().skip(1).collect();
-
-            if !additional_scratchpads.is_empty() {
                 info!(
-                    "Downloading {} additional scratchpads concurrently",
-                    additional_scratchpads.len()
+                    "Successfully updated graph database for pod: {}",
+                    pod_address
                 );
-
-                // Create scratchpad files for those that don't exist
-                for scratchpad_address in &additional_scratchpads {
-                    if !self
-                        .data_store
-                        .address_is_scratchpad(scratchpad_address.trim())?
-                    {
-                        info!("Scratchpad file does not exist, creating it");
-                        self.data_store
-                            .create_scratchpad_file(scratchpad_address.trim())?;
+            }
+        } else {
+            // No additional scratchpads, just process main data
+            for (pod_address, main_data) in pod_main_data {
+                // Load the pod data into the graph database
+                info!("Loading pod into graph database: {}", pod_address);
+                if !main_data.trim().is_empty() {
+                    if let Err(e) = self.load_pod_into_graph(&pod_address, main_data.trim()) {
+                        warn!(
+                            "Failed to load pod data into graph for {}: {}",
+                            pod_address, e
+                        );
                     }
                 }
 
-                // Create futures for all scratchpad downloads
-                let scratchpad_futures: Vec<_> = additional_scratchpads
-                    .iter()
-                    .map(|scratchpad_address| {
-                        let client = &self.client;
-                        let address = scratchpad_address.trim().to_string();
-                        async move {
-                            let scratchpad_addr = ScratchpadAddress::from_hex(&address)?;
-                            let scratchpad = client.scratchpad_get(&scratchpad_addr).await?;
-                            let data = scratchpad.encrypted_data();
-                            let bytes = data.to_vec();
-                            let data_string = String::from_utf8(data.to_vec())?;
-                            Ok::<(String, Vec<u8>, String), Error>((address, bytes, data_string))
+                // Set the depth attribute to 0 (local pod)
+                if let Err(e) = self.update_pod_depth(&pod_address, 0) {
+                    warn!("Failed to update pod depth for {}: {}", pod_address, e);
+                }
+
+                info!(
+                    "Successfully updated graph database for pod: {}",
+                    pod_address
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Execute download scratchpad operations with maximum concurrency - all client operations run simultaneously
+    async fn execute_download_scratchpad_operations_concurrent(
+        &mut self,
+        scratchpad_operations: Vec<(String, ScratchpadAddress, bool, u64)>,
+        depth: u64,
+    ) -> Result<(), Error> {
+        // Phase 1: Download main scratchpads concurrently to discover additional scratchpads
+        info!(
+            "Phase 1: Downloading {} main scratchpads concurrently",
+            scratchpad_operations.len()
+        );
+
+        let main_scratchpad_futures: Vec<_> = scratchpad_operations
+            .iter()
+            .map(
+                |(pod_address, scratchpad_address, _pointer_exists, counter)| {
+                    let client = &self.client;
+                    let address = *scratchpad_address;
+                    let pod_addr = pod_address.clone();
+                    let pod_counter = *counter;
+                    async move {
+                        match client.scratchpad_get(&address).await {
+                            Ok(scratchpad) => {
+                                let data = scratchpad.encrypted_data();
+                                let data_string = String::from_utf8(data.to_vec())?;
+                                Ok((pod_addr, address.to_hex(), data_string, pod_counter))
+                            }
+                            Err(e) => {
+                                info!("Main scratchpad not found on network: {}", address.to_hex());
+                                Err(Error::Scratchpad(Box::new(e)))
+                            }
                         }
-                    })
-                    .collect();
+                    }
+                },
+            )
+            .collect();
 
-                // Execute all scratchpad downloads concurrently
-                let scratchpad_results = try_join_all(scratchpad_futures).await?;
+        let main_results = join_all(main_scratchpad_futures).await;
 
-                // Process the results
-                for (address, bytes, data_string) in scratchpad_results {
-                    data_bytes.extend(bytes);
+        // Phase 2: Collect all additional scratchpad addresses from main scratchpads
+        let mut all_scratchpad_operations: Vec<(String, ScratchpadAddress, usize, u64)> =
+            Vec::new(); // (pod_address, scratchpad_addr, order_index, counter)
+        let mut pod_main_data: std::collections::HashMap<String, (String, u64)> =
+            std::collections::HashMap::new();
+
+        for result in main_results.into_iter() {
+            match result {
+                Ok((pod_address, scratchpad_hex, data_string, counter)) => {
+                    // Store main scratchpad data
+                    pod_main_data.insert(pod_address.clone(), (data_string.clone(), counter));
+
+                    // Create scratchpad file if it doesn't exist
+                    if !self.data_store.address_is_scratchpad(&scratchpad_hex)? {
+                        info!("Scratchpad file does not exist, creating it");
+                        self.data_store.create_scratchpad_file(&scratchpad_hex)?;
+                    }
                     self.data_store
-                        .update_scratchpad_data(&address, data_string.trim())?;
+                        .update_scratchpad_data(&scratchpad_hex, data_string.trim())?;
+
+                    // Parse to find additional scratchpads
+                    if let Ok(scratchpads) = self
+                        .graph
+                        .get_pod_scratchpads_from_string(data_string.trim())
+                    {
+                        if scratchpads.len() > 1 {
+                            // Add additional scratchpads (skip first one which is the main one we already have)
+                            for (j, additional_address) in
+                                scratchpads.into_iter().skip(1).enumerate()
+                            {
+                                if let Ok(addr) =
+                                    ScratchpadAddress::from_hex(additional_address.trim())
+                                {
+                                    all_scratchpad_operations.push((
+                                        pod_address.clone(),
+                                        addr,
+                                        j + 1,
+                                        counter,
+                                    )); // +1 because main is index 0
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(_) => {
+                    // Skip failed main scratchpad downloads
+                    continue;
+                }
+            }
+        }
+
+        // Phase 3: Download ALL additional scratchpads concurrently
+        if !all_scratchpad_operations.is_empty() {
+            info!(
+                "Phase 3: Downloading {} additional scratchpads concurrently",
+                all_scratchpad_operations.len()
+            );
+
+            let additional_futures: Vec<_> = all_scratchpad_operations
+                .iter()
+                .map(|(pod_address, scratchpad_address, order_index, counter)| {
+                    let client = &self.client;
+                    let address = *scratchpad_address;
+                    let pod_addr = pod_address.clone();
+                    let index = *order_index;
+                    let pod_counter = *counter;
+                    async move {
+                        match client.scratchpad_get(&address).await {
+                            Ok(scratchpad) => {
+                                let data = scratchpad.encrypted_data();
+                                let data_string = String::from_utf8(data.to_vec())?;
+                                Ok((pod_addr, address.to_hex(), data_string, index, pod_counter))
+                            }
+                            Err(e) => {
+                                info!(
+                                    "Additional scratchpad not found on network: {}",
+                                    address.to_hex()
+                                );
+                                Err(Error::Scratchpad(Box::new(e)))
+                            }
+                        }
+                    }
+                })
+                .collect();
+
+            let additional_results = join_all(additional_futures).await;
+
+            // Phase 4: Group additional scratchpad data by pod and sort by order
+            let mut pod_additional_data: std::collections::HashMap<
+                String,
+                Vec<(usize, String, String)>,
+            > = std::collections::HashMap::new();
+
+            for result in additional_results {
+                match result {
+                    Ok((pod_address, scratchpad_hex, data_string, order_index, _counter)) => {
+                        // Create scratchpad file if it doesn't exist
+                        if !self.data_store.address_is_scratchpad(&scratchpad_hex)? {
+                            info!("Scratchpad file does not exist, creating it");
+                            self.data_store.create_scratchpad_file(&scratchpad_hex)?;
+                        }
+                        self.data_store
+                            .update_scratchpad_data(&scratchpad_hex, data_string.trim())?;
+
+                        pod_additional_data.entry(pod_address).or_default().push((
+                            order_index,
+                            scratchpad_hex,
+                            data_string,
+                        ));
+                    }
+                    Err(_) => {
+                        // Skip failed additional scratchpad downloads
+                        continue;
+                    }
                 }
             }
 
-            // Convert the data bytes into a string
-            data = String::from_utf8(data_bytes)?;
+            // Phase 5: Combine all data for each pod in correct order and update metadata
+            for (pod_address, (main_data, counter)) in pod_main_data {
+                let mut combined_data = main_data;
+
+                if let Some(mut additional_data) = pod_additional_data.remove(&pod_address) {
+                    // Sort additional data by order index to preserve order
+                    additional_data.sort_by_key(|(order_index, _, _)| *order_index);
+
+                    // Append additional data in order
+                    for (_, _, data_string) in additional_data {
+                        combined_data.push_str(&data_string);
+                    }
+                }
+
+                // Load the pod data into the graph database
+                info!(
+                    "Loading referenced pod into graph database: {}",
+                    pod_address
+                );
+                if !combined_data.trim().is_empty() {
+                    if let Err(e) = self.load_pod_into_graph(&pod_address, combined_data.trim()) {
+                        warn!(
+                            "Failed to load pod data into graph for {}: {}",
+                            pod_address, e
+                        );
+                    }
+                }
+
+                // Update pointer information
+                if let Err(e) = self.data_store.update_pointer_count(&pod_address, counter) {
+                    warn!("Failed to update pointer count for {}: {}", pod_address, e);
+                }
+
+                // Set the depth attribute
+                if let Err(e) = self.update_pod_depth(&pod_address, depth) {
+                    warn!("Failed to update pod depth for {}: {}", pod_address, e);
+                }
+
+                info!("Successfully downloaded referenced pod: {}", pod_address);
+            }
+        } else {
+            // No additional scratchpads, just process main data
+            for (pod_address, (main_data, counter)) in pod_main_data {
+                // Load the pod data into the graph database
+                info!(
+                    "Loading referenced pod into graph database: {}",
+                    pod_address
+                );
+                if !main_data.trim().is_empty() {
+                    if let Err(e) = self.load_pod_into_graph(&pod_address, main_data.trim()) {
+                        warn!(
+                            "Failed to load pod data into graph for {}: {}",
+                            pod_address, e
+                        );
+                    }
+                }
+
+                // Update pointer information
+                if let Err(e) = self.data_store.update_pointer_count(&pod_address, counter) {
+                    warn!("Failed to update pointer count for {}: {}", pod_address, e);
+                }
+
+                // Set the depth attribute
+                if let Err(e) = self.update_pod_depth(&pod_address, depth) {
+                    warn!("Failed to update pod depth for {}: {}", pod_address, e);
+                }
+
+                info!("Successfully downloaded referenced pod: {}", pod_address);
+            }
         }
-        Ok(data)
+
+        Ok(())
     }
 
     /// Refreshes the pod cache including referenced pods up to a specified depth.
@@ -2847,19 +3278,35 @@ impl<'a> PodManager<'a> {
         Ok(self.graph.get_pod_references(pod_address)?)
     }
 
-    // Download multiple referenced pods with concurrent network operations
+    // Download multiple referenced pods with maximum concurrent network operations
     async fn download_referenced_pods_batch(
         &mut self,
         pod_addresses: &[String],
         depth: u64,
     ) -> Result<Vec<String>, Error> {
         info!(
-            "Batch downloading {} referenced pods at depth {} with concurrent network operations",
+            "Batch downloading {} referenced pods at depth {} with maximum concurrency",
             pod_addresses.len(),
             depth
         );
 
-        // Step 1: Fetch all pointers concurrently
+        // Execute all operations with maximum concurrency
+        self.execute_download_pods_concurrent(pod_addresses, depth)
+            .await
+    }
+
+    /// Execute download operations with maximum concurrency - all client operations run simultaneously
+    async fn execute_download_pods_concurrent(
+        &mut self,
+        pod_addresses: &[String],
+        depth: u64,
+    ) -> Result<Vec<String>, Error> {
+        // Phase 1: Fetch all pointers concurrently
+        info!(
+            "Phase 1: Fetching {} pointers concurrently",
+            pod_addresses.len()
+        );
+
         let pointer_futures: Vec<_> = pod_addresses
             .iter()
             .map(|pod_address| {
@@ -2875,7 +3322,7 @@ impl<'a> PodManager<'a> {
 
         let pointer_results = try_join_all(pointer_futures).await?;
 
-        // Step 2: Process pointer results and determine which pods need downloading
+        // Phase 2: Process results and collect operations to perform
         let mut pods_to_download: Vec<(String, Pointer)> = Vec::new();
         let mut successful_downloads: Vec<String> = Vec::new();
 
@@ -2936,51 +3383,33 @@ impl<'a> PodManager<'a> {
             successful_downloads.push(pod_address);
         }
 
-        // Step 3: Download scratchpad data for pods that need it
-        for (pod_address, pointer) in pods_to_download {
-            let target = match pointer.target() {
-                PointerTarget::ScratchpadAddress(scratchpad_address) => scratchpad_address,
-                _ => {
-                    error!(
-                        "Pointer target is not a scratchpad address for pod: {}",
-                        pod_address
-                    );
-                    continue;
-                }
-            };
+        // Phase 3: Download scratchpad data for pods that need it with maximum concurrency
+        if !pods_to_download.is_empty() {
+            info!(
+                "Phase 3: Processing {} pod downloads with maximum concurrency",
+                pods_to_download.len()
+            );
 
-            // Download and process the scratchpad data
-            match self.combine_scratchpad_data(target).await {
-                Ok(data) => {
-                    // Load the downloaded pod data into the graph database
-                    if let Err(e) = self.load_pod_into_graph(&pod_address, data.trim()) {
-                        warn!("Failed to load pod {} into graph: {}", pod_address, e);
+            // Convert to scratchpad operations format
+            let mut scratchpad_operations = Vec::new();
+            for (pod_address, pointer) in pods_to_download {
+                let target = match pointer.target() {
+                    PointerTarget::ScratchpadAddress(scratchpad_address) => scratchpad_address,
+                    _ => {
+                        error!(
+                            "Pointer target is not a scratchpad address for pod: {}",
+                            pod_address
+                        );
                         continue;
                     }
+                };
 
-                    // Update pointer information
-                    if let Err(e) = self
-                        .data_store
-                        .update_pointer_target(&pod_address, pointer.target().to_hex().as_str())
-                    {
-                        warn!("Failed to update pointer target for {}: {}", pod_address, e);
-                    }
-                    if let Err(e) = self
-                        .data_store
-                        .update_pointer_count(&pod_address, pointer.counter())
-                    {
-                        warn!("Failed to update pointer count for {}: {}", pod_address, e);
-                    }
-
-                    info!("Successfully downloaded referenced pod: {}", pod_address);
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to download scratchpad data for pod {}: {}",
-                        pod_address, e
-                    );
-                }
+                scratchpad_operations.push((pod_address, *target, true, pointer.counter()));
             }
+
+            // Execute scratchpad downloads with maximum concurrency
+            self.execute_download_scratchpad_operations_concurrent(scratchpad_operations, depth)
+                .await?;
         }
 
         Ok(successful_downloads)
