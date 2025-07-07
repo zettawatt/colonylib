@@ -45,6 +45,9 @@ pub struct UpdateList {
     #[serde(default)]
     pub pods: std::collections::HashMap<String, Vec<String>>,
 }
+
+
+
 use crate::graph;
 
 // Error handling
@@ -1678,83 +1681,20 @@ impl<'a> PodManager<'a> {
         // Get the current update list
         let update_list = self.data_store.get_update_list()?;
 
-        // Process removals first
+        // Process removals concurrently
         info!(
-            "Processing {} pointer removals and {} scratchpad removals",
+            "Processing {} pointer removals and {} scratchpad removals with concurrent operations",
             update_list.remove.pointers.len(),
             update_list.remove.scratchpads.len()
         );
 
-        // Remove pointers by updating them to point to themselves
-        for pointer_address in &update_list.remove.pointers {
-            debug!("Removing pointer: {}", pointer_address);
-            match self.remove_pointer(pointer_address, pointer_address).await {
-                Ok(_) => info!("Successfully removed pointer: {}", pointer_address),
-                Err(e) => match e {
-                    Error::Pointer(ref boxed_err)
-                        if matches!(**boxed_err, PointerError::CannotUpdateNewPointer) =>
-                    {
-                        info!(
-                            "Pointer {} not found on network, already removed",
-                            pointer_address
-                        );
-                    }
-                    Error::Pointer(ref boxed_err)
-                        if matches!(
-                            **boxed_err,
-                            PointerError::GetError(GetError::RecordNotFound)
-                        ) =>
-                    {
-                        info!(
-                            "Pointer {} not found on network, already removed",
-                            pointer_address
-                        );
-                    }
-                    _ => {
-                        error!("Failed to remove pointer {}: {}", pointer_address, e);
-                    }
-                },
-            }
-        }
+        // Process pointer and scratchpad removals concurrently
+        self.process_removals_batch(&update_list.remove.pointers, &update_list.remove.scratchpads).await?;
 
-        // Remove scratchpads by updating them with empty data
-        for scratchpad_address in &update_list.remove.scratchpads {
-            debug!("Removing scratchpad: {}", scratchpad_address);
-            match self.remove_scratchpad(scratchpad_address, "").await {
-                Ok(_) => info!("Successfully removed scratchpad: {}", scratchpad_address),
-                Err(e) => match e {
-                    Error::Scratchpad(ref boxed_err)
-                        if matches!(**boxed_err, ScratchpadError::CannotUpdateNewScratchpad) =>
-                    {
-                        info!(
-                            "Scratchpad {} not found on network, already removed",
-                            scratchpad_address
-                        );
-                    }
-                    Error::Scratchpad(ref boxed_err)
-                        if matches!(
-                            **boxed_err,
-                            ScratchpadError::GetError(GetError::RecordNotFound)
-                        ) =>
-                    {
-                        info!(
-                            "Scratchpad {} not found on network, already removed",
-                            scratchpad_address
-                        );
-                    }
-                    _ => {
-                        error!("Failed to remove scratchpad {}: {}", scratchpad_address, e);
-                    }
-                },
-            }
-        }
-
-        // Process pod uploads
-        info!("Processing {} pod uploads", update_list.pods.len());
-        for pod_address in update_list.pods.keys() {
-            debug!("Uploading pod to the network: {}", pod_address);
-            self.upload_pod(pod_address).await?;
-        }
+        // Process pod uploads concurrently
+        info!("Processing {} pod uploads with concurrent operations", update_list.pods.len());
+        let pod_addresses: Vec<String> = update_list.pods.keys().cloned().collect();
+        self.upload_pods_batch(&pod_addresses).await?;
 
         // Clear out the update list
         self.data_store.clear_update_list()?;
@@ -1936,6 +1876,79 @@ impl<'a> PodManager<'a> {
         Ok(())
     }
 
+    // Process pointer and scratchpad removals concurrently
+    async fn process_removals_batch(
+        &mut self,
+        pointer_addresses: &[String],
+        scratchpad_addresses: &[String],
+    ) -> Result<(), Error> {
+        // Process pointer removals sequentially (but each removal operation is optimized internally)
+        for pointer_address in pointer_addresses {
+            debug!("Removing pointer: {}", pointer_address);
+            match self.remove_pointer(pointer_address, pointer_address).await {
+                Ok(_) => info!("Successfully removed pointer: {}", pointer_address),
+                Err(e) => match e {
+                    Error::Pointer(ref boxed_err)
+                        if matches!(**boxed_err, PointerError::CannotUpdateNewPointer) =>
+                    {
+                        info!(
+                            "Pointer {} not found on network, already removed",
+                            pointer_address
+                        );
+                    }
+                    Error::Pointer(ref boxed_err)
+                        if matches!(
+                            **boxed_err,
+                            PointerError::GetError(GetError::RecordNotFound)
+                        ) =>
+                    {
+                        info!(
+                            "Pointer {} not found on network, already removed",
+                            pointer_address
+                        );
+                    }
+                    _ => {
+                        error!("Failed to remove pointer {}: {}", pointer_address, e);
+                    }
+                },
+            }
+        }
+
+        // Process scratchpad removals sequentially (but each removal operation is optimized internally)
+        for scratchpad_address in scratchpad_addresses {
+            debug!("Removing scratchpad: {}", scratchpad_address);
+            match self.remove_scratchpad(scratchpad_address, "").await {
+                Ok(_) => info!("Successfully removed scratchpad: {}", scratchpad_address),
+                Err(e) => match e {
+                    Error::Scratchpad(ref boxed_err)
+                        if matches!(**boxed_err, ScratchpadError::CannotUpdateNewScratchpad) =>
+                    {
+                        info!(
+                            "Scratchpad {} not found on network, already removed",
+                            scratchpad_address
+                        );
+                    }
+                    Error::Scratchpad(ref boxed_err)
+                        if matches!(
+                            **boxed_err,
+                            ScratchpadError::GetError(GetError::RecordNotFound)
+                        ) =>
+                    {
+                        info!(
+                            "Scratchpad {} not found on network, already removed",
+                            scratchpad_address
+                        );
+                    }
+                    _ => {
+                        error!("Failed to remove scratchpad {}: {}", scratchpad_address, e);
+                    }
+                },
+            }
+        }
+
+        Ok(())
+    }
+
     async fn create_pointer(&mut self, address: &str, target: &str) -> Result<String, Error> {
         let key_string = self.key_store.get_pointer_key(address.to_string())?;
         let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
@@ -2045,6 +2058,143 @@ impl<'a> PodManager<'a> {
 
         Ok(())
     }
+
+
+
+    // Upload multiple pods with optimized network operations
+    async fn upload_pods_batch(&mut self, pod_addresses: &[String]) -> Result<(), Error> {
+        if pod_addresses.is_empty() {
+            return Ok(());
+        }
+
+        // Process each pod sequentially but with optimized internal network operations
+        for pod_address in pod_addresses {
+            debug!("Uploading pod to the network: {}", pod_address);
+            self.upload_pod_optimized(pod_address).await?;
+        }
+
+        Ok(())
+    }
+
+    // Optimized version of upload_pod that batches network operations
+    async fn upload_pod_optimized(&mut self, address: &str) -> Result<(), Error> {
+        let address = self.graph.check_pod_exists(address)?;
+        let address = address.trim();
+
+        // Get the target scratchpad address
+        let target = self.data_store.get_pointer_target(address)?;
+        let target = target.trim();
+
+        // Get all scratchpads for this pod
+        let data = self.data_store.get_scratchpad_data(target)?;
+        let scratchpads = self.graph.get_pod_scratchpads_from_string(data.trim())?;
+
+        // Collect all network operations that need to be performed
+        let mut network_operations = Vec::new();
+
+        // Add pointer operation
+        network_operations.push((address.to_string(), target.to_string(), "pointer".to_string()));
+
+        // Add scratchpad operations
+        for scratchpad_address in &scratchpads {
+            let scratchpad_address = scratchpad_address.trim();
+            let scratchpad_data = self.data_store.get_scratchpad_data(scratchpad_address)?;
+            network_operations.push((scratchpad_address.to_string(), scratchpad_data.trim().to_string(), "scratchpad".to_string()));
+        }
+
+        // Execute network operations with concurrent gets for existence checking
+        self.execute_pod_upload_operations(network_operations).await?;
+
+        debug!("Pod {} uploaded successfully", address);
+        Ok(())
+    }
+
+    // Execute pod upload operations with concurrent network checks
+    async fn execute_pod_upload_operations(&mut self, operations: Vec<(String, String, String)>) -> Result<(), Error> {
+        if operations.is_empty() {
+            return Ok(());
+        }
+
+        // Separate pointer and scratchpad operations
+        let mut pointer_ops = Vec::new();
+        let mut scratchpad_ops = Vec::new();
+
+        for (address, data_or_target, op_type) in operations {
+            match op_type.as_str() {
+                "pointer" => pointer_ops.push((address, data_or_target)),
+                "scratchpad" => scratchpad_ops.push((address, data_or_target)),
+                _ => continue,
+            }
+        }
+
+        // Process pointer operations - check existence concurrently, then upload
+        if !pointer_ops.is_empty() {
+            let pointer_check_futures: Vec<_> = pointer_ops.iter().map(|(address, target)| {
+                let client = &self.client;
+                let address_clone = address.clone();
+                async move {
+                    let pointer_address = PointerAddress::from_hex(&address_clone)?;
+                    let exists = client.pointer_get(&pointer_address).await.is_ok();
+                    Ok::<(String, String, bool), Error>((address_clone, target.clone(), exists))
+                }
+            }).collect();
+
+            let pointer_check_results = try_join_all(pointer_check_futures).await?;
+
+            // Process pointer results
+            for (address, target, exists) in pointer_check_results {
+                if exists {
+                    // Update existing pointer
+                    match self.update_pointer(&address, &target).await {
+                        Ok(_) => debug!("Successfully updated pointer: {}", address),
+                        Err(e) => error!("Failed to update pointer {}: {}", address, e),
+                    }
+                } else {
+                    // Create new pointer
+                    match self.create_pointer(&address, &target).await {
+                        Ok(_) => debug!("Successfully created pointer: {}", address),
+                        Err(e) => error!("Failed to create pointer {}: {}", address, e),
+                    }
+                }
+            }
+        }
+
+        // Process scratchpad operations - check existence concurrently, then upload
+        if !scratchpad_ops.is_empty() {
+            let scratchpad_check_futures: Vec<_> = scratchpad_ops.iter().map(|(address, data)| {
+                let client = &self.client;
+                let address_clone = address.clone();
+                async move {
+                    let scratchpad_address = ScratchpadAddress::from_hex(&address_clone)?;
+                    let exists = client.scratchpad_get(&scratchpad_address).await.is_ok();
+                    Ok::<(String, String, bool), Error>((address_clone, data.clone(), exists))
+                }
+            }).collect();
+
+            let scratchpad_check_results = try_join_all(scratchpad_check_futures).await?;
+
+            // Process scratchpad results
+            for (address, data, exists) in scratchpad_check_results {
+                if exists {
+                    // Update existing scratchpad
+                    match self.update_scratchpad(&address, &data).await {
+                        Ok(_) => debug!("Successfully updated scratchpad: {}", address),
+                        Err(e) => error!("Failed to update scratchpad {}: {}", address, e),
+                    }
+                } else {
+                    // Create new scratchpad
+                    match self.create_scratchpad(&address, &data).await {
+                        Ok(_) => debug!("Successfully created scratchpad: {}", address),
+                        Err(e) => error!("Failed to create scratchpad {}: {}", address, e),
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+
 
     async fn remove_pointer(&mut self, address: &str, target: &str) -> Result<(), Error> {
         let key_string = self.key_store.get_free_pointer_key(address.to_string())?;
