@@ -2886,7 +2886,10 @@ impl<'a> PodManager<'a> {
             match result {
                 Ok((pod_address, scratchpad_hex, data_string, counter)) => {
                     // Store main scratchpad data with scratchpad address
-                    pod_main_data.insert(pod_address.clone(), (data_string.clone(), counter, scratchpad_hex.clone()));
+                    pod_main_data.insert(
+                        pod_address.clone(),
+                        (data_string.clone(), counter, scratchpad_hex.clone()),
+                    );
 
                     // Create scratchpad file if it doesn't exist
                     if !self.data_store.address_is_scratchpad(&scratchpad_hex)? {
@@ -3022,7 +3025,10 @@ impl<'a> PodManager<'a> {
                 }
 
                 // Update pointer information - CRITICAL: Store the scratchpad address in pointer file
-                if let Err(e) = self.data_store.update_pointer_target(&pod_address, &main_scratchpad_hex) {
+                if let Err(e) = self
+                    .data_store
+                    .update_pointer_target(&pod_address, &main_scratchpad_hex)
+                {
                     warn!("Failed to update pointer target for {}: {}", pod_address, e);
                 }
                 if let Err(e) = self.data_store.update_pointer_count(&pod_address, counter) {
@@ -3054,7 +3060,10 @@ impl<'a> PodManager<'a> {
                 }
 
                 // Update pointer information - CRITICAL: Store the scratchpad address in pointer file
-                if let Err(e) = self.data_store.update_pointer_target(&pod_address, &main_scratchpad_hex) {
+                if let Err(e) = self
+                    .data_store
+                    .update_pointer_target(&pod_address, &main_scratchpad_hex)
+                {
                     warn!("Failed to update pointer target for {}: {}", pod_address, e);
                 }
                 if let Err(e) = self.data_store.update_pointer_count(&pod_address, counter) {
