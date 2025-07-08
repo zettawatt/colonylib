@@ -2879,14 +2879,14 @@ impl<'a> PodManager<'a> {
         // Phase 2: Collect all additional scratchpad addresses from main scratchpads
         let mut all_scratchpad_operations: Vec<(String, ScratchpadAddress, usize, u64)> =
             Vec::new(); // (pod_address, scratchpad_addr, order_index, counter)
-        let mut pod_main_data: std::collections::HashMap<String, (String, u64)> =
-            std::collections::HashMap::new();
+        let mut pod_main_data: std::collections::HashMap<String, (String, u64, String)> =
+            std::collections::HashMap::new(); // (data, counter, main_scratchpad_hex)
 
         for result in main_results.into_iter() {
             match result {
                 Ok((pod_address, scratchpad_hex, data_string, counter)) => {
-                    // Store main scratchpad data
-                    pod_main_data.insert(pod_address.clone(), (data_string.clone(), counter));
+                    // Store main scratchpad data with scratchpad address
+                    pod_main_data.insert(pod_address.clone(), (data_string.clone(), counter, scratchpad_hex.clone()));
 
                     // Create scratchpad file if it doesn't exist
                     if !self.data_store.address_is_scratchpad(&scratchpad_hex)? {
@@ -2994,7 +2994,7 @@ impl<'a> PodManager<'a> {
             }
 
             // Phase 5: Combine all data for each pod in correct order and update metadata
-            for (pod_address, (main_data, counter)) in pod_main_data {
+            for (pod_address, (main_data, counter, main_scratchpad_hex)) in pod_main_data {
                 let mut combined_data = main_data;
 
                 if let Some(mut additional_data) = pod_additional_data.remove(&pod_address) {
@@ -3021,7 +3021,10 @@ impl<'a> PodManager<'a> {
                     }
                 }
 
-                // Update pointer information
+                // Update pointer information - CRITICAL: Store the scratchpad address in pointer file
+                if let Err(e) = self.data_store.update_pointer_target(&pod_address, &main_scratchpad_hex) {
+                    warn!("Failed to update pointer target for {}: {}", pod_address, e);
+                }
                 if let Err(e) = self.data_store.update_pointer_count(&pod_address, counter) {
                     warn!("Failed to update pointer count for {}: {}", pod_address, e);
                 }
@@ -3035,7 +3038,7 @@ impl<'a> PodManager<'a> {
             }
         } else {
             // No additional scratchpads, just process main data
-            for (pod_address, (main_data, counter)) in pod_main_data {
+            for (pod_address, (main_data, counter, main_scratchpad_hex)) in pod_main_data {
                 // Load the pod data into the graph database
                 info!(
                     "Loading referenced pod into graph database: {}",
@@ -3050,7 +3053,10 @@ impl<'a> PodManager<'a> {
                     }
                 }
 
-                // Update pointer information
+                // Update pointer information - CRITICAL: Store the scratchpad address in pointer file
+                if let Err(e) = self.data_store.update_pointer_target(&pod_address, &main_scratchpad_hex) {
+                    warn!("Failed to update pointer target for {}: {}", pod_address, e);
+                }
                 if let Err(e) = self.data_store.update_pointer_count(&pod_address, counter) {
                     warn!("Failed to update pointer count for {}: {}", pod_address, e);
                 }
