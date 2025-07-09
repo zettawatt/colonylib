@@ -95,6 +95,13 @@ impl DataStore {
         })
     }
 
+    pub fn data_dir_exists() -> Result<bool, Error> {
+        let mut data_dir: PathBuf =
+            dirs::data_dir().expect("the data directory path to your OS was not found");
+        data_dir.push("colony");
+        Ok(data_dir.exists())
+    }
+
     pub fn get_pods_dir(&self) -> PathBuf {
         self.pods_dir.clone()
     }
