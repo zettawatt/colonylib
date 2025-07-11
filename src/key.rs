@@ -204,6 +204,8 @@ impl KeyStore {
 
     pub fn add_wallet_key(&mut self, name: &str, wallet_key: &str) -> Result<(), Error> {
         let wallet_key = remove_0x_prefix(wallet_key);
+        // Verify that the decoded key is a valid secret key
+        let _secret_key = SecretKey::from_hex(&wallet_key)?;
         let decoded_key = hex::decode(wallet_key)?;
         self.wallet_key
             .insert(name.to_string(), decoded_key.clone());
@@ -257,9 +259,17 @@ impl KeyStore {
         wallet_keys
             .iter()
             .map(|(k, v)| {
-                let secret_key = SecretKey::from_hex(v).unwrap();
-                let pubkey = secret_key.public_key();
-                (k.clone(), pubkey.to_hex())
+                match SecretKey::from_hex(v) {
+                    Ok(secret_key) => {
+                        let pubkey = secret_key.public_key();
+                        (k.clone(), pubkey.to_hex())
+                    }
+                    Err(e) => {
+                        warn!("Invalid wallet key for '{}': {}. Using default address.", k, e);
+                        // Return a default address (all zeros) for invalid keys
+                        (k.clone(), "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".to_string())
+                    }
+                }
             })
             .collect()
     }
