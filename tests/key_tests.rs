@@ -48,33 +48,30 @@ fn test_wallet_key_operations() {
     assert!(key_store.get_wallet_key("main").is_err());
     assert!(key_store.get_wallet_key("backup").is_err());
 
-    // Add a main wallet key
-    let main_key = "0x1234512345123451234512345123451234512345123451234512345123451234";
-    key_store.add_wallet_key("main", main_key).unwrap();
+    // Generate valid wallet keys using SecretKey::random()
+    let main_secret_key = SecretKey::random();
+    let main_key = hex::encode(main_secret_key.to_bytes());
+    key_store.add_wallet_key("main", &main_key).unwrap();
 
-    // Add a backup wallet key with 0x prefix
-    let backup_key = "0xabcdabcde12345abcde12345abcde12345abcde12345abcde12345eabcde1234";
-    key_store.add_wallet_key("backup", backup_key).unwrap();
+    // Generate another valid wallet key
+    let backup_secret_key = SecretKey::random();
+    let backup_key = hex::encode(backup_secret_key.to_bytes());
+    key_store.add_wallet_key("backup", &backup_key).unwrap();
 
-    // Retrieve the keys and verify they match (without 0x prefix)
+    // Retrieve the keys and verify they match
     let retrieved_main = key_store.get_wallet_key("main").unwrap();
-    assert_eq!(
-        retrieved_main,
-        "1234512345123451234512345123451234512345123451234512345123451234"
-    );
+    assert_eq!(retrieved_main, main_key);
 
     let retrieved_backup = key_store.get_wallet_key("backup").unwrap();
-    assert_eq!(
-        retrieved_backup,
-        "abcdabcde12345abcde12345abcde12345abcde12345abcde12345eabcde1234"
-    );
+    assert_eq!(retrieved_backup, backup_key);
 
     // Try to get a non-existent key
     assert!(key_store.get_wallet_key("nonexistent").is_err());
 
-    // Overwrite an existing key
-    let new_main_key = "1234567890123456789012345678901234567890123456789012345678901234";
-    key_store.add_wallet_key("main", new_main_key).unwrap();
+    // Overwrite an existing key with another valid key
+    let new_main_secret_key = SecretKey::random();
+    let new_main_key = hex::encode(new_main_secret_key.to_bytes());
+    key_store.add_wallet_key("main", &new_main_key).unwrap();
     let retrieved_new_main = key_store.get_wallet_key("main").unwrap();
     assert_eq!(retrieved_new_main, new_main_key);
 }
@@ -84,19 +81,14 @@ fn test_wallet_key_persistence() {
     let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     let mut key_store = KeyStore::from_mnemonic(mnemonic).unwrap();
 
-    // Add wallet keys
-    key_store
-        .add_wallet_key(
-            "main",
-            "0x1234512345123451234512345123451234512345123451234512345123451234",
-        )
-        .unwrap();
-    key_store
-        .add_wallet_key(
-            "backup",
-            "0xabcdabcde12345abcde12345abcde12345abcde12345abcde12345eabcde1234",
-        )
-        .unwrap();
+    // Add wallet keys using valid SecretKeys
+    let main_secret_key = SecretKey::random();
+    let main_key = hex::encode(main_secret_key.to_bytes());
+    key_store.add_wallet_key("main", &main_key).unwrap();
+
+    let backup_secret_key = SecretKey::random();
+    let backup_key = hex::encode(backup_secret_key.to_bytes());
+    key_store.add_wallet_key("backup", &backup_key).unwrap();
 
     // Save to file
     let password = "test_password";
@@ -108,13 +100,10 @@ fn test_wallet_key_persistence() {
     let loaded_key_store = KeyStore::from_file(&mut file, password).unwrap();
 
     // Verify wallet keys are preserved
-    assert_eq!(
-        loaded_key_store.get_wallet_key("main").unwrap(),
-        "1234512345123451234512345123451234512345123451234512345123451234"
-    );
+    assert_eq!(loaded_key_store.get_wallet_key("main").unwrap(), main_key);
     assert_eq!(
         loaded_key_store.get_wallet_key("backup").unwrap(),
-        "abcdabcde12345abcde12345abcde12345abcde12345abcde12345eabcde1234"
+        backup_key
     );
 }
 
@@ -123,45 +112,75 @@ fn test_get_wallet_addresses_comprehensive() {
     let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     let mut key_store = KeyStore::from_mnemonic(mnemonic).unwrap();
 
-    // Test with a valid private key (32 bytes = 64 hex characters)
-    let valid_key = "1234567890123456789012345678901234567890123456789012345678901234";
-    key_store.add_wallet_key("valid", valid_key).unwrap();
+    // Test with multiple valid keys
+    let key1 = SecretKey::random();
+    let key1_hex = hex::encode(key1.to_bytes());
+    key_store.add_wallet_key("key1", &key1_hex).unwrap();
 
-    // Test with an invalid key (wrong length for SecretKey but valid hex)
-    let short_key = "1234"; // Valid hex but too short for SecretKey
-    key_store.add_wallet_key("short", short_key).unwrap();
+    let key2 = SecretKey::random();
+    let key2_hex = hex::encode(key2.to_bytes());
+    key_store.add_wallet_key("key2", &key2_hex).unwrap();
 
-    // Test with an invalid key (wrong length - too long)
-    let long_key = "123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678";
-    key_store.add_wallet_key("long", long_key).unwrap();
-
-    // Test with a randomly generated valid key
-    let random_key = SecretKey::random();
-    let random_key_hex = hex::encode(random_key.to_bytes());
-    key_store.add_wallet_key("random", &random_key_hex).unwrap();
+    let key3 = SecretKey::random();
+    let key3_hex = hex::encode(key3.to_bytes());
+    key_store.add_wallet_key("key3", &key3_hex).unwrap();
 
     // Get wallet addresses - this should not panic
     let addresses = key_store.get_wallet_addresses();
 
     // Should have addresses for all keys
-    assert!(addresses.contains_key("valid"));
-    assert!(addresses.contains_key("short"));
-    assert!(addresses.contains_key("long"));
-    assert!(addresses.contains_key("random"));
+    assert!(addresses.contains_key("key1"));
+    assert!(addresses.contains_key("key2"));
+    assert!(addresses.contains_key("key3"));
 
-    // The random key should produce the expected address
-    let expected_address = random_key.public_key().to_hex();
-    assert_eq!(addresses.get("random").unwrap(), &expected_address);
+    // Each key should produce the expected address
+    let expected_address1 = key1.public_key().to_hex();
+    let expected_address2 = key2.public_key().to_hex();
+    let expected_address3 = key3.public_key().to_hex();
 
-    // Invalid keys should have the default address
-    let default_address = "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
-    assert_eq!(addresses.get("short").unwrap(), default_address);
-    assert_eq!(addresses.get("long").unwrap(), default_address);
+    assert_eq!(addresses.get("key1").unwrap(), &expected_address1);
+    assert_eq!(addresses.get("key2").unwrap(), &expected_address2);
+    assert_eq!(addresses.get("key3").unwrap(), &expected_address3);
 
-    // Valid key should have a proper address (not the default)
-    let valid_address = addresses.get("valid").unwrap();
-    assert_ne!(valid_address, default_address);
-    assert_eq!(valid_address.len(), 96); // PublicKey hex should be 96 characters (48 bytes)
+    // All addresses should be valid (96 characters for PublicKey hex)
+    assert_eq!(addresses.get("key1").unwrap().len(), 96);
+    assert_eq!(addresses.get("key2").unwrap().len(), 96);
+    assert_eq!(addresses.get("key3").unwrap().len(), 96);
+
+    // All addresses should be different
+    assert_ne!(
+        addresses.get("key1").unwrap(),
+        addresses.get("key2").unwrap()
+    );
+    assert_ne!(
+        addresses.get("key2").unwrap(),
+        addresses.get("key3").unwrap()
+    );
+    assert_ne!(
+        addresses.get("key1").unwrap(),
+        addresses.get("key3").unwrap()
+    );
+}
+
+#[test]
+fn test_add_wallet_key_validation() {
+    let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    let mut key_store = KeyStore::from_mnemonic(mnemonic).unwrap();
+
+    // Test that invalid keys are rejected
+    let invalid_key = "invalid_key";
+    assert!(key_store.add_wallet_key("invalid", invalid_key).is_err());
+
+    let short_key = "1234";
+    assert!(key_store.add_wallet_key("short", short_key).is_err());
+
+    let long_key = "123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678";
+    assert!(key_store.add_wallet_key("long", long_key).is_err());
+
+    // Test that valid keys are accepted
+    let valid_key = SecretKey::random();
+    let valid_key_hex = hex::encode(valid_key.to_bytes());
+    assert!(key_store.add_wallet_key("valid", &valid_key_hex).is_ok());
 }
 
 #[test]
