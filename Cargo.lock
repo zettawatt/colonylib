@@ -1878,7 +1878,7 @@ dependencies = [
 
 [[package]]
 name = "colonylib"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "ant-networking",
  "autonomi",
@@ -1890,12 +1890,15 @@ dependencies = [
  "dirs",
  "futures",
  "hex 0.4.3",
+ "k256",
  "oxigraph",
  "oxjsonld",
  "oxttl",
+ "rand 0.8.5",
  "ruint",
  "serde",
  "serde_json",
+ "sha3 0.10.8",
  "sn_bls_ckd",
  "sn_curv",
  "tempfile",
@@ -3721,6 +3724,7 @@ dependencies = [
  "once_cell",
  "serdect",
  "sha2 0.10.9",
+ "signature 2.2.0",
 ]
 
 [[package]]

@@ -7,6 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use cocoon::Cocoon;
 use cocoon::Error as CocoonError;
 use hex;
+use k256::ecdsa::{SigningKey, VerifyingKey};
 use serde;
 use sn_bls_ckd::derive_master_sk;
 use sn_curv::elliptic::curves::ECScalar;
@@ -29,6 +30,10 @@ pub enum Error {
     Blsttc(#[from] BlsttcError),
     #[error(transparent)]
     Hex(#[from] hex::FromHexError),
+    #[error(transparent)]
+    K256(#[from] k256::elliptic_curve::Error),
+    #[error(transparent)]
+    K256Ecdsa(#[from] k256::ecdsa::Error),
 }
 
 // Removed manual Display implementation to avoid conflict with thiserror::Error
@@ -42,6 +47,8 @@ pub enum ErrorKind {
     Bip39(String),
     Blsttc(String),
     Hex(String),
+    K256(String),
+    K256Ecdsa(String),
 }
 
 impl serde::Serialize for Error {
@@ -56,6 +63,8 @@ impl serde::Serialize for Error {
             Self::Bip39(_) => ErrorKind::Bip39(error_message),
             Self::Blsttc(_) => ErrorKind::Blsttc(error_message),
             Self::Hex(_) => ErrorKind::Hex(error_message),
+            Self::K256(_) => ErrorKind::K256(error_message),
+            Self::K256Ecdsa(_) => ErrorKind::K256Ecdsa(error_message),
         };
         error_kind.serialize(serializer)
     }
@@ -204,9 +213,17 @@ impl KeyStore {
 
     pub fn add_wallet_key(&mut self, name: &str, wallet_key: &str) -> Result<(), Error> {
         let wallet_key = remove_0x_prefix(wallet_key);
-        // Verify that the decoded key is a valid secret key
-        let _secret_key = SecretKey::from_hex(&wallet_key)?;
-        let decoded_key = hex::decode(wallet_key)?;
+        // Verify that the decoded key is a valid Ethereum private key (32 bytes)
+        let decoded_key = hex::decode(&wallet_key)?;
+        if decoded_key.len() != 32 {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Ethereum private key must be exactly 32 bytes",
+            )));
+        }
+        // Verify it's a valid secp256k1 private key
+        let _signing_key = SigningKey::from_slice(&decoded_key)?;
+
         self.wallet_key
             .insert(name.to_string(), decoded_key.clone());
         debug!(
@@ -259,15 +276,37 @@ impl KeyStore {
         wallet_keys
             .iter()
             .map(|(k, v)| {
-                match SecretKey::from_hex(v) {
-                    Ok(secret_key) => {
-                        let pubkey = secret_key.public_key();
-                        (k.clone(), pubkey.to_hex())
+                match hex::decode(v) {
+                    Ok(key_bytes) if key_bytes.len() == 32 => {
+                        match SigningKey::from_slice(&key_bytes) {
+                            Ok(signing_key) => {
+                                let verifying_key = signing_key.verifying_key();
+                                let address = ethereum_address_from_public_key(verifying_key);
+                                (k.clone(), address)
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Invalid wallet key for '{}': {}. Using default address.",
+                                    k, e
+                                );
+                                // Return a default Ethereum address (all zeros)
+                                (
+                                    k.clone(),
+                                    "0x0000000000000000000000000000000000000000".to_string(),
+                                )
+                            }
+                        }
                     }
-                    Err(e) => {
-                        warn!("Invalid wallet key for '{}': {}. Using default address.", k, e);
-                        // Return a default address (all zeros) for invalid keys
-                        (k.clone(), "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".to_string())
+                    _ => {
+                        warn!(
+                            "Invalid wallet key format for '{}'. Using default address.",
+                            k
+                        );
+                        // Return a default Ethereum address (all zeros)
+                        (
+                            k.clone(),
+                            "0x0000000000000000000000000000000000000000".to_string(),
+                        )
                     }
                 }
             })
@@ -615,4 +654,19 @@ fn index(i: u64) -> DerivationIndex {
 
 fn remove_0x_prefix(input: &str) -> String {
     input.strip_prefix("0x").unwrap_or(input).to_string()
+}
+
+fn ethereum_address_from_public_key(verifying_key: &VerifyingKey) -> String {
+    use sha3::{Digest, Keccak256};
+
+    // Get the uncompressed public key (65 bytes: 0x04 + 32 bytes x + 32 bytes y)
+    let public_key_bytes = verifying_key.to_encoded_point(false);
+    let public_key_bytes = public_key_bytes.as_bytes();
+
+    // Skip the first byte (0x04) and hash the remaining 64 bytes
+    let hash = Keccak256::digest(&public_key_bytes[1..]);
+
+    // Take the last 20 bytes and format as hex with 0x prefix
+    let address_bytes = &hash[12..];
+    format!("0x{}", hex::encode(address_bytes))
 }

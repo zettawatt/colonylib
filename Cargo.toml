@@ -1,6 +1,6 @@
 [package]
 name = "colonylib"
-version = "0.5.5"
+version = "0.5.6"
 edition = "2024"
 authors = ["Chuck McClish"]
 description = "A library implementing the Colony metadata framework on Autonomi"
@@ -26,7 +26,9 @@ cocoon = "0.4.3"
 dirs = "6.0.0"
 futures = "0.3.31"
 hex = "0.4.3"
+k256 = { version = "0.13", features = ["ecdsa"] }
 oxigraph = "0.4.11"
+sha3 = "0.10"
 oxjsonld = "0.1.0"
 oxttl = "0.1.8"
 serde = "1.0.219"
@@ -42,3 +44,4 @@ tempfile = "3.20.0"
 tokio-test = "0.4"
 ruint = "1.12.3"
 tracing-subscriber = "0.3.18"
+rand = "0.8"
