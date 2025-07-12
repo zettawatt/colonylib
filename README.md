@@ -105,6 +105,12 @@ async fn get_wallet_key(&self, name: &str) -> Result<String, Error>
 
 // Retrieve all wallet keys
 fn get_wallet_keys(&self) -> HashMap<String, String>
+
+// Set the active wallet and persist to local storage
+fn set_active_wallet(&mut self, name: &str) -> Result<(String, String), Error>
+
+// Get the currently active wallet from local storage
+fn get_active_wallet(&self) -> Result<(String, String), Error>
 ```
 
 ### Core Pod Operations

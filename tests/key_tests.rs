@@ -1,6 +1,5 @@
 use colonylib::KeyStore;
 use k256::ecdsa::SigningKey;
-use rand;
 
 #[test]
 fn test_key_store_from_mnemonic() {
@@ -196,7 +195,7 @@ fn test_get_wallet_addresses_with_random_valid_key() {
     let random_key = SigningKey::random(&mut rand::thread_rng());
     let random_key_hex = hex::encode(random_key.to_bytes());
 
-    println!("Generated random Ethereum private key: {}", random_key_hex);
+    println!("Generated random Ethereum private key: {random_key_hex}");
 
     // Add the key to the store
     key_store
@@ -210,7 +209,7 @@ fn test_get_wallet_addresses_with_random_valid_key() {
     assert!(addresses.contains_key("random_test"));
     let generated_address = addresses.get("random_test").unwrap();
 
-    println!("Generated Ethereum address: {}", generated_address);
+    println!("Generated Ethereum address: {generated_address}");
 
     // Verify it's a valid Ethereum address format
     assert_eq!(generated_address.len(), 42); // Ethereum address should be 42 characters (0x + 40 hex)
@@ -241,8 +240,8 @@ fn test_specific_ethereum_key() {
     assert!(addresses.contains_key("test_eth"));
     let eth_address = addresses.get("test_eth").unwrap();
 
-    println!("Ethereum key: {}", ethereum_key);
-    println!("Generated Ethereum address: {}", eth_address);
+    println!("Ethereum key: {ethereum_key}");
+    println!("Generated Ethereum address: {eth_address}");
 
     // Verify it's a valid Ethereum address format
     assert_eq!(eth_address.len(), 42); // 0x + 40 hex characters

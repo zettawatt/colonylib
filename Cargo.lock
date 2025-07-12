@@ -1878,7 +1878,7 @@ dependencies = [
 
 [[package]]
 name = "colonylib"
-version = "0.5.6"
+version = "0.5.7"
 dependencies = [
  "ant-networking",
  "autonomi",

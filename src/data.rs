@@ -16,6 +16,8 @@ use crate::pod::UpdateList;
 pub enum Error {
     #[error(transparent)]
     Io(#[from] IoError),
+    #[error(transparent)]
+    Serde(#[from] serde_json::Error),
 }
 
 #[derive(serde::Serialize)]
@@ -23,6 +25,7 @@ pub enum Error {
 #[serde(rename_all = "camelCase")]
 pub enum ErrorKind {
     Io(String),
+    Serde(String),
 }
 
 impl serde::Serialize for Error {
@@ -33,6 +36,7 @@ impl serde::Serialize for Error {
         let error_message = self.to_string();
         let error_kind = match self {
             Self::Io(_) => ErrorKind::Io(error_message),
+            Self::Serde(_) => ErrorKind::Serde(error_message),
         };
         error_kind.serialize(serializer)
     }
@@ -142,6 +146,31 @@ impl DataStore {
         let mut update_list_path = self.get_data_path();
         update_list_path.push("update_list.json");
         update_list_path
+    }
+
+    pub fn set_active_wallet(&self, name: &str, address: &str) -> Result<(), Error> {
+        let mut active_wallet_path = self.get_data_path();
+        active_wallet_path.push("active_wallet.json");
+        // Write out the name and address as a JSON object
+        let json_content = serde_json::json!({"name": name, "address": address});
+        write(active_wallet_path, json_content.to_string())?;
+        Ok(())
+    }
+
+    pub fn get_active_wallet(&self) -> Result<(String, String), Error> {
+        let mut active_wallet_path = self.get_data_path();
+        active_wallet_path.push("active_wallet.json");
+        if !active_wallet_path.exists() {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Active wallet file not found",
+            )));
+        }
+        let contents = read_to_string(active_wallet_path)?;
+        let json_content: serde_json::Value = serde_json::from_str(&contents)?;
+        let name = json_content["name"].as_str().unwrap_or("").to_string();
+        let address = json_content["address"].as_str().unwrap_or("").to_string();
+        Ok((name, address))
     }
 
     /// Read the current update list from JSON file, creating an empty one if it doesn't exist

@@ -3643,6 +3643,116 @@ impl<'a> PodManager<'a> {
         Ok(key)
     }
 
+    /// Sets the active wallet for the pod manager and persists it to local storage.
+    ///
+    /// This function designates a specific wallet as the active wallet for pod operations.
+    /// The active wallet information is stored both in the key store and persisted to the
+    /// `active_wallet.json` file in the local data directory for persistence across sessions.
+    /// The wallet must already exist in the key store before it can be set as active.
+    ///
+    /// # Parameters
+    ///
+    /// * `name` - The name of the wallet to set as active (must exist in the key store)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok((name, address))` containing:
+    /// - `name` - The confirmed name of the active wallet
+    /// - `address` - The Ethereum address of the active wallet
+    ///
+    /// Returns an `Error` if:
+    /// - The wallet name does not exist in the key store
+    /// - Writing to the active_wallet.json file fails
+    /// - Key store operations fail
+    ///
+    /// # Side Effects
+    ///
+    /// - Updates the active wallet state in the key store
+    /// - Creates or updates the `active_wallet.json` file in the data directory
+    /// - The active wallet persists across application restarts
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // First add a wallet key to the key store
+    /// pod_manager.add_wallet_key("main", "0x1234...").await?;
+    ///
+    /// // Set it as the active wallet
+    /// let (name, address) = pod_manager.set_active_wallet("main")?;
+    /// println!("Active wallet: {} at address {}", name, address);
+    ///
+    /// // The active wallet is now persisted and will be remembered on restart
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`get_active_wallet`] - Retrieve the current active wallet
+    /// - [`add_wallet_key`] - Add a new wallet key to the key store
+    /// - [`get_wallet_keys`] - List all available wallet keys
+    pub fn set_active_wallet(&mut self, name: &str) -> Result<(String, String), Error> {
+        let (name, address) = self.key_store.set_active_wallet(name)?;
+        self.data_store.set_active_wallet(&name, &address)?;
+        Ok((name, address))
+    }
+
+    /// Retrieves the currently active wallet from local storage.
+    ///
+    /// This function reads the active wallet information from the `active_wallet.json` file
+    /// in the local data directory. The active wallet is the wallet that was previously set
+    /// using `set_active_wallet()` and persists across application sessions.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok((name, address))` containing:
+    /// - `name` - The name of the active wallet
+    /// - `address` - The Ethereum address of the active wallet
+    ///
+    /// Returns an `Error` if:
+    /// - The `active_wallet.json` file does not exist (no active wallet has been set)
+    /// - The file cannot be read due to permissions or I/O errors
+    /// - The file contains invalid JSON or is corrupted
+    /// - Required fields (name or address) are missing from the JSON
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # async fn example(pod_manager: &mut PodManager<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    /// // Check if there's an active wallet
+    /// match pod_manager.get_active_wallet() {
+    ///     Ok((name, address)) => {
+    ///         println!("Current active wallet: {} at address {}", name, address);
+    ///     }
+    ///     Err(_) => {
+    ///         println!("No active wallet set. Use set_active_wallet() to set one.");
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # File Format
+    ///
+    /// The `active_wallet.json` file contains:
+    /// ```json
+    /// {
+    ///   "name": "wallet_name",
+    ///   "address": "0x1234567890abcdef..."
+    /// }
+    /// ```
+    ///
+    /// # Related Functions
+    ///
+    /// - [`set_active_wallet`] - Set a wallet as the active wallet
+    /// - [`add_wallet_key`] - Add a new wallet key to the key store
+    /// - [`get_wallet_keys`] - List all available wallet keys
+    pub fn get_active_wallet(&self) -> Result<(String, String), Error> {
+        let (name, address) = self.data_store.get_active_wallet()?;
+        Ok((name, address))
+    }
+
     /// Retrieves all wallet keys from the key store.
     ///
     /// # Returns

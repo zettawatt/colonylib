@@ -1,4 +1,5 @@
 mod common;
+use colonylib::DataStore;
 use common::create_test_components;
 
 #[test]
@@ -639,4 +640,85 @@ async fn test_pod_manager_browse_search() {
 
     println!("Browse search test completed successfully!");
     println!("Found {} subjects in browse results", bindings.len());
+}
+
+// Test active wallet functionality using KeyStore and DataStore directly
+#[test]
+fn test_keystore_datastore_active_wallet_integration() {
+    let (data_store, mut key_store, _graph, _temp_dir) = create_test_components();
+
+    let wallet_name = "test_wallet";
+    let wallet_key = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+
+    // Add a wallet key to the key store
+    key_store.add_wallet_key(wallet_name, wallet_key).unwrap();
+
+    // Set it as active using key store
+    let (returned_name, returned_address) = key_store.set_active_wallet(wallet_name).unwrap();
+
+    // Persist to data store
+    data_store
+        .set_active_wallet(&returned_name, &returned_address)
+        .unwrap();
+
+    // Verify we can retrieve it from data store
+    let (get_name, get_address) = data_store.get_active_wallet().unwrap();
+
+    assert_eq!(get_name, returned_name);
+    assert_eq!(get_address, returned_address);
+    assert_eq!(get_name, wallet_name);
+    assert!(!get_address.is_empty());
+    assert!(get_address.starts_with("0x"));
+}
+
+#[test]
+fn test_keystore_active_wallet_nonexistent() {
+    let (_data_store, mut key_store, _graph, _temp_dir) = create_test_components();
+
+    // Try to set a wallet that doesn't exist
+    let result = key_store.set_active_wallet("nonexistent_wallet");
+    assert!(result.is_err());
+
+    let error = result.unwrap_err();
+    assert!(error.to_string().contains("not found"));
+}
+
+#[test]
+fn test_datastore_active_wallet_not_set() {
+    let (data_store, _key_store, _graph, _temp_dir) = create_test_components();
+
+    // Try to get active wallet when none is set
+    let result = data_store.get_active_wallet();
+    assert!(result.is_err());
+
+    let error = result.unwrap_err();
+    assert!(error.to_string().contains("Active wallet file not found"));
+}
+
+#[test]
+fn test_active_wallet_persistence_across_instances() {
+    let (data_store, mut key_store, _graph, temp_dir) = create_test_components();
+
+    let wallet_name = "persistent_wallet";
+    let wallet_key = "0xfeedbeeffeedbeeffeedbeeffeedbeeffeedbeeffeedbeeffeedbeeffeedbeef";
+
+    // Add and set active wallet
+    key_store.add_wallet_key(wallet_name, wallet_key).unwrap();
+    let (set_name, set_address) = key_store.set_active_wallet(wallet_name).unwrap();
+    data_store
+        .set_active_wallet(&set_name, &set_address)
+        .unwrap();
+
+    // Create a new DataStore instance with the same directory
+    let data_dir = temp_dir.path().join("data");
+    let pods_dir = temp_dir.path().join("pods");
+    let downloads_dir = temp_dir.path().join("downloads");
+
+    let new_data_store = DataStore::from_paths(data_dir, pods_dir, downloads_dir).unwrap();
+
+    // The active wallet should persist
+    let (get_name, get_address) = new_data_store.get_active_wallet().unwrap();
+
+    assert_eq!(get_name, set_name);
+    assert_eq!(get_address, set_address);
 }

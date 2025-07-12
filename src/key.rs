@@ -268,47 +268,69 @@ impl KeyStore {
             .collect()
     }
 
+    pub fn set_active_wallet(&mut self, name: &str) -> Result<(String, String), Error> {
+        if !self.wallet_key.contains_key(name) {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Wallet key '{name}' not found"),
+            )));
+        }
+        let active_wallet = name;
+        let active_wallet_address = self.get_wallet_address(name)?;
+        debug!("Active wallet set to '{}'", name);
+        Ok((active_wallet.to_string(), active_wallet_address))
+    }
+
+    pub fn get_wallet_address(&self, name: &str) -> Result<String, Error> {
+        match self.wallet_key.get(name) {
+            Some(key_bytes) => {
+                if key_bytes.len() == 32 {
+                    match SigningKey::from_slice(key_bytes) {
+                        Ok(signing_key) => {
+                            let verifying_key = signing_key.verifying_key();
+                            let address = ethereum_address_from_public_key(verifying_key);
+                            debug!("Wallet address for '{}': {}", name, address);
+                            Ok(address)
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Invalid wallet key for '{}': {}. Using default address.",
+                                name, e
+                            );
+                            // Return a default Ethereum address (all zeros)
+                            Ok("0x0000000000000000000000000000000000000000".to_string())
+                        }
+                    }
+                } else {
+                    warn!(
+                        "Invalid wallet key length for '{}' (expected 32 bytes, got {}). Using default address.",
+                        name,
+                        key_bytes.len()
+                    );
+                    // Return a default Ethereum address (all zeros)
+                    Ok("0x0000000000000000000000000000000000000000".to_string())
+                }
+            }
+            None => Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Wallet key '{name}' not found"),
+            ))),
+        }
+    }
+
     pub fn get_wallet_addresses(&self) -> HashMap<String, String> {
         // Get the list of wallet keys
         let wallet_keys = self.get_wallet_keys();
 
         // Return the list of wallet addresses by deriving them from the wallet keys
         wallet_keys
-            .iter()
-            .map(|(k, v)| {
-                match hex::decode(v) {
-                    Ok(key_bytes) if key_bytes.len() == 32 => {
-                        match SigningKey::from_slice(&key_bytes) {
-                            Ok(signing_key) => {
-                                let verifying_key = signing_key.verifying_key();
-                                let address = ethereum_address_from_public_key(verifying_key);
-                                (k.clone(), address)
-                            }
-                            Err(e) => {
-                                warn!(
-                                    "Invalid wallet key for '{}': {}. Using default address.",
-                                    k, e
-                                );
-                                // Return a default Ethereum address (all zeros)
-                                (
-                                    k.clone(),
-                                    "0x0000000000000000000000000000000000000000".to_string(),
-                                )
-                            }
-                        }
-                    }
-                    _ => {
-                        warn!(
-                            "Invalid wallet key format for '{}'. Using default address.",
-                            k
-                        );
-                        // Return a default Ethereum address (all zeros)
-                        (
-                            k.clone(),
-                            "0x0000000000000000000000000000000000000000".to_string(),
-                        )
-                    }
-                }
+            .keys()
+            .map(|k| {
+                // Derive the Ethereum address from the wallet key
+                let address = self
+                    .get_wallet_address(k.as_str())
+                    .unwrap_or_else(|_| "0x0000000000000000000000000000000000000000".to_string());
+                (k.clone(), address)
             })
             .collect()
     }
