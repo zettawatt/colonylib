@@ -828,7 +828,12 @@ impl<'a> PodManager<'a> {
 
             // Add the modified date to the new scratchpad
             let date = Utc::now().to_rfc3339();
-            self.graph.put_quad(&scratchpad_iri, graph::HAS_MODIFIED_DATE, &date, Some(&pod_iri))?;
+            self.graph.put_quad(
+                &scratchpad_iri,
+                graph::HAS_MODIFIED_DATE,
+                &date,
+                Some(&pod_iri),
+            )?;
 
             // Update the key count
             let num_keys = self.key_store.get_num_keys();

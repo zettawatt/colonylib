@@ -404,9 +404,8 @@ impl Graph {
         let scratchpad_iri = scratchpad_iri.as_str();
 
         // Remove the depth object if it already exists in the configuration graph
-        let update = format!(
-            "DELETE WHERE {{ GRAPH <{pod_iri}> {{ <{scratchpad_iri}> ?p ?o . }} }}"
-        );
+        let update =
+            format!("DELETE WHERE {{ GRAPH <{pod_iri}> {{ <{scratchpad_iri}> ?p ?o . }} }}");
         debug!("Delete unused scratchpad from pod string: {}", update);
         self.store.update(update.as_str())?;
 
