@@ -1811,7 +1811,7 @@ dependencies = [
 
 [[package]]
 name = "colonylib"
-version = "0.5.8"
+version = "0.5.10"
 dependencies = [
  "autonomi",
  "bip39",
