@@ -1066,6 +1066,61 @@ impl<'a> PodManager<'a> {
         chunks
     }
 
+    /// Selects the newest scratchpad from a vector of scratchpads based on timestamp comments.
+    ///
+    /// This function reads the encrypted data from each scratchpad, looks for a timestamp comment
+    /// in the first line (format: #<RFC3339_timestamp>), and returns the scratchpad with the
+    /// latest timestamp. If only one scratchpad has a timestamp, it's assumed to be the newest.
+    /// If none have timestamps, the first scratchpad in the vector is returned.
+    ///
+    /// # Parameters
+    ///
+    /// * `scratchpads` - Vector of scratchpads to compare
+    ///
+    /// # Returns
+    ///
+    /// Returns the scratchpad with the latest timestamp, or the first one if no timestamps are found.
+    fn select_newest_scratchpad(scratchpads: Vec<Scratchpad>) -> Scratchpad {
+        if scratchpads.is_empty() {
+            panic!("Cannot select from empty scratchpads vector");
+        }
+
+        if scratchpads.len() == 1 {
+            return scratchpads[0].clone();
+        }
+
+        let mut newest_scratchpad = &scratchpads[0];
+        let mut newest_timestamp: Option<chrono::DateTime<chrono::Utc>> = None;
+
+        for scratchpad in &scratchpads {
+            // Extract the encrypted data and convert to string
+            let data = scratchpad.encrypted_data();
+            if let Ok(data_string) = String::from_utf8(data.to_vec()) {
+                // Check if the first line is a timestamp comment
+                if let Some(first_line) = data_string.lines().next() {
+                    if first_line.starts_with('#') && first_line.len() > 1 {
+                        let timestamp_str = &first_line[1..]; // Remove the '#' prefix
+
+                        // Try to parse the timestamp
+                        if let Ok(timestamp) = chrono::DateTime::parse_from_rfc3339(timestamp_str) {
+                            let utc_timestamp = timestamp.with_timezone(&chrono::Utc);
+
+                            // Check if this is the newest timestamp so far
+                            if newest_timestamp.is_none() || utc_timestamp > newest_timestamp.unwrap() {
+                                newest_timestamp = Some(utc_timestamp);
+                                newest_scratchpad = scratchpad;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If we found at least one timestamp, return the newest one
+        // If no timestamps were found, return the first scratchpad
+        newest_scratchpad.clone()
+    }
+
     ///////////////////////////////////////////
     // Local data operations
     ///////////////////////////////////////////
@@ -2100,7 +2155,7 @@ impl<'a> PodManager<'a> {
             Err(e) => {
                 match e {
                     ScratchpadError::Fork(scratchpads) => {
-                        scratchpads[0].clone()
+                        Self::select_newest_scratchpad(scratchpads)
                     }
                     _ => return Err(Error::Scratchpad(Box::new(e))),
                 }
@@ -2247,7 +2302,7 @@ impl<'a> PodManager<'a> {
                         Err(e) => {
                             match e {
                                 ScratchpadError::Fork(scratchpads) => {
-                                    let scratchpad = scratchpads[0].clone();
+                                    let scratchpad = Self::select_newest_scratchpad(scratchpads);
                                     // Create updated scratchpad with empty data (removal)
                                     let bytes = Bytes::from("".as_bytes().to_vec());
                                     let updated_scratchpad = Scratchpad::new_with_signature(
@@ -2346,7 +2401,7 @@ impl<'a> PodManager<'a> {
                     Err(e) => {
                         match e {
                             ScratchpadError::Fork(scratchpads) => {
-                                let existing_scratchpad = scratchpads[0].clone();
+                                let existing_scratchpad = Self::select_newest_scratchpad(scratchpads);
                                 // Update existing scratchpad
                                 let updated_scratchpad = Scratchpad::new_with_signature(
                                     key.clone().public_key(),
@@ -2734,7 +2789,7 @@ impl<'a> PodManager<'a> {
                             Err(e) => {
                                 match e {
                                     ScratchpadError::Fork(scratchpads) => {
-                                        let scratchpad = scratchpads[0].clone();
+                                        let scratchpad = Self::select_newest_scratchpad(scratchpads);
                                         let data = scratchpad.encrypted_data();
                                         let data_string = String::from_utf8(data.to_vec())?;
                                         Ok((pod_addr, address.to_hex(), data_string))
@@ -2829,7 +2884,7 @@ impl<'a> PodManager<'a> {
                             Err(e) => {
                                 match e {
                                     ScratchpadError::Fork(scratchpads) => {
-                                        let scratchpad = scratchpads[0].clone();
+                                        let scratchpad = Self::select_newest_scratchpad(scratchpads);
                                         let data = scratchpad.encrypted_data();
                                         let data_string = String::from_utf8(data.to_vec())?;
                                         Ok((pod_addr, scratchpad_hex, data_string, index))
@@ -2974,7 +3029,7 @@ impl<'a> PodManager<'a> {
                             Err(e) => {
                                 match e {
                                     ScratchpadError::Fork(scratchpads) => {
-                                        let scratchpad = scratchpads[0].clone();
+                                        let scratchpad = Self::select_newest_scratchpad(scratchpads);
                                         let data = scratchpad.encrypted_data();
                                         let data_string = String::from_utf8(data.to_vec())?;
                                         Ok((pod_addr, address.to_hex(), data_string, pod_counter))
@@ -3072,7 +3127,7 @@ impl<'a> PodManager<'a> {
                             Err(e) => {
                                 match e {
                                     ScratchpadError::Fork(scratchpads) => {
-                                        let scratchpad = scratchpads[0].clone();
+                                        let scratchpad = Self::select_newest_scratchpad(scratchpads);
                                         let data = scratchpad.encrypted_data();
                                         let data_string = String::from_utf8(data.to_vec())?;
                                         Ok((pod_addr, address.to_hex(), data_string, index, pod_counter))
