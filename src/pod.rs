@@ -8,6 +8,7 @@ use autonomi::{AddressParseError, Bytes, Chunk, Client, SecretKey, Wallet};
 use alloc::string::FromUtf8Error;
 use autonomi::client::analyze::{Analysis, AnalysisError};
 use blsttc::Error as BlsttcError;
+use chrono::Utc;
 use futures::future::{join_all, try_join_all};
 use serde::{Deserialize, Serialize};
 use serde_json::{Error as SerdeError, Value};
@@ -825,6 +826,10 @@ impl<'a> PodManager<'a> {
             self.graph
                 .put_quad(&scratchpad_iri, graph::HAS_INDEX, &index, Some(&pod_iri))?;
 
+            // Add the modified date to the new scratchpad
+            let date = Utc::now().to_rfc3339();
+            self.graph.put_quad(&scratchpad_iri, graph::HAS_MODIFIED_DATE, &date, Some(&pod_iri))?;
+
             // Update the key count
             let num_keys = self.key_store.get_num_keys();
             self.graph.update_key_count(pod_address, num_keys)?;
@@ -887,6 +892,9 @@ impl<'a> PodManager<'a> {
         let mut current_statement: Vec<&str> = Vec::new();
 
         // Group lines into statements (subject + continuation lines)
+        // FIXME: this works for the current library, but should probably make this more robust at some point to check
+        // for proper TriG syntax, i.e. look for a ';' at the end of the previous line to know the following statment
+        // is a continuation of the previous statement
         for line in lines {
             if line.trim().is_empty() {
                 // Empty line - add to current statement if it exists, otherwise skip
