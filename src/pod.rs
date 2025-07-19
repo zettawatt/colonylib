@@ -1029,7 +1029,8 @@ impl<'a> PodManager<'a> {
                 let line_str = line; // Use the line without the newline we added
                 let line_bytes = line_str.as_bytes();
                 for chunk_start in (0..line_bytes.len()).step_by(effective_chunk_size) {
-                    let chunk_end = std::cmp::min(chunk_start + effective_chunk_size, line_bytes.len());
+                    let chunk_end =
+                        std::cmp::min(chunk_start + effective_chunk_size, line_bytes.len());
                     let chunk_bytes = &line_bytes[chunk_start..chunk_end];
                     if let Ok(chunk_str) = std::str::from_utf8(chunk_bytes) {
                         // Only add newline to the last chunk of this line
@@ -1057,10 +1058,10 @@ impl<'a> PodManager<'a> {
 
         // Add timestamp comment to the beginning of each chunk
         let timestamp = chrono::Utc::now().to_rfc3339();
-        let timestamp_comment = format!("#{}\n", timestamp);
+        let timestamp_comment = format!("#{timestamp}\n");
 
         for chunk in chunks.iter_mut() {
-            *chunk = format!("{}{}", timestamp_comment, chunk);
+            *chunk = format!("{timestamp_comment}{chunk}");
         }
 
         chunks
@@ -1106,7 +1107,9 @@ impl<'a> PodManager<'a> {
                             let utc_timestamp = timestamp.with_timezone(&chrono::Utc);
 
                             // Check if this is the newest timestamp so far
-                            if newest_timestamp.is_none() || utc_timestamp > newest_timestamp.unwrap() {
+                            if newest_timestamp.is_none()
+                                || utc_timestamp > newest_timestamp.unwrap()
+                            {
                                 newest_timestamp = Some(utc_timestamp);
                                 newest_scratchpad = scratchpad;
                             }
@@ -2152,14 +2155,10 @@ impl<'a> PodManager<'a> {
         let scratchpad_address = ScratchpadAddress::from_hex(address)?; // Lookup the key for the pod pointer from the key store
         let scratchpad = match self.client.scratchpad_get(&scratchpad_address).await {
             Ok(scratchpad) => scratchpad,
-            Err(e) => {
-                match e {
-                    ScratchpadError::Fork(scratchpads) => {
-                        Self::select_newest_scratchpad(scratchpads)
-                    }
-                    _ => return Err(Error::Scratchpad(Box::new(e))),
-                }
-            }
+            Err(e) => match e {
+                ScratchpadError::Fork(scratchpads) => Self::select_newest_scratchpad(scratchpads),
+                _ => return Err(Error::Scratchpad(Box::new(e))),
+            },
         };
 
         // Update the scratchpad contents and its counter
@@ -2401,7 +2400,8 @@ impl<'a> PodManager<'a> {
                     Err(e) => {
                         match e {
                             ScratchpadError::Fork(scratchpads) => {
-                                let existing_scratchpad = Self::select_newest_scratchpad(scratchpads);
+                                let existing_scratchpad =
+                                    Self::select_newest_scratchpad(scratchpads);
                                 // Update existing scratchpad
                                 let updated_scratchpad = Scratchpad::new_with_signature(
                                     key.clone().public_key(),
@@ -2786,20 +2786,21 @@ impl<'a> PodManager<'a> {
                                 let data_string = String::from_utf8(data.to_vec())?;
                                 Ok((pod_addr, address.to_hex(), data_string))
                             }
-                            Err(e) => {
-                                match e {
-                                    ScratchpadError::Fork(scratchpads) => {
-                                        let scratchpad = Self::select_newest_scratchpad(scratchpads);
-                                        let data = scratchpad.encrypted_data();
-                                        let data_string = String::from_utf8(data.to_vec())?;
-                                        Ok((pod_addr, address.to_hex(), data_string))
-                                    }
-                                    _ => {
-                                        info!("Main scratchpad not found on network: {}", address.to_hex());
-                                        Err(Error::Scratchpad(Box::new(e)))
-                                    }
+                            Err(e) => match e {
+                                ScratchpadError::Fork(scratchpads) => {
+                                    let scratchpad = Self::select_newest_scratchpad(scratchpads);
+                                    let data = scratchpad.encrypted_data();
+                                    let data_string = String::from_utf8(data.to_vec())?;
+                                    Ok((pod_addr, address.to_hex(), data_string))
                                 }
-                            }
+                                _ => {
+                                    info!(
+                                        "Main scratchpad not found on network: {}",
+                                        address.to_hex()
+                                    );
+                                    Err(Error::Scratchpad(Box::new(e)))
+                                }
+                            },
                         }
                     }
                 },
@@ -2881,23 +2882,21 @@ impl<'a> PodManager<'a> {
                                 let data_string = String::from_utf8(data.to_vec())?;
                                 Ok((pod_addr, scratchpad_hex, data_string, index))
                             }
-                            Err(e) => {
-                                match e {
-                                    ScratchpadError::Fork(scratchpads) => {
-                                        let scratchpad = Self::select_newest_scratchpad(scratchpads);
-                                        let data = scratchpad.encrypted_data();
-                                        let data_string = String::from_utf8(data.to_vec())?;
-                                        Ok((pod_addr, scratchpad_hex, data_string, index))
-                                    }
-                                    _ => {
-                                        info!(
-                                            "Additional scratchpad not found on network: {}",
-                                            scratchpad_hex
-                                        );
-                                        Err(Error::Scratchpad(Box::new(e)))
-                                    }
+                            Err(e) => match e {
+                                ScratchpadError::Fork(scratchpads) => {
+                                    let scratchpad = Self::select_newest_scratchpad(scratchpads);
+                                    let data = scratchpad.encrypted_data();
+                                    let data_string = String::from_utf8(data.to_vec())?;
+                                    Ok((pod_addr, scratchpad_hex, data_string, index))
                                 }
-                            }
+                                _ => {
+                                    info!(
+                                        "Additional scratchpad not found on network: {}",
+                                        scratchpad_hex
+                                    );
+                                    Err(Error::Scratchpad(Box::new(e)))
+                                }
+                            },
                         }
                     }
                 })
@@ -3026,20 +3025,21 @@ impl<'a> PodManager<'a> {
                                 let data_string = String::from_utf8(data.to_vec())?;
                                 Ok((pod_addr, address.to_hex(), data_string, pod_counter))
                             }
-                            Err(e) => {
-                                match e {
-                                    ScratchpadError::Fork(scratchpads) => {
-                                        let scratchpad = Self::select_newest_scratchpad(scratchpads);
-                                        let data = scratchpad.encrypted_data();
-                                        let data_string = String::from_utf8(data.to_vec())?;
-                                        Ok((pod_addr, address.to_hex(), data_string, pod_counter))
-                                    }
-                                    _ => {
-                                        info!("Main scratchpad not found on network: {}", address.to_hex());
-                                        Err(Error::Scratchpad(Box::new(e)))
-                                    }
+                            Err(e) => match e {
+                                ScratchpadError::Fork(scratchpads) => {
+                                    let scratchpad = Self::select_newest_scratchpad(scratchpads);
+                                    let data = scratchpad.encrypted_data();
+                                    let data_string = String::from_utf8(data.to_vec())?;
+                                    Ok((pod_addr, address.to_hex(), data_string, pod_counter))
                                 }
-                            }
+                                _ => {
+                                    info!(
+                                        "Main scratchpad not found on network: {}",
+                                        address.to_hex()
+                                    );
+                                    Err(Error::Scratchpad(Box::new(e)))
+                                }
+                            },
                         }
                     }
                 },
@@ -3124,23 +3124,27 @@ impl<'a> PodManager<'a> {
                                 let data_string = String::from_utf8(data.to_vec())?;
                                 Ok((pod_addr, address.to_hex(), data_string, index, pod_counter))
                             }
-                            Err(e) => {
-                                match e {
-                                    ScratchpadError::Fork(scratchpads) => {
-                                        let scratchpad = Self::select_newest_scratchpad(scratchpads);
-                                        let data = scratchpad.encrypted_data();
-                                        let data_string = String::from_utf8(data.to_vec())?;
-                                        Ok((pod_addr, address.to_hex(), data_string, index, pod_counter))
-                                    }
-                                    _ => {
-                                        info!(
-                                            "Additional scratchpad not found on network: {}",
-                                            address.to_hex()
-                                        );
-                                        Err(Error::Scratchpad(Box::new(e)))
-                                    }
+                            Err(e) => match e {
+                                ScratchpadError::Fork(scratchpads) => {
+                                    let scratchpad = Self::select_newest_scratchpad(scratchpads);
+                                    let data = scratchpad.encrypted_data();
+                                    let data_string = String::from_utf8(data.to_vec())?;
+                                    Ok((
+                                        pod_addr,
+                                        address.to_hex(),
+                                        data_string,
+                                        index,
+                                        pod_counter,
+                                    ))
                                 }
-                            }
+                                _ => {
+                                    info!(
+                                        "Additional scratchpad not found on network: {}",
+                                        address.to_hex()
+                                    );
+                                    Err(Error::Scratchpad(Box::new(e)))
+                                }
+                            },
                         }
                     }
                 })

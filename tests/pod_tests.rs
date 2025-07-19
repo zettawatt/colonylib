@@ -518,8 +518,7 @@ fn test_data_splitting_helper_functions() {
     for (i, chunk) in chunks.iter().enumerate() {
         assert!(
             chunk.starts_with('#'),
-            "Chunk {} should start with timestamp comment",
-            i
+            "Chunk {i} should start with timestamp comment"
         );
         // Verify the timestamp comment format (should be <= 37 bytes: '#' + RFC3339 + '\n')
         let lines: Vec<&str> = chunk.lines().collect();
@@ -530,7 +529,7 @@ fn test_data_splitting_helper_functions() {
                 "First line should be timestamp comment"
             );
             assert!(
-                timestamp_line.len() + 1 <= 37, // +1 for the newline
+                timestamp_line.len() < 37, // +1 for the newline
                 "Timestamp comment should be at most 37 bytes including newline, got {}",
                 timestamp_line.len() + 1
             );
@@ -581,8 +580,7 @@ fn test_data_splitting_helper_functions() {
         );
         assert!(
             chunk.starts_with('#'),
-            "Large line chunk {} should start with timestamp comment",
-            i
+            "Large line chunk {i} should start with timestamp comment"
         );
     }
 
