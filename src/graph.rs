@@ -225,6 +225,7 @@ impl Graph {
         // Scratchpad metadata
         let _quad = self.put_quad(scratchpad_iri, HAS_ADDR_TYPE, DATA, Some(configuration_iri))?;
         let _quad = self.put_quad(scratchpad_iri, HAS_INDEX, "0", Some(pod_iri))?;
+        let _quad = self.put_quad(scratchpad_iri, HAS_MODIFIED_DATE, date, Some(pod_iri))?;
 
         //FIXME: only need to do this the first time the configuration graph is created. Future optimization
         let _quad = self.put_quad(
@@ -237,6 +238,12 @@ impl Graph {
             configuration_scratchpad_iri,
             HAS_ADDR_TYPE,
             DATA,
+            Some(configuration_iri),
+        )?;
+        let _quad = self.put_quad(
+            configuration_scratchpad_iri,
+            HAS_MODIFIED_DATE,
+            date,
             Some(configuration_iri),
         )?;
         let _quad = self.put_quad(
@@ -532,7 +539,7 @@ impl Graph {
 
         // Update modified date
         let delete_query = format!(
-            "DELETE WHERE {{ GRAPH <{pod_iri}> {{ <{pod_iri}> <{HAS_MODIFIED_DATE}> ?date . }} }}"
+            "DELETE WHERE {{ GRAPH <{pod_iri}> {{ ?subject <{HAS_MODIFIED_DATE}> ?date . }} }}"
         );
         debug!("Delete existing modified date query: {}", delete_query);
         self.store.update(delete_query.as_str())?;
@@ -540,6 +547,14 @@ impl Graph {
         let date = Utc::now().to_rfc3339();
         let date = date.as_str();
         let _quad = self.put_quad(pod_iri, HAS_MODIFIED_DATE, date, Some(pod_iri))?;
+
+        // Update all of the scratchpads within the pod to have the same modified date
+        let scratchpads = self.get_pod_scratchpads(pod_address)?;
+        for scratchpad in scratchpads {
+            let scratchpad_iri = format!("ant://{scratchpad}");
+            let scratchpad_iri = scratchpad_iri.as_str();
+            let _quad = self.put_quad(scratchpad_iri, HAS_MODIFIED_DATE, date, Some(pod_iri))?;
+        }
 
         // Dump newly created graph in TriG format
         let mut buffer = Vec::new();
