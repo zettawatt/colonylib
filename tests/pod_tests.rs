@@ -514,12 +514,51 @@ fn test_data_splitting_helper_functions() {
         );
     }
 
-    // Verify that all data is preserved when chunks are concatenated
-    let reconstructed = chunks.join("");
+    // Verify that each chunk starts with a timestamp comment
+    for (i, chunk) in chunks.iter().enumerate() {
+        assert!(
+            chunk.starts_with('#'),
+            "Chunk {} should start with timestamp comment",
+            i
+        );
+        // Verify the timestamp comment format (should be <= 37 bytes: '#' + RFC3339 + '\n')
+        let lines: Vec<&str> = chunk.lines().collect();
+        if !lines.is_empty() {
+            let timestamp_line = lines[0];
+            assert!(
+                timestamp_line.starts_with('#'),
+                "First line should be timestamp comment"
+            );
+            assert!(
+                timestamp_line.len() + 1 <= 37, // +1 for the newline
+                "Timestamp comment should be at most 37 bytes including newline, got {}",
+                timestamp_line.len() + 1
+            );
+        }
+    }
+
+    // Verify that original data is preserved when chunks are concatenated (after removing timestamp comments)
+    let reconstructed_without_timestamps: String = chunks
+        .iter()
+        .map(|chunk| {
+            // Remove the first line (timestamp comment) from each chunk
+            let lines: Vec<&str> = chunk.lines().collect();
+            if lines.len() > 1 {
+                lines[1..].join("\n") + "\n"
+            } else if lines.len() == 1 && !lines[0].starts_with('#') {
+                // Handle case where chunk only contains data (no timestamp)
+                chunk.clone()
+            } else {
+                // Chunk only contains timestamp comment
+                String::new()
+            }
+        })
+        .collect();
+
     assert_eq!(
-        reconstructed.trim(),
+        reconstructed_without_timestamps.trim(),
         test_data_for_chunking.trim(),
-        "Reconstructed data should match original"
+        "Reconstructed data (without timestamps) should match original"
     );
 
     // Test with very large single line
@@ -532,13 +571,20 @@ fn test_data_splitting_helper_functions() {
         "Should split large line into multiple chunks"
     );
 
-    // Verify total size is preserved (accounting for the newline that gets added)
-    let total_size: usize = chunks_large.iter().map(|c| c.len()).sum();
-    let expected_size = large_line.len() + 1; // +1 for the newline that gets added
-    assert_eq!(
-        total_size, expected_size,
-        "Total size should be preserved (with newline)"
-    );
+    // Verify each chunk has timestamp comment and doesn't exceed size limit
+    for (i, chunk) in chunks_large.iter().enumerate() {
+        assert!(
+            chunk.len() <= chunk_size,
+            "Chunk {} exceeds size limit: {} bytes",
+            i,
+            chunk.len()
+        );
+        assert!(
+            chunk.starts_with('#'),
+            "Large line chunk {} should start with timestamp comment",
+            i
+        );
+    }
 
     println!("Data splitting helper functions test completed successfully!");
     println!("Created {} chunks from test data", chunks.len());

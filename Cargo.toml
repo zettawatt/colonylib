@@ -16,7 +16,8 @@ opt-level = 0
 incremental = true
 
 [dependencies]
-autonomi = "0.5.1"
+#autonomi = "0.5.1"
+autonomi = { git = "https://github.com/grumbach/autonomi.git", branch = "user_side_scratch_fork_resolution" }
 bip39 = { version = "2.1.0", features = ["rand"] }
 blsttc = "8.0.2"
 borsh = {version = "1.5.7", features = ["derive", "borsh-derive"]}

@@ -978,19 +978,26 @@ impl<'a> PodManager<'a> {
     /// Splits data into chunks that fit within the scratchpad size limit.
     ///
     /// This function intelligently splits the data while trying to preserve line boundaries
-    /// when possible. It ensures that no chunk exceeds the specified size limit.
+    /// when possible. It ensures that no chunk exceeds the specified size limit. Each chunk
+    /// starts with a timestamp comment in the format '#<timestamp>\n' (37 bytes total).
     ///
     /// # Parameters
     ///
     /// * `data` - The data to split
-    /// * `chunk_size` - Maximum size for each chunk in bytes
+    /// * `chunk_size` - Maximum size for each chunk in bytes (includes the 37-byte timestamp comment)
     ///
     /// # Returns
     ///
-    /// Returns a vector of string chunks, each within the size limit.
+    /// Returns a vector of string chunks, each within the size limit and starting with a timestamp comment.
     pub fn split_data_into_chunks(&self, data: &str, chunk_size: usize) -> Vec<String> {
         let mut chunks = Vec::new();
         let mut current_chunk = String::new();
+
+        // Reserve bytes for the timestamp comment: '#' + RFC3339 timestamp + '\n'
+        // RFC3339 format can be up to 35 characters (e.g., "2024-01-15T10:30:45.123456789+00:00")
+        // Plus '#' (1 char) and '\n' (1 char) = 37 bytes total
+        const TIMESTAMP_COMMENT_SIZE: usize = 37;
+        let effective_chunk_size = chunk_size.saturating_sub(TIMESTAMP_COMMENT_SIZE);
 
         // Handle the case where data doesn't end with newline
         let data_with_newline = if data.ends_with('\n') {
@@ -1002,16 +1009,16 @@ impl<'a> PodManager<'a> {
         for line in data_with_newline.lines() {
             let line_with_newline = format!("{line}\n");
 
-            // If adding this line would exceed the chunk size, start a new chunk
+            // If adding this line would exceed the effective chunk size, start a new chunk
             if !current_chunk.is_empty()
-                && current_chunk.len() + line_with_newline.len() > chunk_size
+                && current_chunk.len() + line_with_newline.len() > effective_chunk_size
             {
                 chunks.push(current_chunk.clone());
                 current_chunk.clear();
             }
 
-            // If a single line is larger than chunk_size, we need to split it
-            if line_with_newline.len() > chunk_size {
+            // If a single line is larger than effective_chunk_size, we need to split it
+            if line_with_newline.len() > effective_chunk_size {
                 // Add any existing chunk first
                 if !current_chunk.is_empty() {
                     chunks.push(current_chunk.clone());
@@ -1021,8 +1028,8 @@ impl<'a> PodManager<'a> {
                 // Split the large line into smaller pieces (without adding extra newlines)
                 let line_str = line; // Use the line without the newline we added
                 let line_bytes = line_str.as_bytes();
-                for chunk_start in (0..line_bytes.len()).step_by(chunk_size) {
-                    let chunk_end = std::cmp::min(chunk_start + chunk_size, line_bytes.len());
+                for chunk_start in (0..line_bytes.len()).step_by(effective_chunk_size) {
+                    let chunk_end = std::cmp::min(chunk_start + effective_chunk_size, line_bytes.len());
                     let chunk_bytes = &line_bytes[chunk_start..chunk_end];
                     if let Ok(chunk_str) = std::str::from_utf8(chunk_bytes) {
                         // Only add newline to the last chunk of this line
@@ -1046,6 +1053,14 @@ impl<'a> PodManager<'a> {
         // Ensure we always have at least one chunk (even if empty)
         if chunks.is_empty() {
             chunks.push(String::new());
+        }
+
+        // Add timestamp comment to the beginning of each chunk
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        let timestamp_comment = format!("#{}\n", timestamp);
+
+        for chunk in chunks.iter_mut() {
+            *chunk = format!("{}{}", timestamp_comment, chunk);
         }
 
         chunks
@@ -2080,7 +2095,17 @@ impl<'a> PodManager<'a> {
 
         // get the scratchpad to make sure it exists and to get the current counter value
         let scratchpad_address = ScratchpadAddress::from_hex(address)?; // Lookup the key for the pod pointer from the key store
-        let scratchpad = self.client.scratchpad_get(&scratchpad_address).await?;
+        let scratchpad = match self.client.scratchpad_get(&scratchpad_address).await {
+            Ok(scratchpad) => scratchpad,
+            Err(e) => {
+                match e {
+                    ScratchpadError::Fork(scratchpads) => {
+                        scratchpads[0].clone()
+                    }
+                    _ => return Err(Error::Scratchpad(Box::new(e))),
+                }
+            }
+        };
 
         // Update the scratchpad contents and its counter
         let scratchpad = Scratchpad::new_with_signature(
@@ -2219,11 +2244,36 @@ impl<'a> PodManager<'a> {
                                 .await?;
                             info!("Successfully removed scratchpad: {}", addr_clone);
                         }
-                        Err(_) => {
-                            info!(
-                                "Scratchpad {} not found on network, already removed",
-                                addr_clone
-                            );
+                        Err(e) => {
+                            match e {
+                                ScratchpadError::Fork(scratchpads) => {
+                                    let scratchpad = scratchpads[0].clone();
+                                    // Create updated scratchpad with empty data (removal)
+                                    let bytes = Bytes::from("".as_bytes().to_vec());
+                                    let updated_scratchpad = Scratchpad::new_with_signature(
+                                        key.clone().public_key(),
+                                        0,
+                                        bytes.clone(),
+                                        scratchpad.counter() + 1,
+                                        key.sign(Scratchpad::bytes_for_signature(
+                                            scratchpad_address,
+                                            0,
+                                            &bytes,
+                                            scratchpad.counter() + 1,
+                                        )),
+                                    );
+                                    client
+                                        .scratchpad_put(updated_scratchpad, payment_opt)
+                                        .await?;
+                                    info!("Successfully removed scratchpad: {}", addr_clone);
+                                }
+                                _ => {
+                                    info!(
+                                        "Scratchpad {} not found on network, already removed",
+                                        addr_clone
+                                    );
+                                }
+                            }
                         }
                     }
                     Ok::<(), Error>(())
@@ -2293,22 +2343,46 @@ impl<'a> PodManager<'a> {
                             .await?;
                         debug!("Successfully updated scratchpad: {}", addr_clone);
                     }
-                    Err(_) => {
-                        // Create new scratchpad
-                        let new_scratchpad = Scratchpad::new_with_signature(
-                            key.clone().public_key(),
-                            0,
-                            bytes.clone(),
-                            0,
-                            key.sign(Scratchpad::bytes_for_signature(
-                                scratchpad_address,
-                                0,
-                                &bytes,
-                                0,
-                            )),
-                        );
-                        client.scratchpad_put(new_scratchpad, payment_opt).await?;
-                        debug!("Successfully created scratchpad: {}", addr_clone);
+                    Err(e) => {
+                        match e {
+                            ScratchpadError::Fork(scratchpads) => {
+                                let existing_scratchpad = scratchpads[0].clone();
+                                // Update existing scratchpad
+                                let updated_scratchpad = Scratchpad::new_with_signature(
+                                    key.clone().public_key(),
+                                    0,
+                                    bytes.clone(),
+                                    existing_scratchpad.counter() + 1,
+                                    key.sign(Scratchpad::bytes_for_signature(
+                                        scratchpad_address,
+                                        0,
+                                        &bytes,
+                                        existing_scratchpad.counter() + 1,
+                                    )),
+                                );
+                                client
+                                    .scratchpad_put(updated_scratchpad, payment_opt.clone())
+                                    .await?;
+                                debug!("Successfully updated scratchpad: {}", addr_clone);
+                            }
+                            _ => {
+                                // Create new scratchpad
+                                let new_scratchpad = Scratchpad::new_with_signature(
+                                    key.clone().public_key(),
+                                    0,
+                                    bytes.clone(),
+                                    0,
+                                    key.sign(Scratchpad::bytes_for_signature(
+                                        scratchpad_address,
+                                        0,
+                                        &bytes,
+                                        0,
+                                    )),
+                                );
+                                client.scratchpad_put(new_scratchpad, payment_opt).await?;
+                                debug!("Successfully created scratchpad: {}", addr_clone);
+                            }
+                        }
                     }
                 }
                 Ok::<(), Error>(())
@@ -2658,8 +2732,18 @@ impl<'a> PodManager<'a> {
                                 Ok((pod_addr, address.to_hex(), data_string))
                             }
                             Err(e) => {
-                                info!("Main scratchpad not found on network: {}", address.to_hex());
-                                Err(Error::Scratchpad(Box::new(e)))
+                                match e {
+                                    ScratchpadError::Fork(scratchpads) => {
+                                        let scratchpad = scratchpads[0].clone();
+                                        let data = scratchpad.encrypted_data();
+                                        let data_string = String::from_utf8(data.to_vec())?;
+                                        Ok((pod_addr, address.to_hex(), data_string))
+                                    }
+                                    _ => {
+                                        info!("Main scratchpad not found on network: {}", address.to_hex());
+                                        Err(Error::Scratchpad(Box::new(e)))
+                                    }
+                                }
                             }
                         }
                     }
@@ -2743,11 +2827,21 @@ impl<'a> PodManager<'a> {
                                 Ok((pod_addr, scratchpad_hex, data_string, index))
                             }
                             Err(e) => {
-                                info!(
-                                    "Additional scratchpad not found on network: {}",
-                                    scratchpad_hex
-                                );
-                                Err(Error::Scratchpad(Box::new(e)))
+                                match e {
+                                    ScratchpadError::Fork(scratchpads) => {
+                                        let scratchpad = scratchpads[0].clone();
+                                        let data = scratchpad.encrypted_data();
+                                        let data_string = String::from_utf8(data.to_vec())?;
+                                        Ok((pod_addr, scratchpad_hex, data_string, index))
+                                    }
+                                    _ => {
+                                        info!(
+                                            "Additional scratchpad not found on network: {}",
+                                            scratchpad_hex
+                                        );
+                                        Err(Error::Scratchpad(Box::new(e)))
+                                    }
+                                }
                             }
                         }
                     }
@@ -2878,8 +2972,18 @@ impl<'a> PodManager<'a> {
                                 Ok((pod_addr, address.to_hex(), data_string, pod_counter))
                             }
                             Err(e) => {
-                                info!("Main scratchpad not found on network: {}", address.to_hex());
-                                Err(Error::Scratchpad(Box::new(e)))
+                                match e {
+                                    ScratchpadError::Fork(scratchpads) => {
+                                        let scratchpad = scratchpads[0].clone();
+                                        let data = scratchpad.encrypted_data();
+                                        let data_string = String::from_utf8(data.to_vec())?;
+                                        Ok((pod_addr, address.to_hex(), data_string, pod_counter))
+                                    }
+                                    _ => {
+                                        info!("Main scratchpad not found on network: {}", address.to_hex());
+                                        Err(Error::Scratchpad(Box::new(e)))
+                                    }
+                                }
                             }
                         }
                     }
@@ -2966,11 +3070,21 @@ impl<'a> PodManager<'a> {
                                 Ok((pod_addr, address.to_hex(), data_string, index, pod_counter))
                             }
                             Err(e) => {
-                                info!(
-                                    "Additional scratchpad not found on network: {}",
-                                    address.to_hex()
-                                );
-                                Err(Error::Scratchpad(Box::new(e)))
+                                match e {
+                                    ScratchpadError::Fork(scratchpads) => {
+                                        let scratchpad = scratchpads[0].clone();
+                                        let data = scratchpad.encrypted_data();
+                                        let data_string = String::from_utf8(data.to_vec())?;
+                                        Ok((pod_addr, address.to_hex(), data_string, index, pod_counter))
+                                    }
+                                    _ => {
+                                        info!(
+                                            "Additional scratchpad not found on network: {}",
+                                            address.to_hex()
+                                        );
+                                        Err(Error::Scratchpad(Box::new(e)))
+                                    }
+                                }
                             }
                         }
                     }

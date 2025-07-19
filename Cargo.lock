@@ -792,8 +792,7 @@ dependencies = [
 [[package]]
 name = "ant-bootstrap"
 version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd1f5ed73fee411204ba0e5e39535ac4b89ead50c9d2d400d635e9abccbd7a5a"
+source = "git+https://github.com/grumbach/autonomi.git?branch=user_side_scratch_fork_resolution#690056f8a693cc9f6a644d5300464535f1d3ca85"
 dependencies = [
  "ant-logging",
  "ant-protocol",
@@ -815,8 +814,7 @@ dependencies = [
 [[package]]
 name = "ant-build-info"
 version = "0.1.29"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b6954a9d1c42c19ff90fd59ace0e89e966b06d901d45a5a7f0e66a37b083e2b"
+source = "git+https://github.com/grumbach/autonomi.git?branch=user_side_scratch_fork_resolution#690056f8a693cc9f6a644d5300464535f1d3ca85"
 dependencies = [
  "chrono",
  "tracing",
@@ -826,8 +824,7 @@ dependencies = [
 [[package]]
 name = "ant-evm"
 version = "0.1.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2fe607c062ec9bd656a88acb7eeb5ef952b59f35b808bdfa82a3c80e6ad26bb"
+source = "git+https://github.com/grumbach/autonomi.git?branch=user_side_scratch_fork_resolution#690056f8a693cc9f6a644d5300464535f1d3ca85"
 dependencies = [
  "custom_debug",
  "evmlib",
@@ -848,8 +845,7 @@ dependencies = [
 [[package]]
 name = "ant-logging"
 version = "0.2.51"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80628b556de5dc3f842e1da49d246393f172053a90392e30343fc92ef480746d"
+source = "git+https://github.com/grumbach/autonomi.git?branch=user_side_scratch_fork_resolution#690056f8a693cc9f6a644d5300464535f1d3ca85"
 dependencies = [
  "chrono",
  "dirs-next",
@@ -866,8 +862,7 @@ dependencies = [
 [[package]]
 name = "ant-protocol"
 version = "1.0.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07352d2914813e71f501dfb9d537d35afb4ca65243079d293d93ae06f6e83552"
+source = "git+https://github.com/grumbach/autonomi.git?branch=user_side_scratch_fork_resolution#690056f8a693cc9f6a644d5300464535f1d3ca85"
 dependencies = [
  "ant-build-info",
  "ant-evm",
@@ -1220,8 +1215,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "autonomi"
 version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ea7fe69d8af95f0feeb7cb2f46d1ec65d8d2b96240bab2106e130c10f49696f"
+source = "git+https://github.com/grumbach/autonomi.git?branch=user_side_scratch_fork_resolution#690056f8a693cc9f6a644d5300464535f1d3ca85"
 dependencies = [
  "ant-bootstrap",
  "ant-evm",
@@ -2562,8 +2556,7 @@ dependencies = [
 [[package]]
 name = "evmlib"
 version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49f12d59ec24964fdec7c5a7a9a7439044a4e11d0f886c71d72d448fc2791605"
+source = "git+https://github.com/grumbach/autonomi.git?branch=user_side_scratch_fork_resolution#690056f8a693cc9f6a644d5300464535f1d3ca85"
 dependencies = [
  "alloy",
  "dirs-next",
