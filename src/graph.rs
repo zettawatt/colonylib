@@ -418,6 +418,7 @@ impl Graph {
         pod_ref_address: &str,
         configuration_address: &str,
         add: bool,
+        is_local: bool,
     ) -> Result<(Vec<u8>, Vec<u8>), Error> {
         let pod_ref_iri = format!("ant://{pod_ref_address}");
         let pod_ref_iri = pod_ref_iri.as_str();
@@ -443,7 +444,8 @@ impl Graph {
 
         if add {
             // Enter in pod ref quad
-            let _quad = self.put_quad(pod_ref_iri, HAS_DEPTH, "1", Some(configuration_iri))?;
+            let depth = if is_local { "0" } else { "1" };
+            let _quad = self.put_quad(pod_ref_iri, HAS_DEPTH, depth, Some(configuration_iri))?;
             let _quad = self.put_quad(pod_ref_iri, HAS_ADDR_TYPE, POD_REF, Some(pod_iri))?;
             debug!("Pod ref {} added to pod {}", pod_ref_address, pod_address);
         } else {
@@ -451,6 +453,12 @@ impl Graph {
                 "Pod ref {} removed from pod {}",
                 pod_ref_address, pod_address
             );
+        }
+
+        // If the pod is local, update the depth of the pod ref to 0 and add the type as a POD
+        if is_local {
+            let _quad = self.put_quad(pod_ref_iri, HAS_ADDR_TYPE, POD, Some(configuration_iri))?;
+            debug!("Pod ref {} set as local pod", pod_ref_address);
         }
 
         // Update the modified date in the configuration pod

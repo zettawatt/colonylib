@@ -1458,10 +1458,17 @@ impl<'a> PodManager<'a> {
         let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
 
+        // Check if the pod reference address is to a local pod
+        let is_local = self.data_store.address_is_pointer(pod_ref_address)?;
+
         // Add the pointer address to the graph
-        let (graph, configuration) =
-            self.graph
-                .pod_ref_entry(pod_address, pod_ref_address, configuration_address, true)?;
+        let (graph, configuration) = self.graph.pod_ref_entry(
+            pod_address,
+            pod_ref_address,
+            configuration_address,
+            true,
+            is_local,
+        )?;
 
         // Process the pod data with proper scratchpad management
         self.process_pod_data(pod_address, graph).await?;
@@ -1527,10 +1534,17 @@ impl<'a> PodManager<'a> {
         let configuration_address = self.key_store.get_configuration_address()?;
         let configuration_address = configuration_address.as_str();
 
+        // Check if the pod reference address is to a local pod
+        let is_local = self.data_store.address_is_pointer(pod_ref_address)?;
+
         // Remove the pointer address to the graph
-        let (graph, configuration) =
-            self.graph
-                .pod_ref_entry(pod_address, pod_ref_address, configuration_address, false)?;
+        let (graph, configuration) = self.graph.pod_ref_entry(
+            pod_address,
+            pod_ref_address,
+            configuration_address,
+            false,
+            is_local,
+        )?;
 
         // Process the pod data with proper scratchpad management
         self.process_pod_data(pod_address, graph).await?;

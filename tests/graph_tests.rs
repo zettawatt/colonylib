@@ -529,10 +529,10 @@ fn test_get_pod_references_with_add_ref() {
 
     // Add pod references
     graph
-        .pod_ref_entry(pod_address, ref_pod1, configuration_address, true)
+        .pod_ref_entry(pod_address, ref_pod1, configuration_address, true, false)
         .unwrap();
     graph
-        .pod_ref_entry(pod_address, ref_pod2, configuration_address, true)
+        .pod_ref_entry(pod_address, ref_pod2, configuration_address, true, false)
         .unwrap();
 
     // Test getting pod references
