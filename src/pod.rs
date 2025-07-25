@@ -2552,16 +2552,18 @@ impl<'a> PodManager<'a> {
         };
 
         debug!("Retrieved pointer. Update count: {}", pointer.counter());
+        // FIXME: should look into a 'force' or 'override' argument to force a cache update if something is busted on the network
+        // For now while the network is flakey, just always refresh because pointers fail, scratchpads fail, everything fails
         // Check if the pointer counter is newer than the local cache. If the pointer is older, we are done.
         // The MAX condition is the special case where the pointer file is not found and we always want to refresh
-        let local_pointer_count = self
-            .data_store
-            .get_pointer_count(configuration_address)
-            .unwrap_or(u64::MAX);
-        if pointer.counter() as u64 <= local_pointer_count && local_pointer_count != u64::MAX {
-            info!("Local pods are up to date, skipping refresh");
-            return Ok(());
-        }
+        // let local_pointer_count = self
+        //     .data_store
+        //     .get_pointer_count(configuration_address)
+        //     .unwrap_or(u64::MAX);
+        // if pointer.counter() as u64 <= local_pointer_count && local_pointer_count != u64::MAX {
+        //     info!("Local pods are up to date, skipping refresh");
+        //     return Ok(());
+        // }
 
         // Check the configuration pod target
         let target = pointer.target();
@@ -2585,12 +2587,23 @@ impl<'a> PodManager<'a> {
             .await?;
         debug!("Retrieved scratchpad data");
 
+        // Update the configuration local pointer count value after the scratchpads are fetched
+        self.data_store
+            .update_pointer_count(configuration_address, pointer.counter())?;
+
+        // When the configuration pointer fails to fetch, the file gets corrupted, so we need to update the target as well
+        self.data_store
+            .update_pointer_target(configuration_address, target.to_hex().as_str())?;
+
         // Get the list of used and free pointers and scratchpads from the graph
         let mut free_pointers = self.graph.get_free_pointers(configuration_address)?;
         let mut free_scratchpads = self.graph.get_free_scratchpads(configuration_address)?;
         let pointers = self.graph.get_pointers(configuration_address)?;
         let scratchpads = self.graph.get_scratchpads(configuration_address)?;
-        let key_count = self.graph.get_key_count(configuration_address)?;
+        // FIXME: should just remove this get_key_count() function because it tends to get corrupted. Use the
+        // actual lists to determine the key count
+        //let key_count = self.graph.get_key_count(configuration_address)?;
+        let key_count = (free_pointers.len() + free_scratchpads.len() + pointers.len() + scratchpads.len()) as u64;
 
         // Check if the update_list pods section contains any of the free pointers or scratchpads
         // If so, remove them from the free pointers and scratchpads lists
