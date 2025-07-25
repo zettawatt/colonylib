@@ -2603,7 +2603,9 @@ impl<'a> PodManager<'a> {
         // FIXME: should just remove this get_key_count() function because it tends to get corrupted. Use the
         // actual lists to determine the key count
         //let key_count = self.graph.get_key_count(configuration_address)?;
-        let key_count = (free_pointers.len() + free_scratchpads.len() + pointers.len() + scratchpads.len()) as u64;
+        let key_count =
+            (free_pointers.len() + free_scratchpads.len() + pointers.len() + scratchpads.len())
+                as u64;
 
         // Check if the update_list pods section contains any of the free pointers or scratchpads
         // If so, remove them from the free pointers and scratchpads lists
