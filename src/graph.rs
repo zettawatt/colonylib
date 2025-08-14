@@ -712,11 +712,11 @@ impl Graph {
         let results = self.store.query(query.as_str())?;
         if let QueryResults::Solutions(solutions) = results {
             for solution in solutions.flatten() {
-                if let Some(oxigraph::model::Term::Literal(literal)) = solution.get("depth") {
-                    if let Ok(depth_value) = literal.value().parse::<u64>() {
-                        debug!("Found depth {} for pod {}", depth_value, pod_address);
-                        return Ok(depth_value);
-                    }
+                if let Some(oxigraph::model::Term::Literal(literal)) = solution.get("depth")
+                    && let Ok(depth_value) = literal.value().parse::<u64>()
+                {
+                    debug!("Found depth {} for pod {}", depth_value, pod_address);
+                    return Ok(depth_value);
                 }
             }
         }
@@ -800,11 +800,11 @@ impl Graph {
         let results = self.store.query(query.as_str())?;
         if let QueryResults::Solutions(solutions) = results {
             for solution in solutions.flatten() {
-                if let Some(oxigraph::model::Term::Literal(literal)) = solution.get("max_depth") {
-                    if let Ok(max_depth_value) = literal.value().parse::<u64>() {
-                        debug!("Max pod depth found: {}", max_depth_value);
-                        return Ok(max_depth_value);
-                    }
+                if let Some(oxigraph::model::Term::Literal(literal)) = solution.get("max_depth")
+                    && let Ok(max_depth_value) = literal.value().parse::<u64>()
+                {
+                    debug!("Max pod depth found: {}", max_depth_value);
+                    return Ok(max_depth_value);
                 }
             }
         }
@@ -1006,11 +1006,11 @@ impl Graph {
         let results = self.store.query(query.as_str())?;
         if let QueryResults::Solutions(solutions) = results {
             for solution in solutions.flatten() {
-                if let Some(oxigraph::model::Term::Literal(literal)) = solution.get("count") {
-                    if let Ok(count_value) = literal.value().parse::<u64>() {
-                        debug!("Found key count {} for pod {}", count_value, pod_address);
-                        return Ok(count_value);
-                    }
+                if let Some(oxigraph::model::Term::Literal(literal)) = solution.get("count")
+                    && let Ok(count_value) = literal.value().parse::<u64>()
+                {
+                    debug!("Found key count {} for pod {}", count_value, pod_address);
+                    return Ok(count_value);
                 }
             }
         }
@@ -1410,42 +1410,42 @@ impl Graph {
         let mut filters = Vec::new();
 
         // Handle text search
-        if let Some(text) = criteria.get("text").and_then(|v| v.as_str()) {
-            if !text.is_empty() {
-                where_clauses.push("?subject ?predicate ?object .".to_string());
-                filters.push(format!(
-                    "FILTER(isLiteral(?object) && CONTAINS(LCASE(STR(?object)), LCASE(\"{}\")))",
-                    text.replace("\"", "\\\"")
-                ));
-            }
+        if let Some(text) = criteria.get("text").and_then(|v| v.as_str())
+            && !text.is_empty()
+        {
+            where_clauses.push("?subject ?predicate ?object .".to_string());
+            filters.push(format!(
+                "FILTER(isLiteral(?object) && CONTAINS(LCASE(STR(?object)), LCASE(\"{}\")))",
+                text.replace("\"", "\\\"")
+            ));
         }
 
         // Handle type filter
-        if let Some(type_uri) = criteria.get("type").and_then(|v| v.as_str()) {
-            if !type_uri.is_empty() {
-                where_clauses.push(format!(
-                    "?subject <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <{type_uri}> ."
-                ));
-            }
+        if let Some(type_uri) = criteria.get("type").and_then(|v| v.as_str())
+            && !type_uri.is_empty()
+        {
+            where_clauses.push(format!(
+                "?subject <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <{type_uri}> ."
+            ));
         }
 
         // Handle predicate filter
-        if let Some(predicate) = criteria.get("predicate").and_then(|v| v.as_str()) {
-            if !predicate.is_empty() {
-                where_clauses.push(format!("?subject <{predicate}> ?object ."));
-            }
+        if let Some(predicate) = criteria.get("predicate").and_then(|v| v.as_str())
+            && !predicate.is_empty()
+        {
+            where_clauses.push(format!("?subject <{predicate}> ?object ."));
         }
 
         // Handle pod filter (specific graph)
-        if let Some(pod_address) = criteria.get("pod").and_then(|v| v.as_str()) {
-            if !pod_address.is_empty() {
-                let _pod_iri = if pod_address.starts_with("ant://") {
-                    pod_address.to_string()
-                } else {
-                    format!("ant://{pod_address}")
-                };
-                // This will be used in the GRAPH clause
-            }
+        if let Some(pod_address) = criteria.get("pod").and_then(|v| v.as_str())
+            && !pod_address.is_empty()
+        {
+            let _pod_iri = if pod_address.starts_with("ant://") {
+                pod_address.to_string()
+            } else {
+                format!("ant://{pod_address}")
+            };
+            // This will be used in the GRAPH clause
         }
 
         // Default to basic search if no criteria
@@ -1507,13 +1507,11 @@ impl Graph {
                 {
                     let scratchpad_iri = scratchpad_node.as_str();
                     // Extract the address from the ant:// URI
-                    if let Some(address) = scratchpad_iri.strip_prefix("ant://") {
-                        if let Some(oxigraph::model::Term::Literal(literal)) = solution.get("index")
-                        {
-                            if let Ok(index) = literal.value().parse::<u64>() {
-                                triples.insert(index, address.to_string());
-                            }
-                        }
+                    if let Some(address) = scratchpad_iri.strip_prefix("ant://")
+                        && let Some(oxigraph::model::Term::Literal(literal)) = solution.get("index")
+                        && let Ok(index) = literal.value().parse::<u64>()
+                    {
+                        triples.insert(index, address.to_string());
                     }
                 }
             }
@@ -1554,12 +1552,11 @@ impl Graph {
 
             if triple.predicate == HAS_INDEX {
                 // Convert the triple.object into a u64
-                if let oxigraph::model::Term::Literal(literal) = triple.object {
-                    if let Ok(index) = literal.value().parse::<u64>() {
-                        if let oxigraph::model::Subject::NamedNode(scratchpad) = triple.subject {
-                            triples.insert(index, scratchpad.into_string());
-                        }
-                    }
+                if let oxigraph::model::Term::Literal(literal) = triple.object
+                    && let Ok(index) = literal.value().parse::<u64>()
+                    && let oxigraph::model::Subject::NamedNode(scratchpad) = triple.subject
+                {
+                    triples.insert(index, scratchpad.into_string());
                 }
             }
         }

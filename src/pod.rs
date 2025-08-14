@@ -1098,21 +1098,20 @@ impl<'a> PodManager<'a> {
             let data = scratchpad.encrypted_data();
             if let Ok(data_string) = String::from_utf8(data.to_vec()) {
                 // Check if the first line is a timestamp comment
-                if let Some(first_line) = data_string.lines().next() {
-                    if first_line.starts_with('#') && first_line.len() > 1 {
-                        let timestamp_str = &first_line[1..]; // Remove the '#' prefix
+                if let Some(first_line) = data_string.lines().next()
+                    && first_line.starts_with('#')
+                    && first_line.len() > 1
+                {
+                    let timestamp_str = &first_line[1..]; // Remove the '#' prefix
 
-                        // Try to parse the timestamp
-                        if let Ok(timestamp) = chrono::DateTime::parse_from_rfc3339(timestamp_str) {
-                            let utc_timestamp = timestamp.with_timezone(&chrono::Utc);
+                    // Try to parse the timestamp
+                    if let Ok(timestamp) = chrono::DateTime::parse_from_rfc3339(timestamp_str) {
+                        let utc_timestamp = timestamp.with_timezone(&chrono::Utc);
 
-                            // Check if this is the newest timestamp so far
-                            if newest_timestamp.is_none()
-                                || utc_timestamp > newest_timestamp.unwrap()
-                            {
-                                newest_timestamp = Some(utc_timestamp);
-                                newest_scratchpad = scratchpad;
-                            }
+                        // Check if this is the newest timestamp so far
+                        if newest_timestamp.is_none() || utc_timestamp > newest_timestamp.unwrap() {
+                            newest_timestamp = Some(utc_timestamp);
+                            newest_scratchpad = scratchpad;
                         }
                     }
                 }
@@ -2269,17 +2268,17 @@ impl<'a> PodManager<'a> {
         for (op_type, address, data) in removal_operations {
             match op_type.as_str() {
                 "pointer" => {
-                    if let Ok(key_string) = self.key_store.get_free_pointer_key(address.clone()) {
-                        if let Ok(key) = SecretKey::from_hex(key_string.trim()) {
-                            removal_data.push(("pointer".to_string(), address, data, key));
-                        }
+                    if let Ok(key_string) = self.key_store.get_free_pointer_key(address.clone())
+                        && let Ok(key) = SecretKey::from_hex(key_string.trim())
+                    {
+                        removal_data.push(("pointer".to_string(), address, data, key));
                     }
                 }
                 "scratchpad" => {
-                    if let Ok(key_string) = self.key_store.get_scratchpad_key(address.clone()) {
-                        if let Ok(key) = SecretKey::from_hex(key_string.trim()) {
-                            removal_data.push(("scratchpad".to_string(), address, data, key));
-                        }
+                    if let Ok(key_string) = self.key_store.get_scratchpad_key(address.clone())
+                        && let Ok(key) = SecretKey::from_hex(key_string.trim())
+                    {
+                        removal_data.push(("scratchpad".to_string(), address, data, key));
                     }
                 }
                 _ => continue,
@@ -2291,17 +2290,17 @@ impl<'a> PodManager<'a> {
             debug!("Upload operation: {} {}", op_type.clone(), address.clone());
             match op_type.as_str() {
                 "pointer" => {
-                    if let Ok(key_string) = self.key_store.get_pointer_key(address.clone()) {
-                        if let Ok(key) = SecretKey::from_hex(key_string.trim()) {
-                            upload_pointer_data.push((address, data_or_target, key));
-                        }
+                    if let Ok(key_string) = self.key_store.get_pointer_key(address.clone())
+                        && let Ok(key) = SecretKey::from_hex(key_string.trim())
+                    {
+                        upload_pointer_data.push((address, data_or_target, key));
                     }
                 }
                 "scratchpad" => {
-                    if let Ok(key_string) = self.key_store.get_scratchpad_key(address.clone()) {
-                        if let Ok(key) = SecretKey::from_hex(key_string.trim()) {
-                            upload_scratchpad_data.push((address, data_or_target, key));
-                        }
+                    if let Ok(key_string) = self.key_store.get_scratchpad_key(address.clone())
+                        && let Ok(key) = SecretKey::from_hex(key_string.trim())
+                    {
+                        upload_scratchpad_data.push((address, data_or_target, key));
                     }
                 }
                 _ => continue,
@@ -3002,21 +3001,13 @@ impl<'a> PodManager<'a> {
                     if let Ok(scratchpads) = self
                         .graph
                         .get_pod_scratchpads_from_string(data_string.trim())
+                        && scratchpads.len() > 1
                     {
-                        if scratchpads.len() > 1 {
-                            // Add additional scratchpads (skip first one which is the main one we already have)
-                            for (j, additional_address) in
-                                scratchpads.into_iter().skip(1).enumerate()
+                        // Add additional scratchpads (skip first one which is the main one we already have)
+                        for (j, additional_address) in scratchpads.into_iter().skip(1).enumerate() {
+                            if let Ok(addr) = ScratchpadAddress::from_hex(additional_address.trim())
                             {
-                                if let Ok(addr) =
-                                    ScratchpadAddress::from_hex(additional_address.trim())
-                                {
-                                    all_scratchpad_operations.push((
-                                        pod_address.clone(),
-                                        addr,
-                                        j + 1,
-                                    )); // +1 because main is index 0
-                                }
+                                all_scratchpad_operations.push((pod_address.clone(), addr, j + 1)); // +1 because main is index 0
                             }
                         }
                     }
@@ -3120,13 +3111,13 @@ impl<'a> PodManager<'a> {
 
                 // Load the pod data into the graph database
                 info!("Loading pod into graph database: {}", pod_address);
-                if !combined_data.trim().is_empty() {
-                    if let Err(e) = self.load_pod_into_graph(&pod_address, combined_data.trim()) {
-                        warn!(
-                            "Failed to load pod data into graph for {}: {}",
-                            pod_address, e
-                        );
-                    }
+                if !combined_data.trim().is_empty()
+                    && let Err(e) = self.load_pod_into_graph(&pod_address, combined_data.trim())
+                {
+                    warn!(
+                        "Failed to load pod data into graph for {}: {}",
+                        pod_address, e
+                    );
                 }
 
                 // Set the depth attribute to 0 (local pod)
@@ -3144,13 +3135,13 @@ impl<'a> PodManager<'a> {
             for (pod_address, main_data) in pod_main_data {
                 // Load the pod data into the graph database
                 info!("Loading pod into graph database: {}", pod_address);
-                if !main_data.trim().is_empty() {
-                    if let Err(e) = self.load_pod_into_graph(&pod_address, main_data.trim()) {
-                        warn!(
-                            "Failed to load pod data into graph for {}: {}",
-                            pod_address, e
-                        );
-                    }
+                if !main_data.trim().is_empty()
+                    && let Err(e) = self.load_pod_into_graph(&pod_address, main_data.trim())
+                {
+                    warn!(
+                        "Failed to load pod data into graph for {}: {}",
+                        pod_address, e
+                    );
                 }
 
                 // Set the depth attribute to 0 (local pod)
@@ -3245,22 +3236,18 @@ impl<'a> PodManager<'a> {
                     if let Ok(scratchpads) = self
                         .graph
                         .get_pod_scratchpads_from_string(data_string.trim())
+                        && scratchpads.len() > 1
                     {
-                        if scratchpads.len() > 1 {
-                            // Add additional scratchpads (skip first one which is the main one we already have)
-                            for (j, additional_address) in
-                                scratchpads.into_iter().skip(1).enumerate()
+                        // Add additional scratchpads (skip first one which is the main one we already have)
+                        for (j, additional_address) in scratchpads.into_iter().skip(1).enumerate() {
+                            if let Ok(addr) = ScratchpadAddress::from_hex(additional_address.trim())
                             {
-                                if let Ok(addr) =
-                                    ScratchpadAddress::from_hex(additional_address.trim())
-                                {
-                                    all_scratchpad_operations.push((
-                                        pod_address.clone(),
-                                        addr,
-                                        j + 1,
-                                        counter,
-                                    )); // +1 because main is index 0
-                                }
+                                all_scratchpad_operations.push((
+                                    pod_address.clone(),
+                                    addr,
+                                    j + 1,
+                                    counter,
+                                )); // +1 because main is index 0
                             }
                         }
                     }
@@ -3371,13 +3358,13 @@ impl<'a> PodManager<'a> {
                     "Loading referenced pod into graph database: {}",
                     pod_address
                 );
-                if !combined_data.trim().is_empty() {
-                    if let Err(e) = self.load_pod_into_graph(&pod_address, combined_data.trim()) {
-                        warn!(
-                            "Failed to load pod data into graph for {}: {}",
-                            pod_address, e
-                        );
-                    }
+                if !combined_data.trim().is_empty()
+                    && let Err(e) = self.load_pod_into_graph(&pod_address, combined_data.trim())
+                {
+                    warn!(
+                        "Failed to load pod data into graph for {}: {}",
+                        pod_address, e
+                    );
                 }
 
                 // Update pointer information - CRITICAL: Store the scratchpad address in pointer file
@@ -3406,13 +3393,13 @@ impl<'a> PodManager<'a> {
                     "Loading referenced pod into graph database: {}",
                     pod_address
                 );
-                if !main_data.trim().is_empty() {
-                    if let Err(e) = self.load_pod_into_graph(&pod_address, main_data.trim()) {
-                        warn!(
-                            "Failed to load pod data into graph for {}: {}",
-                            pod_address, e
-                        );
-                    }
+                if !main_data.trim().is_empty()
+                    && let Err(e) = self.load_pod_into_graph(&pod_address, main_data.trim())
+                {
+                    warn!(
+                        "Failed to load pod data into graph for {}: {}",
+                        pod_address, e
+                    );
                 }
 
                 // Update pointer information - CRITICAL: Store the scratchpad address in pointer file
