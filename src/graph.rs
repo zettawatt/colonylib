@@ -473,7 +473,12 @@ impl Graph {
                     for solution in solutions.flatten() {
                         if let Some(oxigraph::model::Term::NamedNode(graph)) = solution.get("g") {
                             debug!("Pod ref {} found in graph {}", pod_ref_address, graph);
-                            let _quad = self.put_quad(pod_ref_iri, HAS_DEPTH, "1", Some(configuration_iri))?;
+                            let _quad = self.put_quad(
+                                pod_ref_iri,
+                                HAS_DEPTH,
+                                "1",
+                                Some(configuration_iri),
+                            )?;
                             // if found, exit loop
                             break;
                         }

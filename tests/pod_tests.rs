@@ -790,8 +790,8 @@ fn test_scratchpad_unix_timestamp_counter() {
     // Unix timestamps are in the billions
     assert!(current_time > 1_000_000); // Much larger than typical incremental counters
 
-    println!("Current Unix timestamp: {}", current_time);
-    println!("Later Unix timestamp: {}", later_time);
+    println!("Current Unix timestamp: {current_time}");
+    println!("Later Unix timestamp: {later_time}");
 }
 
 #[test]
@@ -817,6 +817,6 @@ fn test_pointer_unix_timestamp_counter() {
     // Unix timestamps are in the billions
     assert!(current_time > 1_000_000); // Much larger than typical incremental counters
 
-    println!("Current Unix timestamp for pointer: {}", current_time);
-    println!("Later Unix timestamp for pointer: {}", later_time);
+    println!("Current Unix timestamp for pointer: {current_time}");
+    println!("Later Unix timestamp for pointer: {later_time}");
 }

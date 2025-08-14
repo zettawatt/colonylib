@@ -2100,12 +2100,19 @@ impl<'a> PodManager<'a> {
 
         // Put the pointer on the network
         let payment_option = PaymentOption::from(self.wallet);
-        let (pointer_cost, _pointer_address) = match self.client.pointer_put(pointer, payment_option).await {
+        let (pointer_cost, _pointer_address) = match self
+            .client
+            .pointer_put(pointer, payment_option)
+            .await
+        {
             Ok(result) => result,
             Err(e) => {
                 match &e {
-                    PointerError::PutError(autonomi::client::PutError::Network { network_error, .. }) => {
-                        let error_msg = format!("{}", network_error);
+                    PointerError::PutError(autonomi::client::PutError::Network {
+                        network_error,
+                        ..
+                    }) => {
+                        let error_msg = format!("{network_error}");
                         if error_msg.contains("Put verification failed: Peers have conflicting entries for this record") {
                             info!("Pointer failed put verification due to peers having conflicting entries, ignoring: {address}");
                             return Ok("0".to_string()); // Return a default cost
@@ -2178,8 +2185,11 @@ impl<'a> PodManager<'a> {
             Ok(_) => {}
             Err(e) => {
                 match &e {
-                    PointerError::PutError(autonomi::client::PutError::Network { network_error, .. }) => {
-                        let error_msg = format!("{}", network_error);
+                    PointerError::PutError(autonomi::client::PutError::Network {
+                        network_error,
+                        ..
+                    }) => {
+                        let error_msg = format!("{network_error}");
                         if error_msg.contains("Put verification failed: Peers have conflicting entries for this record") {
                             info!("Pointer failed put verification due to peers having conflicting entries, ignoring: {address}");
                         } else {
@@ -2323,21 +2333,23 @@ impl<'a> PodManager<'a> {
                                 Ok(_) => {
                                     info!("Successfully removed pointer: {}", addr_clone);
                                 }
-                                Err(e) => {
-                                    match &e {
-                                        PointerError::PutError(autonomi::client::PutError::Network { network_error, .. }) => {
-                                            let error_msg = format!("{}", network_error);
-                                            if error_msg.contains("Put verification failed: Peers have conflicting entries for this record") {
+                                Err(e) => match &e {
+                                    PointerError::PutError(
+                                        autonomi::client::PutError::Network {
+                                            network_error, ..
+                                        },
+                                    ) => {
+                                        let error_msg = format!("{network_error}");
+                                        if error_msg.contains("Put verification failed: Peers have conflicting entries for this record") {
                                                 info!("Pointer failed put verification due to peers having conflicting entries, ignoring: {addr_clone}");
                                             } else {
                                                 return Err(Error::Pointer(Box::new(e)));
                                             }
-                                        }
-                                        _ => {
-                                            return Err(Error::Pointer(Box::new(e)));
-                                        }
                                     }
-                                }
+                                    _ => {
+                                        return Err(Error::Pointer(Box::new(e)));
+                                    }
+                                },
                             }
                         }
                         Err(_) => {
@@ -2441,49 +2453,54 @@ impl<'a> PodManager<'a> {
                     let new_pointer = Pointer::new(&key, timestamp_counter, target_obj);
                     match client.pointer_put(new_pointer, payment_opt.clone()).await {
                         Ok(_) => {}
-                        Err(e) => {
-                            match &e {
-                                PointerError::PutError(autonomi::client::PutError::Network { network_error, .. }) => {
-                                    let error_msg = format!("{}", network_error);
-                                    if error_msg.contains("Put verification failed: Peers have conflicting entries for this record") {
+                        Err(e) => match &e {
+                            PointerError::PutError(autonomi::client::PutError::Network {
+                                network_error,
+                                ..
+                            }) => {
+                                let error_msg = format!("{network_error}");
+                                if error_msg.contains("Put verification failed: Peers have conflicting entries for this record") {
                                         info!("Pointer failed put verification due to peers having conflicting entries, ignoring: {addr_clone}");
                                     } else {
                                         error!("PointerError occurred: {:?}", e);
                                         return Err(Error::Pointer(Box::new(e)));
                                     }
-                                }
-                                _ => {
-                                    error!("PointerError occurred: {:?}", e);
-                                    return Err(Error::Pointer(Box::new(e)));
-                                }
                             }
-                        }
+                            _ => {
+                                error!("PointerError occurred: {:?}", e);
+                                return Err(Error::Pointer(Box::new(e)));
+                            }
+                        },
                     }
                     debug!("Successfully updated pointer: {}", addr_clone);
                 } else {
                     // Create new pointer using the pre-generated timestamp as counter
                     let target_address = ScratchpadAddress::from_hex(&target_clone)?;
-                    let pointer =
-                        Pointer::new(&key, timestamp_counter, PointerTarget::ScratchpadAddress(target_address));
+                    let pointer = Pointer::new(
+                        &key,
+                        timestamp_counter,
+                        PointerTarget::ScratchpadAddress(target_address),
+                    );
                     match client.pointer_put(pointer, payment_opt).await {
                         Ok(_) => {
                             debug!("Successfully created pointer: {}", addr_clone);
                         }
-                        Err(e) => {
-                            match &e {
-                                PointerError::PutError(autonomi::client::PutError::Network { network_error, .. }) => {
-                                    let error_msg = format!("{}", network_error);
-                                    if error_msg.contains("Put verification failed: Peers have conflicting entries for this record") {
+                        Err(e) => match &e {
+                            PointerError::PutError(autonomi::client::PutError::Network {
+                                network_error,
+                                ..
+                            }) => {
+                                let error_msg = format!("{network_error}");
+                                if error_msg.contains("Put verification failed: Peers have conflicting entries for this record") {
                                         info!("Pointer failed put verification due to peers having conflicting entries, ignoring: {addr_clone}");
                                     } else {
                                         return Err(Error::Pointer(Box::new(e)));
                                     }
-                                }
-                                _ => {
-                                    return Err(Error::Pointer(Box::new(e)));
-                                }
                             }
-                        }
+                            _ => {
+                                return Err(Error::Pointer(Box::new(e)));
+                            }
+                        },
                     }
                 }
                 Ok::<(), Error>(())
@@ -2582,7 +2599,10 @@ impl<'a> PodManager<'a> {
 
         // Update data store with pointer counts after all operations complete
         for (address, timestamp_counter) in pointer_updates {
-            if let Err(e) = self.data_store.update_pointer_count(&address, timestamp_counter) {
+            if let Err(e) = self
+                .data_store
+                .update_pointer_count(&address, timestamp_counter)
+            {
                 warn!("Failed to update pointer count for {}: {}", address, e);
             }
         }
