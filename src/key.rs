@@ -435,6 +435,10 @@ impl KeyStore {
         }
     }
 
+    pub fn address_is_pointer(&self, address: &str) -> bool {
+        self.pointers.contains_key(&hex::decode(address).unwrap_or_default())
+    }    
+
     pub fn add_pointer_key(&mut self) -> Result<(String, String), Error> {
         // Check for unused keys first
         let key_pair = self.free_pointers.iter().next();

@@ -453,9 +453,36 @@ impl Graph {
                 "Pod ref {} removed from pod {}",
                 pod_ref_address, pod_address
             );
+            // If the pod is local, we need to put the depth information back (since it was deleted above)
+            if is_local {
+                let _quad = self.put_quad(pod_ref_iri, HAS_DEPTH, "0", Some(configuration_iri))?;
+            } else {
+                // If the pod isn't local, but is referenced in my other pods, we need to put the depth of 1 back into the configuration graph
+                // "SELECT ?g WHERE {{ GRAPH ?g {{ <{pod_ref_iri}> ?p ?o . }} }}"
+                let query = format!(
+                    r#"
+                    SELECT ?g WHERE {{
+                        GRAPH ?g {{ <{pod_ref_iri}> ?p ?o . }}
+                        GRAPH <{configuration_iri}> {{ ?g <{HAS_DEPTH}> "0" . }}
+                    }}
+                    "#
+                );
+                let results = self.store.query(query.as_str())?;
+                // If 1 or more results found, set the depth to 1
+                if let QueryResults::Solutions(solutions) = results {
+                    for solution in solutions.flatten() {
+                        if let Some(oxigraph::model::Term::NamedNode(graph)) = solution.get("g") {
+                            debug!("Pod ref {} found in graph {}", pod_ref_address, graph);
+                            let _quad = self.put_quad(pod_ref_iri, HAS_DEPTH, "1", Some(configuration_iri))?;
+                            // if found, exit loop
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
-        // If the pod is local, update the depth of the pod ref to 0 and add the type as a POD
+        // If the pod is local, we need to put the POD address type back (since it was deleted above)
         if is_local {
             let _quad = self.put_quad(pod_ref_iri, HAS_ADDR_TYPE, POD, Some(configuration_iri))?;
             debug!("Pod ref {} set as local pod", pod_ref_address);

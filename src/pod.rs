@@ -1459,7 +1459,7 @@ impl<'a> PodManager<'a> {
         let configuration_address = configuration_address.as_str();
 
         // Check if the pod reference address is to a local pod
-        let is_local = self.data_store.address_is_pointer(pod_ref_address)?;
+        let is_local = self.key_store.address_is_pointer(pod_ref_address);
 
         // Add the pointer address to the graph
         let (graph, configuration) = self.graph.pod_ref_entry(
@@ -1535,7 +1535,7 @@ impl<'a> PodManager<'a> {
         let configuration_address = configuration_address.as_str();
 
         // Check if the pod reference address is to a local pod
-        let is_local = self.data_store.address_is_pointer(pod_ref_address)?;
+        let is_local = self.key_store.address_is_pointer(pod_ref_address);
 
         // Remove the pointer address to the graph
         let (graph, configuration) = self.graph.pod_ref_entry(
@@ -2238,6 +2238,7 @@ impl<'a> PodManager<'a> {
 
         // Collect upload operation data
         for (op_type, address, data_or_target) in upload_operations {
+            debug!("Upload operation: {} {}", op_type.clone(), address.clone());
             match op_type.as_str() {
                 "pointer" => {
                     if let Ok(key_string) = self.key_store.get_pointer_key(address.clone()) {
@@ -2359,6 +2360,8 @@ impl<'a> PodManager<'a> {
 
             let future = Box::pin(async move {
                 let pointer_address = PointerAddress::from_hex(&addr_clone)?;
+                //FIXME: need to get this pointer_count value from the pointer_get call below and call the data_store.update_pointer_count function
+                //let mut pointer_count: u64 = 0;
                 let exists = client.pointer_get(&pointer_address).await.is_ok();
 
                 if exists {
@@ -2366,6 +2369,10 @@ impl<'a> PodManager<'a> {
                     let target_address = ScratchpadAddress::from_hex(&target_clone)?;
                     let target_obj = PointerTarget::ScratchpadAddress(target_address);
                     client.pointer_update(&key, target_obj).await?;
+                    // Update the local pointer file counter
+                    //let pointer_count = pointer_count + 1;
+                    //self.data_store
+                    //    .update_pointer_count(&addr_clone, pointer_count)?;
                     debug!("Successfully updated pointer: {}", addr_clone);
                 } else {
                     // Create new pointer
