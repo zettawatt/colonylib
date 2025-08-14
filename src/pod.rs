@@ -2362,6 +2362,9 @@ impl<'a> PodManager<'a> {
             }
         }
 
+        // Collect pointer update information for later data store updates
+        let mut pointer_updates = Vec::new();
+
         // Add upload pointer existence checks and operations - all concurrent
         for (address, target, key) in upload_pointer_data {
             let client = &self.client;
@@ -2369,24 +2372,26 @@ impl<'a> PodManager<'a> {
             let target_clone = target.clone();
             let payment_opt = payment_option.clone();
 
+            // Generate timestamp once for this pointer operation
+            let timestamp_counter = chrono::Utc::now().timestamp() as u64;
+
+            // Store the address and timestamp for later data store update
+            pointer_updates.push((addr_clone.clone(), timestamp_counter));
+
             let future = Box::pin(async move {
                 let pointer_address = PointerAddress::from_hex(&addr_clone)?;
-                //FIXME: need to get this pointer_count value from the pointer_get call below and call the data_store.update_pointer_count function
-                //let mut pointer_count: u64 = 0;
                 let exists = client.pointer_get(&pointer_address).await.is_ok();
 
                 if exists {
-                    // Update existing pointer using Unix timestamp as counter
+                    // Update existing pointer using the pre-generated timestamp as counter
                     let target_address = ScratchpadAddress::from_hex(&target_clone)?;
                     let target_obj = PointerTarget::ScratchpadAddress(target_address);
-                    let timestamp_counter = chrono::Utc::now().timestamp() as u64;
                     let new_pointer = Pointer::new(&key, timestamp_counter, target_obj);
                     client.pointer_put(new_pointer, payment_opt.clone()).await?;
                     debug!("Successfully updated pointer: {}", addr_clone);
                 } else {
-                    // Create new pointer using Unix timestamp as counter
+                    // Create new pointer using the pre-generated timestamp as counter
                     let target_address = ScratchpadAddress::from_hex(&target_clone)?;
-                    let timestamp_counter = chrono::Utc::now().timestamp() as u64;
                     let pointer =
                         Pointer::new(&key, timestamp_counter, PointerTarget::ScratchpadAddress(target_address));
                     client.pointer_put(pointer, payment_opt).await?;
@@ -2485,6 +2490,13 @@ impl<'a> PodManager<'a> {
             all_futures.len()
         );
         try_join_all(all_futures).await?;
+
+        // Update data store with pointer counts after all operations complete
+        for (address, timestamp_counter) in pointer_updates {
+            if let Err(e) = self.data_store.update_pointer_count(&address, timestamp_counter) {
+                warn!("Failed to update pointer count for {}: {}", address, e);
+            }
+        }
 
         Ok(())
     }
