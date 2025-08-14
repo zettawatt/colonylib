@@ -1736,9 +1736,10 @@ impl<'a> PodManager<'a> {
                         // and return a dummy analysis type for processing, else
                         // return a chunk to indicate an error
                         if self.data_store.address_is_pointer(address).unwrap_or(false) {
+                            let timestamp_counter = chrono::Utc::now().timestamp() as u64;
                             Analysis::Pointer(Pointer::new(
                                 &SecretKey::random(),
-                                0,
+                                timestamp_counter,
                                 PointerTarget::ScratchpadAddress(ScratchpadAddress::new(
                                     SecretKey::random().public_key(),
                                 )),
@@ -2089,10 +2090,11 @@ impl<'a> PodManager<'a> {
         let key_string = self.key_store.get_pointer_key(address.to_string())?;
         let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
 
-        // Create new pointer that points to the scratchpad
+        // Create new pointer that points to the scratchpad using Unix timestamp as counter
+        let timestamp_counter = chrono::Utc::now().timestamp() as u64;
         let pointer = Pointer::new(
             &key,
-            0,
+            timestamp_counter,
             PointerTarget::ScratchpadAddress(ScratchpadAddress::from_hex(target)?),
         );
 
@@ -2145,20 +2147,22 @@ impl<'a> PodManager<'a> {
         let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
 
         let pointer_address = PointerAddress::from_hex(address)?;
-        let pointer = self.client.pointer_get(&pointer_address).await?;
+        let _pointer = self.client.pointer_get(&pointer_address).await?;
 
         // Create the target address
         let target_address = ScratchpadAddress::from_hex(target)?;
         let target = PointerTarget::ScratchpadAddress(target_address);
 
-        // Update the pointer counter and target
-        self.client.pointer_update(&key, target).await?;
+        // Create new pointer with Unix timestamp as counter and put it on the network
+        let timestamp_counter = chrono::Utc::now().timestamp() as u64;
+        let new_pointer = Pointer::new(&key, timestamp_counter, target);
+        let payment_option = PaymentOption::from(self.wallet);
+        self.client.pointer_put(new_pointer, payment_option).await?;
         debug!("Pointer updated");
 
-        // Update the local pointer file counter
-        let pointer_count = pointer.counter() + 1;
+        // Update the local pointer file counter with the new timestamp
         self.data_store
-            .update_pointer_count(address, pointer_count)?;
+            .update_pointer_count(address, timestamp_counter)?;
         Ok(())
     }
 
@@ -2278,7 +2282,10 @@ impl<'a> PodManager<'a> {
                         Ok(_) => {
                             let target_address = ScratchpadAddress::from_hex(&data_clone)?;
                             let target = PointerTarget::ScratchpadAddress(target_address);
-                            client.pointer_update(&key, target).await?;
+                            // Create new pointer with Unix timestamp as counter and put it on the network
+                            let timestamp_counter = chrono::Utc::now().timestamp() as u64;
+                            let new_pointer = Pointer::new(&key, timestamp_counter, target);
+                            client.pointer_put(new_pointer, payment_opt).await?;
                             info!("Successfully removed pointer: {}", addr_clone);
                         }
                         Err(_) => {
@@ -2369,20 +2376,19 @@ impl<'a> PodManager<'a> {
                 let exists = client.pointer_get(&pointer_address).await.is_ok();
 
                 if exists {
-                    // Update existing pointer
+                    // Update existing pointer using Unix timestamp as counter
                     let target_address = ScratchpadAddress::from_hex(&target_clone)?;
                     let target_obj = PointerTarget::ScratchpadAddress(target_address);
-                    client.pointer_update(&key, target_obj).await?;
-                    // Update the local pointer file counter
-                    //let pointer_count = pointer_count + 1;
-                    //self.data_store
-                    //    .update_pointer_count(&addr_clone, pointer_count)?;
+                    let timestamp_counter = chrono::Utc::now().timestamp() as u64;
+                    let new_pointer = Pointer::new(&key, timestamp_counter, target_obj);
+                    client.pointer_put(new_pointer, payment_opt.clone()).await?;
                     debug!("Successfully updated pointer: {}", addr_clone);
                 } else {
-                    // Create new pointer
+                    // Create new pointer using Unix timestamp as counter
                     let target_address = ScratchpadAddress::from_hex(&target_clone)?;
+                    let timestamp_counter = chrono::Utc::now().timestamp() as u64;
                     let pointer =
-                        Pointer::new(&key, 0, PointerTarget::ScratchpadAddress(target_address));
+                        Pointer::new(&key, timestamp_counter, PointerTarget::ScratchpadAddress(target_address));
                     client.pointer_put(pointer, payment_opt).await?;
                     debug!("Successfully created pointer: {}", addr_clone);
                 }
