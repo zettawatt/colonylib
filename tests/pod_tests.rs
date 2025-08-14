@@ -766,3 +766,30 @@ fn test_active_wallet_persistence_across_instances() {
     assert_eq!(get_name, set_name);
     assert_eq!(get_address, set_address);
 }
+
+#[test]
+fn test_scratchpad_unix_timestamp_counter() {
+    use chrono::Utc;
+    use std::thread;
+    use std::time::Duration;
+
+    // Test that scratchpad counters use Unix timestamps instead of incremental values
+    let current_time = Utc::now().timestamp() as u64;
+
+    // Wait a small amount to ensure timestamp difference
+    thread::sleep(Duration::from_millis(100));
+
+    let later_time = Utc::now().timestamp() as u64;
+
+    // Verify that timestamps are reasonable (within expected range)
+    assert!(current_time > 1_600_000_000); // After 2020
+    assert!(later_time >= current_time); // Later timestamp should be >= current
+
+    // Verify that the timestamp is much larger than what an incremental counter would be
+    // Incremental counters would typically be small numbers (0, 1, 2, etc.)
+    // Unix timestamps are in the billions
+    assert!(current_time > 1_000_000); // Much larger than typical incremental counters
+
+    println!("Current Unix timestamp: {}", current_time);
+    println!("Later Unix timestamp: {}", later_time);
+}

@@ -2109,19 +2109,20 @@ impl<'a> PodManager<'a> {
         let key_string = self.key_store.get_scratchpad_key(address.to_string())?;
         let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
 
-        // Create new publicly readable scratchpad
+        // Create new publicly readable scratchpad with Unix timestamp as counter
         let scratchpad_address: ScratchpadAddress =
             ScratchpadAddress::new(key.clone().public_key());
+        let timestamp_counter = chrono::Utc::now().timestamp() as u64;
         let scratchpad: Scratchpad = Scratchpad::new_with_signature(
             key.clone().public_key(),
             0,
             Bytes::from(data.to_owned()),
-            0,
+            timestamp_counter,
             key.sign(Scratchpad::bytes_for_signature(
                 scratchpad_address,
                 0,
                 &Bytes::from(data.to_owned()),
-                0,
+                timestamp_counter,
             )),
         );
 
@@ -2165,9 +2166,9 @@ impl<'a> PodManager<'a> {
         let key_string = self.key_store.get_scratchpad_key(address.to_string())?;
         let key: SecretKey = SecretKey::from_hex(key_string.trim())?;
 
-        // get the scratchpad to make sure it exists and to get the current counter value
+        // get the scratchpad to make sure it exists (we no longer need the counter value)
         let scratchpad_address = ScratchpadAddress::from_hex(address)?; // Lookup the key for the pod pointer from the key store
-        let scratchpad = match self.client.scratchpad_get(&scratchpad_address).await {
+        let _scratchpad = match self.client.scratchpad_get(&scratchpad_address).await {
             Ok(scratchpad) => scratchpad,
             Err(e) => match e {
                 ScratchpadError::Fork(scratchpads) => Self::select_newest_scratchpad(scratchpads),
@@ -2175,17 +2176,18 @@ impl<'a> PodManager<'a> {
             },
         };
 
-        // Update the scratchpad contents and its counter
+        // Update the scratchpad contents with Unix timestamp as counter
+        let timestamp_counter = chrono::Utc::now().timestamp() as u64;
         let scratchpad = Scratchpad::new_with_signature(
             key.clone().public_key(),
             0,
             Bytes::from(data.to_owned()),
-            scratchpad.counter() + 1,
+            timestamp_counter,
             key.sign(Scratchpad::bytes_for_signature(
                 scratchpad_address,
                 0,
                 &Bytes::from(data.to_owned()),
-                scratchpad.counter() + 1,
+                timestamp_counter,
             )),
         );
 
@@ -2293,19 +2295,20 @@ impl<'a> PodManager<'a> {
                 let future = Box::pin(async move {
                     let scratchpad_address = ScratchpadAddress::from_hex(&addr_clone)?;
                     match client.scratchpad_get(&scratchpad_address).await {
-                        Ok(scratchpad) => {
-                            // Create updated scratchpad with empty data (removal)
+                        Ok(_scratchpad) => {
+                            // Create updated scratchpad with empty data (removal) using Unix timestamp
                             let bytes = Bytes::from("".as_bytes().to_vec());
+                            let timestamp_counter = chrono::Utc::now().timestamp() as u64;
                             let updated_scratchpad = Scratchpad::new_with_signature(
                                 key.clone().public_key(),
                                 0,
                                 bytes.clone(),
-                                scratchpad.counter() + 1,
+                                timestamp_counter,
                                 key.sign(Scratchpad::bytes_for_signature(
                                     scratchpad_address,
                                     0,
                                     &bytes,
-                                    scratchpad.counter() + 1,
+                                    timestamp_counter,
                                 )),
                             );
                             client
@@ -2316,19 +2319,20 @@ impl<'a> PodManager<'a> {
                         Err(e) => {
                             match e {
                                 ScratchpadError::Fork(scratchpads) => {
-                                    let scratchpad = Self::select_newest_scratchpad(scratchpads);
-                                    // Create updated scratchpad with empty data (removal)
+                                    let _scratchpad = Self::select_newest_scratchpad(scratchpads);
+                                    // Create updated scratchpad with empty data (removal) using Unix timestamp
                                     let bytes = Bytes::from("".as_bytes().to_vec());
+                                    let timestamp_counter = chrono::Utc::now().timestamp() as u64;
                                     let updated_scratchpad = Scratchpad::new_with_signature(
                                         key.clone().public_key(),
                                         0,
                                         bytes.clone(),
-                                        scratchpad.counter() + 1,
+                                        timestamp_counter,
                                         key.sign(Scratchpad::bytes_for_signature(
                                             scratchpad_address,
                                             0,
                                             &bytes,
-                                            scratchpad.counter() + 1,
+                                            timestamp_counter,
                                         )),
                                     );
                                     client
@@ -2399,18 +2403,19 @@ impl<'a> PodManager<'a> {
                 let bytes = Bytes::from(data_clone.as_bytes().to_vec());
 
                 match client.scratchpad_get(&scratchpad_address).await {
-                    Ok(existing_scratchpad) => {
-                        // Update existing scratchpad
+                    Ok(_existing_scratchpad) => {
+                        // Update existing scratchpad using Unix timestamp
+                        let timestamp_counter = chrono::Utc::now().timestamp() as u64;
                         let updated_scratchpad = Scratchpad::new_with_signature(
                             key.clone().public_key(),
                             0,
                             bytes.clone(),
-                            existing_scratchpad.counter() + 1,
+                            timestamp_counter,
                             key.sign(Scratchpad::bytes_for_signature(
                                 scratchpad_address,
                                 0,
                                 &bytes,
-                                existing_scratchpad.counter() + 1,
+                                timestamp_counter,
                             )),
                         );
                         client
@@ -2421,19 +2426,20 @@ impl<'a> PodManager<'a> {
                     Err(e) => {
                         match e {
                             ScratchpadError::Fork(scratchpads) => {
-                                let existing_scratchpad =
+                                let _existing_scratchpad =
                                     Self::select_newest_scratchpad(scratchpads);
-                                // Update existing scratchpad
+                                // Update existing scratchpad using Unix timestamp
+                                let timestamp_counter = chrono::Utc::now().timestamp() as u64;
                                 let updated_scratchpad = Scratchpad::new_with_signature(
                                     key.clone().public_key(),
                                     0,
                                     bytes.clone(),
-                                    existing_scratchpad.counter() + 1,
+                                    timestamp_counter,
                                     key.sign(Scratchpad::bytes_for_signature(
                                         scratchpad_address,
                                         0,
                                         &bytes,
-                                        existing_scratchpad.counter() + 1,
+                                        timestamp_counter,
                                     )),
                                 );
                                 client
@@ -2442,17 +2448,18 @@ impl<'a> PodManager<'a> {
                                 debug!("Successfully updated scratchpad: {}", addr_clone);
                             }
                             _ => {
-                                // Create new scratchpad
+                                // Create new scratchpad using Unix timestamp
+                                let timestamp_counter = chrono::Utc::now().timestamp() as u64;
                                 let new_scratchpad = Scratchpad::new_with_signature(
                                     key.clone().public_key(),
                                     0,
                                     bytes.clone(),
-                                    0,
+                                    timestamp_counter,
                                     key.sign(Scratchpad::bytes_for_signature(
                                         scratchpad_address,
                                         0,
                                         &bytes,
-                                        0,
+                                        timestamp_counter,
                                     )),
                                 );
                                 client.scratchpad_put(new_scratchpad, payment_opt).await?;
